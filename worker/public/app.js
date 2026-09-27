@@ -374,8 +374,8 @@ function renderEbayDraft(id, d) {
       </div>
       <div class="muted" style="font-size:.75rem;margin-top:6px">USPS Priority, flat rate. 30-day returns, buyer pays return shipping. Change these any time in eBay Seller Hub.</div>
     </div>
-    <button class="btn" id="eGo" style="background:var(--cobalt)">List on eBay${credits ? " · 1 credit" : ""}</button>
-    <div class="muted" style="font-size:.75rem;text-align:center;margin:8px 0 20px">${credits ? "If eBay turns it down, the credit comes back." : ""} eBay's own selling fees apply when it sells.</div>`;
+    <button class="btn" id="eGo" style="background:var(--cobalt)">Preview listing &amp; eBay fees</button>
+    <div class="muted" style="font-size:.75rem;text-align:center;margin:8px 0 20px">Nothing goes live yet. Next you'll see the listing and eBay's exact fees, then decide.</div>`;
   const tc = () => $("#tCount").textContent = `(${$("#eTitle").value.length}/80)`;
   $("#eTitle").oninput = tc; tc();
   $("#dBack").onclick = () => renderItemDetail(id);
@@ -393,22 +393,73 @@ function renderEbayDraft(id, d) {
     };
     if (!/^\d{5}$/.test(body.postal_code.trim())) { $("#eZip").focus(); return toast("Enter the ZIP code you ship from"); }
     if (body.shipping_cost.trim() === "" || isNaN(Number(body.shipping_cost))) { $("#eShip").focus(); return toast("What does the buyer pay for shipping? 0 for free."); }
-    const btn = $("#eGo"); btn.disabled = true; btn.textContent = "Sending to eBay…";
+    // Nothing goes live from this screen. Preview saves the listing on eBay UNPUBLISHED (buyers
+    // can't see it, it costs nothing) and asks eBay what publishing it would cost.
+    const btn = $("#eGo"); btn.disabled = true; btn.textContent = "Checking with eBay…";
     try {
-      const r = await api("/items/" + id + "/ebay/publish", { method: "POST", body: JSON.stringify(body) });
+      const r = await api("/items/" + id + "/ebay/preview", { method: "POST", body: JSON.stringify(body) });
+      renderEbayPreview(id, d, body, r);
+    } catch (e) {
+      btn.disabled = false; btn.textContent = "Preview listing & eBay fees";
+      if (e.needs_connect) return connectEbay();
+      if (e.missing) toast("eBay requires: " + e.missing.join(", "));
+      else toast(e.message);
+    }
+  };
+}
+
+// The last stop before money is spent: the listing as buyers will see it, eBay's own fee quote for
+// it, and what it costs in Guestimator credits. Only "List it" publishes.
+function renderEbayPreview(id, d, body, r) {
+  state.view = "ebay"; setChrome();
+  const money2 = n => "$" + Number(n || 0).toFixed(2);
+  const f = r.fees;
+  const cond = (d.conditions || []).find(c => c.value === body.condition);
+  const shipping = Number(body.shipping_cost) === 0 ? "Free shipping" : `${money2(body.shipping_cost)} shipping (USPS Priority)`;
+  const feeRows = f && f.fees.length
+    ? f.fees.map(x => `<div class="split"><span>${esc(x.type.replace(/([a-z])([A-Z])/g, "$1 $2"))}${x.discount ? ` <span class="muted" style="font-size:.78rem">(−${money2(x.discount)} promo)</span>` : ""}</span><span class="amt">${money2(x.net)}</span></div>`).join("")
+    : f ? `<div class="muted" style="font-size:.88rem">eBay quotes <b>no fee to list</b> this item.</div>` : "";
+  app.innerHTML = `
+    <button class="back" id="pBack" style="padding:8px 0">‹ Edit the listing</button>
+    <h1 class="h1">Ready to list?</h1>
+    <div class="muted" style="font-size:.85rem">Saved on eBay but <b>not live</b>: nobody can see it until you tap List.</div>
+    <div class="card">
+      ${d.images[0] ? `<img src="${esc(d.images[0])}" alt="" style="width:100%;max-height:260px;object-fit:contain;border-radius:10px;background:var(--bg)">` : ""}
+      <h3 style="font-size:1.1rem;margin-top:10px">${esc(body.title)}</h3>
+      <div class="big" style="font-size:1.6rem;color:var(--green)">${money2(body.price)}</div>
+      <div class="muted" style="font-size:.85rem">${[cond && cond.label, shipping, `ships within ${esc(body.handling_days)} day${body.handling_days === "1" ? "" : "s"}`, "30-day returns"].filter(Boolean).join(" · ")}</div>
+      <div class="muted" style="font-size:.8rem;margin-top:4px">${esc((d.categories.find(c => c.id === body.category_id) || d.category || {}).path || "")}</div>
+      ${Object.keys(body.aspects).length ? `<div style="font-size:.82rem;margin-top:8px">${Object.entries(body.aspects).map(([k, v]) => `<b>${esc(k)}:</b> ${esc(v.join(", "))}`).join(" · ")}</div>` : ""}
+      <details style="margin-top:8px"><summary class="muted" style="font-size:.82rem;cursor:pointer">Description</summary><div style="white-space:pre-wrap;font-size:.88rem;margin-top:6px">${esc(body.description)}</div></details>
+    </div>
+    <div class="card">
+      <label>What eBay charges to list it</label>
+      ${f ? feeRows + `<div class="split" style="font-weight:800"><span>eBay listing fees</span><span class="amt">${money2(f.total)}</span></div>`
+          : `<div style="color:var(--rust);font-size:.88rem">eBay didn't return a fee quote (${esc(r.fee_error || "unknown")}). Check fees in eBay before listing.</div>`}
+      ${f && f.warnings.length ? `<div class="muted" style="font-size:.78rem;margin-top:6px">${f.warnings.map(esc).join(" · ")}</div>` : ""}
+      <div class="muted" style="font-size:.78rem;margin-top:8px">eBay also takes a final value fee (a percentage) only if it sells. ${r.listing_credits ? "Listing also uses 1 Guestimator credit, returned if eBay rejects it." : ""}</div>
+    </div>
+    <button class="btn" id="pList" style="background:var(--cobalt)">List it now${f ? ` · eBay fees ${money2(f.total)}` : ""}</button>
+    <div style="height:8px"></div>
+    <button class="btn sec" id="pEdit">Not yet — edit</button>
+    <div style="height:20px"></div>`;
+  $("#pBack").onclick = $("#pEdit").onclick = () => renderEbayDraft(id, d);
+  $("#pList").onclick = async () => {
+    const btn = $("#pList"); btn.disabled = true; btn.textContent = "Listing on eBay…";
+    try {
+      const res = await api("/items/" + id + "/ebay/publish", { method: "POST", body: JSON.stringify(body) });
       if (window.BTBilling) BTBilling.refresh();
       app.innerHTML = `<div class="card" style="text-align:center;margin-top:30px;border-color:var(--cobalt)">
         <div class="big" style="font-size:1.4rem">It's on eBay 🎉</div>
         <div class="muted" style="margin:6px 0 14px">${esc(body.title)}</div>
-        ${r.url ? `<a class="btn" style="display:block;text-decoration:none;background:var(--cobalt)" href="${esc(r.url)}" target="_blank" rel="noopener">View your listing ↗</a>` : ""}
-        ${(r.warnings || []).length ? `<div class="muted" style="font-size:.78rem;margin-top:8px">eBay notes: ${r.warnings.map(esc).join(" · ")}</div>` : ""}
+        ${res.url ? `<a class="btn" style="display:block;text-decoration:none;background:var(--cobalt)" href="${esc(res.url)}" target="_blank" rel="noopener">View your listing ↗</a>` : ""}
+        ${(res.warnings || []).length ? `<div class="muted" style="font-size:.78rem;margin-top:8px">eBay notes: ${res.warnings.map(esc).join(" · ")}</div>` : ""}
         <div style="height:8px"></div><button class="btn sec" id="doneHome">Back to my items</button></div>`;
       $("#doneHome").onclick = renderHome;
     } catch (e) {
-      btn.disabled = false; btn.textContent = "List on eBay" + (credits ? " · 1 credit" : "");
+      btn.disabled = false; btn.textContent = "List it now" + (f ? ` · eBay fees ${money2(f.total)}` : "");
       if (e.needs_connect) return connectEbay();
-      if (e.missing) toast("eBay requires: " + e.missing.join(", "));
-      else toast(e.message + (e.refunded ? " — your credit was returned" : ""));
+      toast(e.message + (e.refunded ? " — your credit was returned" : ""));
     }
   };
 }

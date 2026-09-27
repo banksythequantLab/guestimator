@@ -44,6 +44,10 @@ globalThis.fetch = async (u, init = {}) => {
   if (url.includes("/sell/inventory/v1/location/") && method === "POST") return jr(null, 204);
   if (url.includes("/sell/inventory/v1/inventory_item/") && method === "PUT") return jr(null, 204);
   if (url.endsWith("/sell/inventory/v1/offer") && method === "POST") return jr({ offerId: "OFF1" }, 201);
+  if (url.endsWith("/offer/get_listing_fees")) return jr({ feeSummaries: [{ marketplaceId: "EBAY_US", fees: [
+    { feeType: "InsertionFee", amount: { value: "0.35", currency: "USD" } },
+    { feeType: "SubtitleFee", amount: { value: "0.0", currency: "USD" } },
+    { feeType: "GalleryPlusFee", amount: { value: "0.35", currency: "USD" }, promotionalDiscount: { value: "0.35", currency: "USD" } }] }] });
   if (/\/offer\/[^/]+\/publish$/.test(url)) return publishFails
     ? jr({ errors: [{ errorId: 25007, message: "x", longMessage: "Please add a valid shipping service." }] }, 400)
     : jr({ listingId: "1122334455" });
@@ -170,6 +174,20 @@ r = await call("POST", `/api/items/${item}/ebay/publish`, { ...body, shipping_co
 ok("$0 price refused", r.status === 400);
 ok("no credit taken by any refusal", db.raw.prepare("SELECT credits FROM users WHERE id=?").get(me.id).credits === creditsBefore);
 
+// ---------- preview: saved on eBay unpublished, eBay's fee quote, no credit ----------
+calls.length = 0;
+const cPrev = db.raw.prepare("SELECT credits FROM users WHERE id=?").get(me.id).credits;
+r = await call("POST", `/api/items/${item}/ebay/preview`, { ...body, shipping_cost: "12", handling_days: 2 });
+ok("preview returns eBay's fee quote, net of promos, zero-fee lines dropped", r.status === 200 && r.json.status === "preview" && r.json.fees
+   && r.json.fees.total === 0.35 && r.json.fees.fees.map(f => `${f.type}:${f.net}`).join(",") === "InsertionFee:0.35,GalleryPlusFee:0");
+ok("preview takes no credit", db.raw.prepare("SELECT credits FROM users WHERE id=?").get(me.id).credits === cPrev);
+ok("preview never calls publish", !calls.some(c => /\/publish$/.test(c.url)));
+ok("preview saved the offer for publish to reuse",
+   db.raw.prepare("SELECT status, offer_id FROM ebay_listings WHERE item_id=?").get(item).offer_id === "OFF1"
+   && db.raw.prepare("SELECT status FROM ebay_listings WHERE item_id=?").get(item).status === "draft");
+const feeCall = calls.find(c => c.url.endsWith("/offer/get_listing_fees"));
+ok("fee quote asked for the saved offer", feeCall && feeCall.body.offers[0].offerId === "OFF1");
+
 // ---------- publish ----------
 calls.length = 0;
 r = await call("POST", `/api/items/${item}/ebay/publish`, { ...body, shipping_cost: "12", handling_days: 2 });
@@ -177,7 +195,10 @@ ok("published", r.status === 200 && r.json.status === "published" && r.json.url 
 ok("one credit spent", db.raw.prepare("SELECT credits FROM users WHERE id=?").get(me.id).credits === creditsBefore - 1);
 const inv = calls.find(c => c.url.includes("/inventory_item/") && c.method === "PUT");
 ok("inventory item: condition, aspects, absolute images", inv && inv.body.condition === "USED_EXCELLENT" && inv.body.product.aspects.Type[0] === "Crock" && inv.body.product.imageUrls[0].startsWith("https://g.test/p/"));
-const offer = calls.find(c => c.url.endsWith("/sell/inventory/v1/offer") && c.method === "POST");
+// After a preview the offer already exists, so publish UPDATES it (never a second offer).
+ok("publish after preview updates the saved offer, no second offer", calls.some(c => /\/offer\/OFF1$/.test(c.url) && c.method === "PUT")
+   && !calls.some(c => c.url.endsWith("/sell/inventory/v1/offer") && c.method === "POST"));
+const offer = calls.find(c => /\/offer\/OFF1$/.test(c.url) && c.method === "PUT");
 ok("offer: the reviewed price, category, all three policies, location", offer && offer.body.pricingSummary.price.value === "129.00" && offer.body.categoryId === "34"
    && offer.body.listingPolicies.fulfillmentPolicyId === "FP1" && offer.body.listingPolicies.paymentPolicyId === "PP1"
    && offer.body.listingPolicies.returnPolicyId === "RP1" && offer.body.merchantLocationKey === "guestimator-12534");

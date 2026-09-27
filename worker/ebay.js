@@ -459,6 +459,31 @@ export async function ensureLocation(env, token, postalCode) {
   throw new Error(`Could not set your ship-from location on eBay: ${ebayErrorText(r.json, r.status)}`);
 }
 
+// ---- eBay's own fee calculator, for an offer that is saved but NOT published ----
+// An unpublished offer is invisible to buyers and costs nothing; this asks eBay what publishing it
+// would cost, so the person sees real fees before committing. Summed as amount - promo discount.
+export function summarizeFees(json) {
+  const fees = (json?.feeSummaries || []).flatMap(s => s.fees || []).map(f => {
+    const amt = Number(f.amount?.value || 0), off = Number(f.promotionalDiscount?.value || 0);
+    return { type: f.feeType || "Fee", amount: amt, discount: off, net: Math.max(0, Math.round((amt - off) * 100) / 100),
+             currency: f.amount?.currency || "USD" };
+  });
+  const total = Math.round(fees.reduce((a, f) => a + f.net, 0) * 100) / 100;
+  return { fees: fees.filter(f => f.amount > 0), total,
+           warnings: (json?.feeSummaries || []).flatMap(s => (s.warnings || []).map(w => w.longMessage || w.message)).filter(Boolean) };
+}
+export async function listingFees(env, token, offerId) {
+  const r = await callRetry(env, token, "POST", "/sell/inventory/v1/offer/get_listing_fees", { offers: [{ offerId }] });
+  if (!r.ok) return { error: ebayErrorText(r.json, r.status) };
+  return summarizeFees(r.json);
+}
+
+// Save item + offer on eBay without publishing (the preview step). Returns { offerId } or { stage, error }.
+export async function prepareOffer(env, token, L) {
+  const r = await publishListing(env, token, { ...L, dryRun: true });
+  return r;
+}
+
 // ---- the listing itself: inventory item, then offer, then publish ----
 export async function publishListing(env, token, L) {
   const inv = await callRetry(env, token, "PUT", `/sell/inventory/v1/inventory_item/${encodeURIComponent(L.sku)}`, {
@@ -494,6 +519,7 @@ export async function publishListing(env, token, L) {
       if (!u.ok) return { stage: "offer", offerId, error: ebayErrorText(u.json, u.status) };
     }
   }
+  if (L.dryRun) return { offerId };   // preview: saved on eBay, unpublished, invisible to buyers
   const pub = await callRetry(env, token, "POST", `/sell/inventory/v1/offer/${offerId}/publish`, {});
   if (!pub.ok) return { stage: "publish", offerId, error: ebayErrorText(pub.json, pub.status) };
   const listingId = pub.json?.listingId;

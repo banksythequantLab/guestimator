@@ -551,8 +551,13 @@ export default {
           return J({ draft, listing: last ? { status: last.status, error: last.error } : { status: "draft" } });
         }
 
-        // ---------- eBay: publish the reviewed draft to the user's own account ----------
-        if (parts[3] === "ebay" && parts[4] === "publish" && m === "POST") {
+        // ---------- eBay: preview (fees) or publish the reviewed draft on the user's own account ----------
+        // preview: everything publish does EXCEPT publishing - the item and an unpublished offer
+        // are saved on eBay (invisible to buyers, free) and eBay's own fee calculator is asked what
+        // listing it would cost. No credit is taken. Derek, 2026-09-27: "it costs money to list",
+        // so nobody should list without seeing eBay's fees first. publish reuses the saved offer.
+        if (parts[3] === "ebay" && (parts[4] === "publish" || parts[4] === "preview") && m === "POST") {
+          const preview = parts[4] === "preview";
           if (!ebay.ebayConfigured(env)) return J({ error: "eBay listing isn't switched on yet." }, 503);
           const b = await readJson(request);
           const title = ebay.ebayTitle(b.title);
@@ -605,13 +610,14 @@ export default {
           }
 
           const ts = now();
+          const working = preview ? "draft" : "publishing";
           if (!row) {
             row = { id: uid(), offer_id: null };
-            await db.prepare("INSERT INTO ebay_listings (id,item_id,user_id,sku,status,created_at,updated_at) VALUES (?,?,?,?,'publishing',?,?)")
-              .bind(row.id, iid, userId, ebay.skuFor(iid), ts, ts).run();
-          } else await db.prepare("UPDATE ebay_listings SET status='publishing', error=NULL, updated_at=? WHERE id=?").bind(ts, row.id).run();
+            await db.prepare("INSERT INTO ebay_listings (id,item_id,user_id,sku,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)")
+              .bind(row.id, iid, userId, ebay.skuFor(iid), working, ts, ts).run();
+          } else await db.prepare("UPDATE ebay_listings SET status=?, error=NULL, updated_at=? WHERE id=?").bind(working, ts, row.id).run();
 
-          const credits = listingCredits(env);
+          const credits = preview ? 0 : listingCredits(env);
           let fundedBy = null;
           if (credits) {
             fundedBy = await consumeEstimate(db, userId);
@@ -633,12 +639,22 @@ export default {
               || await ebay.createReturnPolicy(env, tok);
             const locationKey = await ebay.ensureLocation(env, tok, zip);
             const text = String(b.description).trim();
-            const res = await ebay.publishListing(env, tok, {
+            const L = {
               sku: ebay.skuFor(iid), offerId: row.offer_id, title, price, categoryId: b.category_id, condition,
               conditionDescription: String(b.condition_note || "").trim(), aspects, imageUrls: images,
               descriptionText: text, descriptionHtml: ebay.descriptionHtml(text),
               fulfillmentPolicyId, paymentPolicyId, returnPolicyId, locationKey,
-            });
+            };
+            if (preview) {
+              const p = await ebay.prepareOffer(env, tok, L);
+              if (p.error) return await fail(`${p.error} [at ${p.stage}]`, p.stage, p.offerId);
+              const fees = await ebay.listingFees(env, tok, p.offerId);
+              await db.prepare("UPDATE ebay_listings SET status='draft', offer_id=?, category_id=?, price_cents=?, error=NULL, updated_at=? WHERE id=?")
+                .bind(p.offerId, String(b.category_id), Math.round(price * 100), now(), row.id).run();
+              return J({ status: "preview", offer_id: p.offerId, fees: fees.error ? null : fees, fee_error: fees.error || null,
+                         listing_credits: listingCredits(env) });
+            }
+            const res = await ebay.publishListing(env, tok, L);
             if (res.error) return await fail(`${res.error} [at ${res.stage}]`, res.stage, res.offerId);
             await db.prepare("UPDATE ebay_listings SET status='published', offer_id=?, listing_id=?, listing_url=?, category_id=?, price_cents=?, funded_by=?, error=NULL, updated_at=? WHERE id=?")
               .bind(res.offerId, res.listingId, res.url, String(b.category_id), Math.round(price * 100), fundedBy, now(), row.id).run();
