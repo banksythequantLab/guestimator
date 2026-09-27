@@ -68,7 +68,7 @@ const call = async (method, path, body) => {
     method, headers: { "content-type": "application/json", cookie }, body: body === undefined ? undefined : JSON.stringify(body) }), env, { waitUntil() {} });
   const sc = r.headers.get("set-cookie"); if (sc) cookie = sc.split(";")[0];
   const text = await r.text(); let json = null; try { json = JSON.parse(text); } catch {}
-  return { status: r.status, json, text };
+  return { status: r.status, json, text, location: r.headers.get("location") };
 };
 
 // ---------- account + an estimated item ----------
@@ -114,7 +114,8 @@ ok("consent URL carries a state", !!state && con.json.url.startsWith("https://au
 
 const savedCookie = cookie; cookie = "";   // the callback lands in a browser with no session
 const cb = await call("GET", `/api/ebay/callback?code=AUTHCODE&state=${state}`);
-ok("callback connects without a session cookie", cb.status === 200 && /eBay connected/.test(cb.text) && /derek_sells/.test(cb.text));
+ok("web callback connects without a session cookie and returns to the app", cb.status === 302 && cb.location === "/?ebay=connected");
+ok("web state is marked w", state.startsWith("w"));
 const acct = db.raw.prepare("SELECT * FROM ebay_accounts WHERE user_id=?").get(me.id);
 ok("account row stored for the right user", acct && acct.ebay_user_id === "EU1" && acct.ebay_username === "derek_sells");
 ok("refresh token is sealed, not plaintext", acct && !acct.refresh_token_enc.includes("UREFRESH") && !acct.access_token_enc.includes("UACC"));
@@ -126,6 +127,20 @@ const declined = await call("POST", "/api/ebay/connect"); cookie = "";
 const decl = await call("GET", `/api/ebay/callback?error=access_denied&state=${new URL((await (async () => { cookie = savedCookie; const c = await call("POST", "/api/ebay/connect"); cookie = ""; return c; })()).json.url).searchParams.get("state")}`);
 ok("declining on eBay says so", decl.status === 400 && /declined/.test(decl.text));
 cookie = savedCookie;
+// The Android app (build 7+) asks for a native connect: the callback must hand back to the app by
+// its URL scheme, as a 302 (a script redirect from a Custom Tab would be blocked by Chrome).
+{
+  const nat = await call("POST", "/api/ebay/connect", { native: true });
+  const ns = new URL(nat.json.url).searchParams.get("state");
+  ok("native state is marked n", ns.startsWith("n"));
+  cookie = "";
+  const r = await call("GET", `/api/ebay/callback?code=AUTHCODE&state=${ns}`);
+  ok("native callback 302s to the app scheme", r.status === 302 && r.location === "ai.banksy.bottletree://ebay/connected");
+  const ns2 = new URL((await (async () => { cookie = savedCookie; const c = await call("POST", "/api/ebay/connect", { native: true }); cookie = ""; return c; })()).json.url).searchParams.get("state");
+  const bad = await call("GET", `/api/ebay/callback?error=access_denied&state=${ns2}`);
+  ok("native decline shows a page whose button goes back to the app", bad.status === 400 && bad.text.includes('href="ai.banksy.bottletree://ebay/failed"'));
+  cookie = savedCookie;
+}
 st = await call("GET", "/api/ebay/status");
 ok("status now connected", st.json.connected && st.json.username === "derek_sells");
 

@@ -9,6 +9,8 @@ import { appraise } from "./appraiser.js";
 import * as ebay from "./ebay.js";
 // Every Guestimator item lives in one hidden per-user `sales` row (the schema is Bottle Tree's).
 const GUESS_BUCKET = "Guestimator";
+// The Android app's URL scheme (strings.xml custom_url_scheme; AndroidManifest intent-filter).
+const APP_SCHEME = "ai.banksy.bottletree";
 // What listing one item on eBay costs, in estimate credits. EBAY_LISTING_CREDITS may be 0 (free)
 // or 1; anything else is read as 1 until the ledger can take more than one credit at a time.
 const listingCredits = env => (String(env.EBAY_LISTING_CREDITS ?? "1").trim() === "0" ? 0 : 1);
@@ -229,12 +231,20 @@ export default {
       // On a phone that is Chrome, not the app, so there is no session cookie here. The single-use
       // `state` row is what ties the code to a Guestimator account, and it expires in 15 minutes.
       if (parts[1] === "ebay" && parts[2] === "callback" && m === "GET") {
+        const state = url.searchParams.get("state") || "";
+        // Started in the Android app? Then "back" means the app, by its URL scheme - the page is
+        // showing in a Custom Tab over it. Success is a straight 302 to the scheme: it continues
+        // the redirect chain from the user's tap on eBay's Agree button, which Chrome lets open an
+        // app. A script redirect would not be allowed to. Failures get a page with a button, and
+        // the button is a user tap, so that one may open the app too.
+        const native = state.startsWith("n");
+        const back = ok => native ? `${APP_SCHEME}://ebay/${ok ? "connected" : "failed"}` : (ok ? "/?ebay=connected" : "/");
         const page = (title, msg, ok) => H(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
 <style>body{font-family:system-ui,sans-serif;background:#F4ECDC;color:#241B10;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:20px}
 .c{background:#FBF6EA;border:1px solid #E0D2B4;border-radius:14px;padding:22px;max-width:420px;text-align:center}.c h1{font-size:1.3rem;margin:0 0 8px}
 .ok{color:#0F6B59}.bad{color:#B4552B}a{display:inline-block;margin-top:14px;background:#0F6B59;color:#fff;padding:12px 18px;border-radius:10px;text-decoration:none;font-weight:700}</style></head>
-<body><div class="c"><h1 class="${ok ? "ok" : "bad"}">${esc(title)}</h1><p>${esc(msg)}</p><a href="/">Back to Guestimator</a></div></body></html>`, ok ? 200 : 400, "no-store");
-        const state = url.searchParams.get("state") || "";
+<body><div class="c"><h1 class="${ok ? "ok" : "bad"}">${esc(title)}</h1><p>${esc(msg)}</p><a href="${esc(back(ok))}">Back to Guestimator</a></div></body></html>`, ok ? 200 : 400, "no-store");
+        const done = () => new Response(null, { status: 302, headers: { location: back(true), "cache-control": "no-store" } });
         const st = state ? await db.prepare("SELECT * FROM ebay_oauth_states WHERE state=?").bind(state).first() : null;
         if (st) await db.prepare("DELETE FROM ebay_oauth_states WHERE state=?").bind(state).run();
         if (!st || Date.now() - Date.parse(st.created_at) > 15 * 60e3)
@@ -254,7 +264,7 @@ export default {
             "access_expires_at=excluded.access_expires_at, updated_at=excluded.updated_at")
             .bind(st.user_id, who.userId, who.username, await ebay.seal(env, tok.refresh_token), refreshExp,
                   await ebay.seal(env, tok.access_token), new Date(Date.now() + (tok.expires_in || 7200) * 1000).toISOString(), ts, ts).run();
-          return page("eBay connected", `Guestimator can now list items on ${who.username ? `the eBay account ${who.username}` : "your eBay account"}. Nothing is listed until you review it and tap List.`, true);
+          return done();
         } catch (e) {
           console.log("ebay callback failed", String(e && e.message));
           return page("eBay was not connected", String(e && e.message || e), false);
@@ -366,7 +376,10 @@ export default {
         }
         if (parts[2] === "connect" && m === "POST") {
           if (!ebay.ebayConfigured(env)) return J({ error: "eBay listing isn't switched on yet." }, 503);
-          const state = randHex(24);
+          // "n" = started in the Android app (sign-in runs in a Custom Tab, and the callback hands
+          // back to the app by its URL scheme); "w" = a browser tab that simply returns to "/".
+          const cb = await readJson(request);
+          const state = (cb.native ? "n" : "w") + randHex(24);
           await db.prepare("DELETE FROM ebay_oauth_states WHERE created_at < ?").bind(new Date(Date.now() - 3600e3).toISOString()).run();
           await db.prepare("INSERT INTO ebay_oauth_states (state,user_id,created_at) VALUES (?,?,?)").bind(state, userId, now()).run();
           return J({ url: ebay.consentUrl(env, state) });

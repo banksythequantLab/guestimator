@@ -200,14 +200,37 @@ function ebayCardHtml(s) {
       <div class="muted" style="font-size:.82rem;margin-top:8px;text-align:center">No eBay account? <a href="${esc(s.signup_url)}" target="_blank" rel="noopener" style="color:var(--cobalt);font-weight:800">Create one free</a>, then come back and connect it.</div>
     </div>`;
 }
+// In the Android app (build 7+) eBay's sign-in opens in a Chrome Custom Tab over the app, and
+// finishing it sends ai.banksy.bottletree://ebay/connected, which comes back here as appUrlOpen.
+// Plain navigation was the old way: Android handed auth.ebay.com to the eBay app when installed,
+// which just showed the account and never came back - measured 2026-09-27, no connection saved.
+const capPlugin = n => (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins[n]) || null;
+const inAppBrowser = () => isNative && capPlugin("Browser") && capPlugin("App");
 async function connectEbay() {
   try {
-    const { url } = await api("/ebay/connect", { method: "POST" });
-    // eBay's sign-in opens outside the app on a phone; the page it returns to says "go back".
-    // When the app comes forward again it re-checks, so the card flips to "connected" by itself.
+    const native = !!inAppBrowser();
+    const { url } = await api("/ebay/connect", { method: "POST", body: JSON.stringify({ native }) });
     toast("Opening eBay…");
-    location.href = url;
+    if (native) await capPlugin("Browser").open({ url });
+    else location.href = url;
   } catch (e) { toast(e.message); }
+}
+// After eBay: refresh the status and redraw whatever screen the person is on.
+async function afterEbayReturn(ok) {
+  const was = ebayStatus && ebayStatus.connected;
+  const now = await loadEbayStatus();
+  if (ok === false) toast("eBay wasn't connected — try again");
+  else if (now && now.connected) toast(was ? "eBay connected" : `eBay connected${now.username ? " as " + now.username : ""} ✓`);
+  if (state.view === "home") renderHome();
+  else if (state.view === "item" && state.itemId) renderItemDetail(state.itemId);
+}
+if (inAppBrowser()) {
+  capPlugin("App").addListener("appUrlOpen", ev => {
+    const u = String(ev && ev.url || "");
+    if (!/^ai\.banksy\.bottletree:\/\/ebay\//.test(u)) return;
+    capPlugin("Browser").close().catch(() => {});
+    afterEbayReturn(!/\/failed/.test(u));
+  });
 }
 function wireEbayCard(after) {
   if ($("#ebayOn")) $("#ebayOn").onclick = connectEbay;
@@ -218,11 +241,16 @@ function wireEbayCard(after) {
     toast("eBay disconnected"); after();
   };
 }
+// Back from anywhere else (an older app build, a manual app switch): if the eBay connection
+// changed meanwhile, say so and redraw the current screen - not only the home screen.
 document.addEventListener("visibilitychange", async () => {
-  if (document.visibilityState !== "visible" || !user || state.view !== "home") return;
-  const was = ebayStatus && ebayStatus.connected;
-  const now = await loadEbayStatus();
-  if (now && now.connected !== was) { toast(now.connected ? "eBay connected" : "eBay disconnected"); renderHome(); }
+  if (document.visibilityState !== "visible" || !user || !["home", "item"].includes(state.view)) return;
+  const was = !!(ebayStatus && ebayStatus.connected);
+  const s = await loadEbayStatus();
+  if (s && !!s.connected !== was) {
+    toast(s.connected ? "eBay connected" : "eBay disconnected");
+    if (state.view === "home") renderHome(); else if (state.itemId) renderItemDetail(state.itemId);
+  }
 });
 
 async function renderHome() {
@@ -805,7 +833,7 @@ async function renderItemDetail(id) {
     await answerWith(answered.join(". "), $("#clarifyGo"));
   };
   if ($("#retry")) $("#retry").onclick = rerun;
-  state.view = "item";
+  state.view = "item"; state.itemId = id;
   if (pending) pollT = setTimeout(() => { if (state.view === "item") renderItemDetail(id); }, 4000);
 }
 
@@ -816,7 +844,14 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
 (async function init() {
   try {
     const me = await fetch("/api/auth/me", { credentials: "same-origin" });
-    if (me.ok) { const d = await me.json(); user = d.email; renderHome(); }
+    if (me.ok) {
+      const d = await me.json(); user = d.email;
+      // Back from eBay's sign-in in a browser tab: the callback redirected to /?ebay=connected.
+      const fromEbay = new URLSearchParams(location.search).get("ebay") === "connected";
+      if (fromEbay) history.replaceState(null, "", "/");
+      await renderHome();
+      if (fromEbay) afterEbayReturn(true);
+    }
     else renderAuth("login");
   } catch { renderAuth("login"); }
 })();
