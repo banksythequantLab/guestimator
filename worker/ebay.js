@@ -268,7 +268,23 @@ export async function call(env, token, method, path, body, host = "api") {
   });
   const text = await r.text();
   let json = null; try { json = text ? JSON.parse(text) : null; } catch {}
+  // A failed eBay call is logged whole - method, path, status, eBay's errors (with parameters and
+  // any detail they carry) - because the one-line longMessage alone ("Core Inventory Service
+  // internal error", 25001) told us nothing about which field it choked on. The request body is
+  // logged for Sell calls with the image URLs shortened; tokens are headers and are never logged.
+  if (!r.ok) console.log("ebay call failed", JSON.stringify({
+    method, path: path.split("?")[0], status: r.status, errors: json?.errors || text.slice(0, 1500),
+    sent: path.startsWith("/sell/") && body !== undefined
+      ? JSON.stringify(body, (k, v) => k === "imageUrls" ? v.map(u => String(u).slice(-30)) : v).slice(0, 2500) : undefined,
+  }));
   return { ok: r.ok, status: r.status, json };
+}
+// eBay documents 25001 ("A system error has occurred") as a transient internal error: retry once.
+const isSystemError = r => !r.ok && (r.json?.errors || []).some(e => e.errorId === 25001);
+async function callRetry(env, token, method, path, body) {
+  let r = await call(env, token, method, path, body);
+  if (isSystemError(r)) { await new Promise(res => setTimeout(res, 1500)); r = await call(env, token, method, path, body); }
+  return r;
 }
 
 export async function identity(env, token) {
@@ -445,7 +461,7 @@ export async function ensureLocation(env, token, postalCode) {
 
 // ---- the listing itself: inventory item, then offer, then publish ----
 export async function publishListing(env, token, L) {
-  const inv = await call(env, token, "PUT", `/sell/inventory/v1/inventory_item/${encodeURIComponent(L.sku)}`, {
+  const inv = await callRetry(env, token, "PUT", `/sell/inventory/v1/inventory_item/${encodeURIComponent(L.sku)}`, {
     availability: { shipToLocationAvailability: { quantity: 1 } },
     ...(L.condition ? { condition: L.condition } : {}),
     ...(L.condition && L.conditionDescription && L.condition !== "NEW" ? { conditionDescription: L.conditionDescription.slice(0, 1000) } : {}),
@@ -462,23 +478,23 @@ export async function publishListing(env, token, L) {
   };
   let offerId = L.offerId || null;
   if (offerId) {
-    const u = await call(env, token, "PUT", `/sell/inventory/v1/offer/${offerId}`, offerBody);
+    const u = await callRetry(env, token, "PUT", `/sell/inventory/v1/offer/${offerId}`, offerBody);
     if (!u.ok && u.status !== 404) return { stage: "offer", offerId, error: ebayErrorText(u.json, u.status) };
     if (u.status === 404) offerId = null;
   }
   if (!offerId) {
-    const o = await call(env, token, "POST", "/sell/inventory/v1/offer", offerBody);
+    const o = await callRetry(env, token, "POST", "/sell/inventory/v1/offer", offerBody);
     if (o.ok) offerId = o.json?.offerId;
     else {
       // 25002: an offer already exists for this SKU - a retry after a publish that failed.
       const existing = (o.json?.errors || []).flatMap(e => e.parameters || []).find(p => p.name === "offerId");
       if (!existing) return { stage: "offer", error: ebayErrorText(o.json, o.status) };
       offerId = existing.value;
-      const u = await call(env, token, "PUT", `/sell/inventory/v1/offer/${offerId}`, offerBody);
+      const u = await callRetry(env, token, "PUT", `/sell/inventory/v1/offer/${offerId}`, offerBody);
       if (!u.ok) return { stage: "offer", offerId, error: ebayErrorText(u.json, u.status) };
     }
   }
-  const pub = await call(env, token, "POST", `/sell/inventory/v1/offer/${offerId}/publish`, {});
+  const pub = await callRetry(env, token, "POST", `/sell/inventory/v1/offer/${offerId}/publish`, {});
   if (!pub.ok) return { stage: "publish", offerId, error: ebayErrorText(pub.json, pub.status) };
   const listingId = pub.json?.listingId;
   return { offerId, listingId, url: listingId ? `https://www.ebay.com/itm/${listingId}` : null,

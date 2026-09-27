@@ -639,7 +639,7 @@ export default {
               descriptionText: text, descriptionHtml: ebay.descriptionHtml(text),
               fulfillmentPolicyId, paymentPolicyId, returnPolicyId, locationKey,
             });
-            if (res.error) return await fail(res.error, res.stage, res.offerId);
+            if (res.error) return await fail(`${res.error} [at ${res.stage}]`, res.stage, res.offerId);
             await db.prepare("UPDATE ebay_listings SET status='published', offer_id=?, listing_id=?, listing_url=?, category_id=?, price_cents=?, funded_by=?, error=NULL, updated_at=? WHERE id=?")
               .bind(res.offerId, res.listingId, res.url, String(b.category_id), Math.round(price * 100), fundedBy, now(), row.id).run();
             await db.prepare("UPDATE items SET ai_title=?, price_cents=?, listing_status='live', listed_at=COALESCE(listed_at,?) WHERE id=?")
