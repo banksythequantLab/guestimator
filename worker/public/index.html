@@ -40,7 +40,10 @@ button{font-family:inherit;cursor:pointer}
 header.top{position:sticky;top:0;z-index:10;background:var(--panel);border-bottom:1px solid var(--line);padding:calc(12px + var(--sat)) 0 12px}
 .top .wrap{display:flex;align-items:center;gap:10px}
 .mark{display:flex;align-items:center;gap:8px;font-family:"Fraunces",serif;font-weight:600;font-size:1.05rem}
-.mark span{color:var(--green)}
+.mark .wm{font-weight:700;white-space:nowrap}
+.mark .wm i{font-style:normal}
+.wm-gu{color:#1E44C4}.wm-es{color:#7B2FBE}.wm-ti{color:#C62828}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .wm-gu{color:#7C9BFF}:root:not([data-theme=light]) .wm-es{color:#C08BF0}:root:not([data-theme=light]) .wm-ti{color:#FF6B6B}}
 .top .ctx{margin-left:auto;font-size:.9rem;color:var(--sub);font-weight:700;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:52%}
 .back{background:none;border:0;color:var(--cobalt);font-weight:800;font-size:.9rem;padding:4px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:var(--shadow);margin:12px 0}
@@ -109,7 +112,7 @@ ul.ev{margin:4px 0 0;padding-left:18px;font-size:.88rem}ul.ev li{margin:3px 0}
 <body>
 <header class="top"><div class="wrap">
   <button class="back hidden" id="backBtn">‹ Back</button>
-  <span class="mark"><svg class="logo" viewBox="0 0 34 40" fill="none"><path d="M17 39V15" stroke="var(--green)" stroke-width="2.4" stroke-linecap="round"/><circle cx="7.5" cy="12.5" r="2.4" fill="var(--cobalt)"/><circle cx="26.5" cy="12.5" r="2.4" fill="var(--cobalt)"/><circle cx="17" cy="3.4" r="2.4" fill="var(--gold)"/><path d="M11 39h12" stroke="var(--green)" stroke-width="2.4" stroke-linecap="round"/></svg>Guesti<span>mator</span></span>
+  <span class="mark"><svg class="logo" viewBox="0 0 34 40" fill="none"><path d="M17 39V15" stroke="var(--green)" stroke-width="2.4" stroke-linecap="round"/><circle cx="7.5" cy="12.5" r="2.4" fill="var(--cobalt)"/><circle cx="26.5" cy="12.5" r="2.4" fill="var(--cobalt)"/><circle cx="17" cy="3.4" r="2.4" fill="var(--gold)"/><path d="M11 39h12" stroke="var(--green)" stroke-width="2.4" stroke-linecap="round"/></svg><b class="wm"><i class="wm-gu">Gu</i><i class="wm-es">es</i><i class="wm-ti">timator</i></b></span>
   <span class="ctx" id="ctx"></span>
 </div></header>
 <main class="wrap" id="app"></main>
