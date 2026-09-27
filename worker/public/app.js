@@ -320,11 +320,13 @@ function renderEbayDraft(id, d) {
       <label>Category</label>
       <select id="eCat">${(d.categories || []).map(c => `<option value="${esc(c.id)}"${d.category && c.id === d.category.id ? " selected" : ""}>${esc(c.path || c.name)}</option>`).join("")}</select>
       <div style="height:8px"></div>
-      <label>Condition</label>
+      ${d.condition_applies === false
+        ? `<div class="muted" style="font-size:.82rem">eBay doesn't use a condition grade in this category — describe any wear in the description.</div>`
+        : `<label>Condition</label>
       <select id="eCond">${conds.map(c => `<option value="${esc(c.value)}"${c.value === d.condition ? " selected" : ""}>${esc(c.label)}</option>`).join("")}</select>
       <div style="height:8px"></div>
       <label>Condition notes</label>
-      <input id="eCondNote" value="${esc(d.condition_note || "")}" placeholder="Chips, wear, repairs — buyers read this">
+      <input id="eCondNote" value="${esc(d.condition_note || "")}" placeholder="Chips, wear, repairs — buyers read this">`}
     </div>
     <div class="card">
       <label style="margin-bottom:8px">Item specifics</label>
@@ -356,8 +358,9 @@ function renderEbayDraft(id, d) {
     const miss = d.aspect_spec.filter(s => s.required && !aspects[s.name]).map(s => s.name);
     if (miss.length) return toast("eBay requires: " + miss.join(", "));
     const body = {
-      title: $("#eTitle").value, price: $("#ePrice").value, category_id: $("#eCat").value, condition: $("#eCond").value,
-      condition_note: $("#eCondNote").value, aspects, description: $("#eDesc").value,
+      title: $("#eTitle").value, price: $("#ePrice").value, category_id: $("#eCat").value,
+      condition: $("#eCond") ? $("#eCond").value : null, condition_note: $("#eCondNote") ? $("#eCondNote").value : "",
+      aspects, description: $("#eDesc").value,
       postal_code: $("#eZip").value, shipping_cost: $("#eShip").value, handling_days: $("#eDays").value,
     };
     if (!/^\d{5}$/.test(body.postal_code.trim())) { $("#eZip").focus(); return toast("Enter the ZIP code you ship from"); }

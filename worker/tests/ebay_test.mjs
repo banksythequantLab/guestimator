@@ -40,6 +40,15 @@ eq("new-only category -> null, not a rejected guess", E.conditionFor("Good", ["1
 eq("never picks for-parts as a fallback", E.conditionFor("Good", ["1000", "7000"]), null);
 eq("falls back to another used condition", E.conditionFor("Good", ["1000", "2750"]), "LIKE_NEW");
 
+// ---- categories with no condition (measured live: Antiques > Silverplate > Flatware) ----
+ok("empty list: condition does not apply", E.conditionApplies([]) === false);
+ok("failed lookup (null) is NOT evidence of no condition", E.conditionApplies(null) === true);
+ok("a real list applies", E.conditionApplies([{ id: "3000", label: "Used" }]) === true);
+ok("allowed: Used in a New/Used category", E.conditionAllowed("USED_EXCELLENT", [{ id: "1000" }, { id: "3000" }]));
+ok("refused: Very Good in a New/Used category", !E.conditionAllowed("USED_VERY_GOOD", [{ id: "1000" }, { id: "3000" }]));
+ok("plain id strings work too", E.conditionAllowed("NEW", ["1000"]));
+ok("unknown list: any real enum allowed", E.conditionAllowed("USED_GOOD", null) && !E.conditionAllowed("MINT", null));
+
 // ---- price: never $0 ----
 eq("suggested retail first", E.startingPrice({ price_range: { low: 90, high: 160, suggested_retail: 135 }, market: { median: 120 } }), 135);
 // The exact shape from the phone bug: range all zero, four good comps.

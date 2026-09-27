@@ -538,12 +538,15 @@ export default {
           const b = await readJson(request);
           const title = ebay.ebayTitle(b.title);
           const price = Math.round(Number(b.price) * 100) / 100;
-          const conditions = new Set(Object.values(ebay.CONDITION_ENUM));
           if (!title) return J({ error: "Give the listing a title" }, 400);
           if (!(price >= 0.99)) return J({ error: "Set a price of at least $0.99" }, 400);
           if (!b.category_id) return J({ error: "Pick an eBay category" }, 400);
-          if (!conditions.has(b.condition)) return J({ error: "Pick a condition" }, 400);
           if (!String(b.description || "").trim()) return J({ error: "Add a description" }, 400);
+          // The category decides: some take no condition at all, the rest only their own list.
+          const catConds = await ebay.categoryConditions(env, b.category_id);
+          const condition = ebay.conditionApplies(catConds) ? b.condition : null;
+          if (ebay.conditionApplies(catConds) && !ebay.conditionAllowed(b.condition, catConds))
+            return J({ error: "Pick a condition this eBay category accepts" }, 400);
 
           const ut = await ebay.userToken(env, db, userId);
           if (!ut) return J({ error: "Connect your eBay account first", needs_connect: true }, 409);
@@ -612,7 +615,7 @@ export default {
             const locationKey = await ebay.ensureLocation(env, tok, zip);
             const text = String(b.description).trim();
             const res = await ebay.publishListing(env, tok, {
-              sku: ebay.skuFor(iid), offerId: row.offer_id, title, price, categoryId: b.category_id, condition: b.condition,
+              sku: ebay.skuFor(iid), offerId: row.offer_id, title, price, categoryId: b.category_id, condition,
               conditionDescription: String(b.condition_note || "").trim(), aspects, imageUrls: images,
               descriptionText: text, descriptionHtml: ebay.descriptionHtml(text),
               fulfillmentPolicyId, paymentPolicyId, returnPolicyId, locationKey,

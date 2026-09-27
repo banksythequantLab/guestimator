@@ -63,6 +63,16 @@ export function conditionFor(grade, allowed) {
   return used ? CONDITION_ENUM[used] : null;
 }
 
+// conds: the category's conditions from the Metadata API, [] when eBay lists none for it, or
+// null when the lookup failed. Only an explicit empty list means "this category has no condition";
+// a failed lookup is not evidence of that.
+export const conditionApplies = conds => !(Array.isArray(conds) && conds.length === 0);
+// Whether a chosen ConditionEnum is one the category takes. Unknown (null) lists allow anything.
+export function conditionAllowed(value, conds) {
+  if (!Array.isArray(conds)) return Object.values(CONDITION_ENUM).includes(value);
+  return conds.some(c => CONDITION_ENUM[typeof c === "object" ? c.id : String(c)] === value);
+}
+
 // The asking price to start from. The appraiser's suggested retail is the answer to exactly this
 // question; the live market median is the fallback when it declined to give one. Zero is never a
 // price - a zero here is how the phone showed an empty range - so it falls through, and null
@@ -343,7 +353,10 @@ export async function buildDraft(env, { item, photos, result, origin, categoryId
     price_basis: result?.price_range?.suggested_retail > 0 ? "suggested retail from the estimate"
       : result?.market?.median > 0 ? "median of live eBay asking prices" : null,
     category: cat, categories: cats,
-    condition: conditionFor(listing.condition_grade, allowedIds),
+    // Measured live 2026-09-27: Antiques > Silver > Silverplate > Flatware returns NO condition
+    // policies at all. Such a category does not use item condition, so none is sent.
+    condition_applies: conditionApplies(conds),
+    condition: conditionApplies(conds) ? conditionFor(listing.condition_grade, allowedIds) : null,
     conditions: (conds || []).filter(c => CONDITION_ENUM[c.id]).map(c => ({ value: CONDITION_ENUM[c.id], label: c.label })),
     condition_note: listing.condition_grade ? `Condition: ${listing.condition_grade}.` : "",
     aspects, aspect_spec: spec, missing: missingRequired(aspects, spec),
@@ -434,8 +447,8 @@ export async function ensureLocation(env, token, postalCode) {
 export async function publishListing(env, token, L) {
   const inv = await call(env, token, "PUT", `/sell/inventory/v1/inventory_item/${encodeURIComponent(L.sku)}`, {
     availability: { shipToLocationAvailability: { quantity: 1 } },
-    condition: L.condition,
-    ...(L.conditionDescription && L.condition !== "NEW" ? { conditionDescription: L.conditionDescription.slice(0, 1000) } : {}),
+    ...(L.condition ? { condition: L.condition } : {}),
+    ...(L.condition && L.conditionDescription && L.condition !== "NEW" ? { conditionDescription: L.conditionDescription.slice(0, 1000) } : {}),
     product: { title: L.title, description: L.descriptionText.slice(0, 4000), aspects: L.aspects, imageUrls: L.imageUrls },
   });
   if (!inv.ok) return { stage: "item", error: ebayErrorText(inv.json, inv.status) };

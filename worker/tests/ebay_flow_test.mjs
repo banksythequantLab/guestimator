@@ -34,6 +34,7 @@ globalThis.fetch = async (u, init = {}) => {
     { localizedAspectName: "Brand", aspectConstraint: { aspectRequired: true, aspectMode: "FREE_TEXT" }, aspectValues: [] },
     { localizedAspectName: "Type", aspectConstraint: { aspectRequired: true, aspectMode: "SELECTION_ONLY" }, aspectValues: [{ localizedValue: "Crock" }, { localizedValue: "Jug" }] },
     { localizedAspectName: "Color", aspectConstraint: { aspectUsage: "RECOMMENDED", aspectMode: "FREE_TEXT" }, aspectValues: [] }] });
+  if (url.includes("get_item_condition_policies") && url.includes("99")) return jr({ itemConditionPolicies: [{ categoryId: "99", itemConditions: [] }] });
   if (url.includes("get_item_condition_policies")) return jr({ itemConditionPolicies: [{ categoryId: "34", itemConditions: [{ conditionId: "1000", conditionDescription: "New" }, { conditionId: "3000", conditionDescription: "Used" }] }] });
   if (url.includes("chat/completions")) return jr({ choices: [{ message: { content: JSON.stringify({ aspects: { Type: ["crock"], Brand: ["Invented Brand"], Color: ["Gray"] } }) } }] });
   if (/\/sell\/account\/v1\/(fulfillment|payment|return)_policy\?/.test(url) && method === "GET") return jr({ total: 0 });
@@ -183,6 +184,20 @@ r = await call("POST", `/api/items/${item2}/ebay/publish`, { ...body, shipping_c
 ok("retry succeeds", r.status === 200);
 ok("retry UPDATES the kept offer instead of making a second", calls.some(c => /\/offer\/OFF1$/.test(c.url) && c.method === "PUT") && !calls.some(c => c.url.endsWith("/sell/inventory/v1/offer") && c.method === "POST"));
 
+// ---------- a category with no condition grades ----------
+const itemNc = await mk();
+db.raw.prepare("UPDATE users SET credits=5 WHERE id=?").run(me.id);
+const drNc = await call("POST", `/api/items/${itemNc}/ebay/draft`, { category_id: "99" });
+ok("draft honours the picked category", drNc.json.draft.category.id === "99");
+ok("draft says condition does not apply there", drNc.json.draft.condition_applies === false && drNc.json.draft.condition === null);
+calls.length = 0;
+r = await call("POST", `/api/items/${itemNc}/ebay/publish`, { ...body, category_id: "99", condition: null, shipping_cost: "0" });
+const invNc = calls.find(c => c.url.includes("/inventory_item/") && c.method === "PUT");
+ok("published with NO condition field sent", r.status === 200 && invNc && !("condition" in invNc.body) && !("conditionDescription" in invNc.body));
+const itemBad = await mk();
+r = await call("POST", `/api/items/${itemBad}/ebay/publish`, { ...body, shipping_cost: "5", condition: "USED_VERY_GOOD" });
+ok("a condition the category doesn't take is refused before eBay", r.status === 400 && /condition/.test(r.json.error));
+
 // ---------- out of credits ----------
 const item3 = await mk();
 db.raw.prepare("UPDATE users SET credits=0 WHERE id=?").run(me.id);
@@ -202,7 +217,8 @@ cookie = "";
 const del = await call("POST", "/api/ebay/deletion", { notification: { notificationId: "n1", data: { username: "derek_sells", userId: "EU1" } } });
 ok("deletion acknowledged", del.status === 204);
 ok("stored eBay account removed", !db.raw.prepare("SELECT 1 FROM ebay_accounts WHERE user_id=?").get(me.id));
-ok("listing history kept", db.raw.prepare("SELECT COUNT(*) n FROM ebay_listings WHERE user_id=?").get(me.id).n === 3);
+// item, item2, itemNc, item3 each have a row; itemBad was refused before any row was written.
+ok("listing history kept", db.raw.prepare("SELECT COUNT(*) n FROM ebay_listings WHERE user_id=?").get(me.id).n === 4);
 const challenge = await call("GET", "/api/ebay/deletion?challenge_code=abc");
 ok("challenge answered", challenge.status === 200 && /^[0-9a-f]{64}$/.test(challenge.json.challengeResponse));
 
