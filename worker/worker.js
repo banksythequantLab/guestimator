@@ -193,10 +193,16 @@ export default {
         if (m === "GET") {
           const challenge = url.searchParams.get("challenge_code");
           if (!challenge) return J({ error: "challenge_code required" }, 400);
-          const digest = await crypto.subtle.digest(
-            "SHA-256",
-            new TextEncoder().encode(challenge + env.EBAY_VERIFY_TOKEN + env.EBAY_DELETION_URL));
+          // eBay hashes the endpoint exactly as registered, and it calls exactly that URL - so the
+          // URL of this very request (minus the query) IS the registered endpoint. Using it rather
+          // than EBAY_DELETION_URL means the app domain, workers.dev, or a trailing slash can
+          // never produce a hash eBay rejects. (2026-09-27: eBay refused app.theguestimator.com.)
+          const endpoint = url.origin + url.pathname;
+          const token = String(env.EBAY_VERIFY_TOKEN).trim();
+          const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(challenge + token + endpoint));
           const hex = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
+          console.log("ebay deletion challenge", JSON.stringify({ endpoint, configured: env.EBAY_DELETION_URL,
+            ua: request.headers.get("user-agent"), challenge_len: challenge.length }));
           return J({ challengeResponse: hex });
         }
         if (m === "POST") {

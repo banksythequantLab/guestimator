@@ -724,10 +724,23 @@ async function renderItemDetail(id) {
       <div class="muted" style="font-size:.72rem;margin-top:8px">${esc(r.models.text)} + ${esc(r.models.vision)} on Nebius</div>
     </div>` : ""}
     ${ebayPanelHtml(b, !!(r && !nc && appraisal.status === "done"))}
-    ${!pending && photos.length ? `<button class="btn sec sm" id="reappraise" style="margin-bottom:16px">↻ Re-run the estimate</button>` : ""}
+    <div class="row" style="gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      ${!pending && photos.length ? `<button class="btn sec sm" id="reappraise">↻ Re-run the estimate</button>` : ""}
+      <button class="btn sec sm" id="delItem" style="color:var(--rust)">Delete item</button>
+    </div>
 `;
   $("#toItems").onclick = () => { clearTimeout(pollT); renderHome(); };
   if ($("#ebayList")) $("#ebayList").onclick = () => startEbayListing(id);
+  $("#delItem").onclick = async () => {
+    const onEbay = b.ebay && b.ebay.status === "published";
+    const msg = onEbay
+      ? "Delete this item from Guestimator?\n\nIt is LIVE on eBay. Deleting it here does NOT end the eBay listing. If you no longer want to sell it, end the listing in eBay too."
+      : "Delete this item and its photos? This can't be undone.";
+    if (!confirm(msg)) return;
+    clearTimeout(pollT);
+    try { await api("/items/" + id, { method: "DELETE" }); } catch (e) { return toast(e.message); }
+    toast("Deleted"); renderHome();
+  };
   if (!ebayStatus) loadEbayStatus();
   // Re-running must NOT post the form's description. That box holds the LISTING copy — the
   // shop-page prose the model wrote — and the appraise endpoint reads `description` as the
