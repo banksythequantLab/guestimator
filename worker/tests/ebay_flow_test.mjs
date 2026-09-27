@@ -74,6 +74,17 @@ const call = async (method, path, body) => {
 // ---------- account + an estimated item ----------
 ok("register", (await call("POST", "/api/auth/register", { email: "d@example.com", password: "password123" })).status === 200);
 const me = db.raw.prepare("SELECT id FROM users WHERE email='d@example.com'").get();
+// No free estimate in Guestimator, though the shared schema defaults credits to 1 for Bottle Tree.
+ok("new account starts with 0 credits", db.raw.prepare("SELECT credits FROM users WHERE id=?").get(me.id).credits === 0);
+ok("and no welcome grant on the ledger", db.raw.prepare("SELECT COUNT(*) n FROM billing_events WHERE user_id=?").get(me.id).n === 0);
+{
+  const { json } = await call("POST", "/api/items", { name: "x", description: "a jug" });
+  db.raw.prepare("INSERT INTO photos (id,item_id,r2_key,kind,content_type,bytes,sort,created_at) VALUES (?,?,?,?,?,?,?,?)")
+    .run(crypto.randomUUID(), json.id, `${json.id}/z.jpg`, "front", "image/jpeg", 10, 0, new Date().toISOString());
+  const est = await call("POST", `/api/items/${json.id}/appraise`, {});
+  ok("first estimate goes straight to the paywall", est.status === 402 && est.json.paywall);
+  await call("DELETE", `/api/items/${json.id}`);
+}
 db.raw.prepare("UPDATE users SET credits=3 WHERE id=?").run(me.id);
 const mk = async () => {
   const { json } = await call("POST", "/api/items", { name: "Crock", description: "red wing crock, 3 gallon" });

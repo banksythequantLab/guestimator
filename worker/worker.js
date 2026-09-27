@@ -1,7 +1,10 @@
 // Guestimator — API worker: accounts, items, photos (R2), AI estimates (Nebius), and listing on the
 // user's own eBay account. Runs first for /api/* and /p/* (photos); everything else is static assets.
 // Split from Bottle Tree (bottletree-appraiser) on 2026-09-27; the POS lives on there.
-import { planFor, consumeEstimate, refundEstimate, applyRevenueCatEvent, welcomeGrant } from "./billing.js";
+import { planFor, consumeEstimate, refundEstimate, applyRevenueCatEvent } from "./billing.js";
+// New Guestimator accounts start with nothing: every estimate is bought. Accounts that already
+// exist (including Bottle Tree ones signing in here) keep whatever balance they have.
+const SIGNUP_CREDITS = 0;
 import { appraise } from "./appraiser.js";
 import * as ebay from "./ebay.js";
 // Every Guestimator item lives in one hidden per-user `sales` row (the schema is Bottle Tree's).
@@ -264,12 +267,11 @@ export default {
           const exists = await db.prepare("SELECT id FROM users WHERE email=?").bind(email).first();
           if (exists) return J({ error: "That email is already registered" }, 409);
           const salt = randHex(16), h = await pbkdf2(pw, salt), id = uid(), ts = now();
-          // The free estimate and the row recording it go together, so an account can never
-          // exist holding a credit its own history cannot account for.
-          await db.batch([
-            db.prepare("INSERT INTO users (id,email,pw_hash,pw_salt,created_at) VALUES (?,?,?,?,?)").bind(id, email, h, salt, ts),
-            welcomeGrant(db, id, ts),
-          ]);
+          // Guestimator has no free estimate (Derek, 2026-09-27). users.credits defaults to 1 in
+          // the shared schema because Bottle Tree still grants one, so 0 is written explicitly -
+          // and no welcome row, so the ledger still accounts for exactly what the wallet holds.
+          await db.prepare("INSERT INTO users (id,email,pw_hash,pw_salt,created_at,credits) VALUES (?,?,?,?,?,?)")
+            .bind(id, email, h, salt, ts, SIGNUP_CREDITS).run();
           return J({ email }, 200, { "Set-Cookie": sessionCookie(await newSession(db, id)) });
         }
         if (act === "login" && m === "POST") {
@@ -297,11 +299,9 @@ export default {
           }
           if (!u) {
             const id = uid(), ts = now();
-            // Same opening balance, same record of it, whichever door they came in by.
-            await db.batch([
-              db.prepare("INSERT INTO users (id,email,pw_hash,pw_salt,google_sub,created_at) VALUES (?,?,'','',?,?)").bind(id, g.email, g.sub, ts),
-              welcomeGrant(db, id, ts),
-            ]);
+            // Same opening balance (none) whichever door they came in by.
+            await db.prepare("INSERT INTO users (id,email,pw_hash,pw_salt,google_sub,created_at,credits) VALUES (?,?,'','',?,?,?)")
+              .bind(id, g.email, g.sub, ts, SIGNUP_CREDITS).run();
             u = { id, email: g.email };
           }
           return J({ email: u.email }, 200, { "Set-Cookie": sessionCookie(await newSession(db, u.id)) });

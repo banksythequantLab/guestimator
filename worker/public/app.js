@@ -144,7 +144,7 @@ function renderAuth(mode) {
   app.innerHTML = `
     <div style="text-align:center;margin:34px 0 8px">
       <div class="big" style="font-size:1.7rem">${isLogin ? "Welcome back" : "Create your account"}</div>
-      <div class="muted">${isLogin ? "Sign in to your items." : "Free — your first estimate is on us."}</div>
+      <div class="muted">${isLogin ? "Sign in to your items." : "Price it from what's selling now, then list it on eBay."}</div>
     </div>
     <div class="card">
       <label>Email</label>
