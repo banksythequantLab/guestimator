@@ -1,13 +1,13 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 // The Android app is a native shell around the live PWA: same origin as the API, so the session cookie,
-// camera capture and the storefront all work unchanged. Native adds Google Play billing through RevenueCat.
+// camera capture and eBay connect work unchanged. appId stays ai.banksy.bottletree: the Play listing, RevenueCat products and the Google sign-in client are all bound to it. Native adds Google Play billing through RevenueCat.
 const config: CapacitorConfig = {
   appId: 'ai.banksy.bottletree',
-  appName: 'Bottle Tree',
+  appName: 'Guestimator',
   webDir: 'www',
   server: {
-    url: 'https://bottletree-app.dj-b02.workers.dev',
+    url: 'https://guestimator.dj-b02.workers.dev',
     cleartext: false,
   },
   android: {
