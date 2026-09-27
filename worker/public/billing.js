@@ -1,4 +1,4 @@
-// Guestimator billing UI — the paywall and the "estimates left" pill.
+// Guestimator billing UI — the paywall and the "credits left" pill.
 // Native (Capacitor Android): purchases go through RevenueCat -> Google Play; the RevenueCat webhook credits the
 // account server-side, so after a purchase we just re-read /api/me/plan. Web: shows the plans + a Play link.
 window.BTBilling = (() => {
@@ -28,21 +28,21 @@ window.BTBilling = (() => {
 
   function summary() {
     if (!plan) return "";
-    if (plan.plan === "unlimited") return "Unlimited estimates";
+    if (plan.plan === "unlimited") return "Unlimited estimates & listings";
     // A missing number here used to reach the screen as the word "undefined" next to the
     // person's email. Absent and zero mean the same thing to a customer, so say zero.
     const n = v => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
-    if (plan.plan === "pro") return `${Math.max(0, n(plan.monthly_cap) - n(plan.used_this_month))} of ${n(plan.monthly_cap)} left this month`;
+    if (plan.plan === "pro") return `${Math.max(0, n(plan.monthly_cap) - n(plan.used_this_month))} of ${n(plan.monthly_cap)} credits left this month`;
     const c = n(plan.credits);
-    return `${c} estimate${c === 1 ? "" : "s"} left`;
+    return `${c} credit${c === 1 ? "" : "s"} left`;
   }
 
   const ORDER = ["estimate_1", "estimate_10", "pro_monthly", "unlimited_monthly"];
   const BLURB = {
-    estimate_1: "One photo-to-price estimate",
-    estimate_10: "Ten estimates, never expire",
-    pro_monthly: "300 estimates a month + eBay/Etsy crosslisting (coming)",
-    unlimited_monthly: "No cap. For estate-sale weeks and full shops",
+    estimate_1: "One estimate or one eBay listing",
+    estimate_10: "Use on estimates or eBay listings. Never expire",
+    pro_monthly: "Split any way you like between estimates and eBay listings",
+    unlimited_monthly: "No cap on estimates or listings. For estate-sale weeks",
   };
 
   async function open(reason) {
@@ -68,10 +68,10 @@ window.BTBilling = (() => {
     sheet.innerHTML = `
       <div class="pw-card">
         <div class="row" style="justify-content:space-between;align-items:baseline">
-          <div class="big" style="font-size:1.25rem">Estimates</div>
+          <div class="big" style="font-size:1.25rem">Credits</div>
           <button class="btn sec sm" id="pwClose">Close</button>
         </div>
-        <div class="muted" style="font-size:.85rem;margin:4px 0 10px">${esc(reason || "Inventory, photos and your shop are free. Estimates are what we charge for.")}<br><b>${esc(summary())}</b></div>
+        <div class="muted" style="font-size:.85rem;margin:4px 0 10px">${esc(reason || "1 credit = 1 estimate or 1 eBay listing. Previewing a listing and its eBay fees is free.")}<br><b>${esc(summary())}</b></div>
         ${ORDER.map(k => {
           const p = products[k]; if (!p) return "";
           const price = pkgs[k] ? pkgs[k].product.priceString : ("$" + p.usd.toFixed(2));
@@ -84,9 +84,9 @@ window.BTBilling = (() => {
         ${native ? `<div style="height:6px"></div><button class="btn sec sm" id="pwRestore">Restore purchases</button>
                     ${!storeReady ? `<div class="muted" style="font-size:.78rem;margin-top:6px">Store not reachable right now. Try again in a moment.</div>` : ""}`
                  : webLink
-                 ? `<div class="muted" style="font-size:.8rem;margin-top:8px">Checkout opens in a new tab. Your estimates land on this same account${plan && plan.play_url ? `, and on <a href="${esc(plan.play_url)}" target="_blank" rel="noopener" style="color:var(--cobalt)">the Android app</a>` : ""}.</div>
+                 ? `<div class="muted" style="font-size:.8rem;margin-top:8px">Checkout opens in a new tab. Your credits land on this same account${plan && plan.play_url ? `, and on <a href="${esc(plan.play_url)}" target="_blank" rel="noopener" style="color:var(--cobalt)">the Android app</a>` : ""}.</div>
                     <div id="pwWait" class="muted" style="font-size:.8rem;margin-top:8px;display:none">Waiting for the purchase to land… <a href="#" id="pwCheck" style="color:var(--cobalt)">check now</a></div>`
-                 : `<div class="muted" style="font-size:.8rem;margin-top:8px">Buy estimates in the Guestimator Android app${plan && plan.play_url ? ` — <a href="${esc(plan.play_url)}" target="_blank" rel="noopener" style="color:var(--cobalt)">get it on Google Play</a>` : " (Google Play, coming this week)"}. Your items are the same account everywhere.</div>`}
+                 : `<div class="muted" style="font-size:.8rem;margin-top:8px">Buy credits in the Guestimator Android app${plan && plan.play_url ? ` — <a href="${esc(plan.play_url)}" target="_blank" rel="noopener" style="color:var(--cobalt)">get it on Google Play</a>` : " (Google Play, coming this week)"}. Your items are the same account everywhere.</div>`}
         <div class="muted" style="font-size:.7rem;margin-top:10px">Estimates are AI guesses for pricing help, not formal appraisals. Subscriptions renew monthly; cancel any time in Google Play.</div>
       </div>`;
     document.body.appendChild(sheet);

@@ -729,7 +729,7 @@ export default {
           }
           // metered: unlimited plan -> pro plan (300/mo) -> credits -> 402 with the paywall hint
           const fundedBy = await consumeEstimate(db, userId);
-          if (!fundedBy) return J({ error: "You're out of estimates", paywall: true, plan: await planFor(db, userId) }, 402);
+          if (!fundedBy) return J({ error: "You're out of credits", paywall: true, plan: await planFor(db, userId) }, 402);
           const apId = uid();
           await db.prepare("INSERT INTO appraisals (id,item_id,status,created_at,funded_by) VALUES (?,?,'pending',?,?)").bind(apId, iid, now(), fundedBy).run();
           if (env.APPRAISALS) await env.APPRAISALS.send({ appraisalId: apId, itemId: iid });

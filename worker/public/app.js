@@ -15,7 +15,7 @@ async function api(path, opts) {
   if (r.status === 401 && !path.startsWith("/auth")) { user = null; renderAuth(); throw new Error("Please sign in"); }
   if (!r.ok) {
     let e = {}; try { e = await r.json(); } catch {}
-    if (r.status === 402 && e.paywall && window.BTBilling) { BTBilling.refresh().then(() => BTBilling.open("You're out of estimates. Your items and photos are saved.")); }
+    if (r.status === 402 && e.paywall && window.BTBilling) { BTBilling.refresh().then(() => BTBilling.open("You're out of credits. 1 credit = 1 estimate or 1 eBay listing. Your items and photos are saved.")); }
     // Carry the whole error body, not just its message. Callers that can actually resolve a
     // failure need the detail — which items have no price, what needs confirming — and throwing
     // a bare string turns every one of those into an unexplained red toast.
@@ -475,7 +475,7 @@ function renderEbayPreview(id, d, body, r) {
       ${f ? feeRows + `<div class="split" style="font-weight:800"><span>eBay listing fees</span><span class="amt">${money2(f.total)}</span></div>`
           : `<div style="color:var(--rust);font-size:.88rem">eBay didn't return a fee quote (${esc(r.fee_error || "unknown")}). Check fees in eBay before listing.</div>`}
       ${f && f.warnings.length ? `<div class="muted" style="font-size:.78rem;margin-top:6px">${f.warnings.map(esc).join(" · ")}</div>` : ""}
-      <div class="muted" style="font-size:.78rem;margin-top:8px">eBay also takes a final value fee (a percentage) only if it sells. ${r.listing_credits ? "Listing also uses 1 Guestimator credit, returned if eBay rejects it." : ""}</div>
+      <div class="muted" style="font-size:.78rem;margin-top:8px">eBay also takes a final value fee (a percentage) only if it sells. ${r.listing_credits ? "Listing uses 1 Guestimator credit (the same credits as estimates), returned if eBay rejects it." : ""}</div>
     </div>
     <button class="btn" id="pList" style="background:var(--cobalt)">List it now${f ? ` · eBay fees ${money2(f.total)}` : ""}</button>
     <div style="height:8px"></div>

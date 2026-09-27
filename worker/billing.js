@@ -3,10 +3,12 @@
 // Grants arrive from RevenueCat (native app, Google Play) via webhook; Stripe web checkout can write the same ledger later.
 
 export const PRODUCTS = {
-  estimate_1:        { kind: "credits", credits: 1,  label: "1 estimate",            usd: 0.99 },
-  estimate_10:       { kind: "credits", credits: 10, label: "10 estimates",          usd: 4.99 },
-  pro_monthly:       { kind: "plan",    plan: "pro",       label: "Pro · 300 estimates / month", usd: 9.99 },
-  unlimited_monthly: { kind: "plan",    plan: "unlimited", label: "Unlimited estimates",         usd: 29.99 },
+  // Keys are the Play product ids and must not change. One credit buys one estimate OR one eBay
+  // listing, from the same wallet.
+  estimate_1:        { kind: "credits", credits: 1,  label: "1 credit",              usd: 0.99 },
+  estimate_10:       { kind: "credits", credits: 10, label: "10 credits",            usd: 4.99 },
+  pro_monthly:       { kind: "plan",    plan: "pro",       label: "Pro · 300 credits / month", usd: 9.99 },
+  unlimited_monthly: { kind: "plan",    plan: "unlimited", label: "Unlimited",                 usd: 29.99 },
 };
 export const PRO_MONTHLY_CAP = 300;
 
