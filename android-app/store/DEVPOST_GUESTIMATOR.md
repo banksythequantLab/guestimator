@@ -52,9 +52,10 @@ estimate, restricted to eBay's allowed values), condition (only ones that catego
 photos, description and a starting price from the comparables. You review every field, set
 your ZIP and shipping, and tap List. Nothing is listed without your approval.
 
-**Metered with RevenueCat.** $0.99 for one estimate, $4.99 for ten, $9.99/month for 300,
-$29.99/month unlimited. Listing an item on eBay uses one credit, refunded automatically if eBay
-rejects it. One account works on Android and the web.
+**Metered with RevenueCat.** One credit pays for one estimate or one eBay listing, from the same
+balance: $0.99 for 1 credit, $4.99 for 10, $9.99/month for 300 (split any way between estimates
+and listings), $29.99/month unlimited. Previewing a listing and eBay's fee quote is free; a
+listing eBay rejects refunds its credit automatically. One account works on Android and the web.
 
 ## How we built it
 
@@ -100,15 +101,16 @@ permission. Lesson: every native change means a new versionCode, every time.
 - The estimate on real objects. A cast-iron fluting iron with a worn 1878 patent stamp was
   identified as Shepard Hardware Co. of Buffalo, $120-250. An Intel Optane module was priced
   from four live eBay comparables.
-- Money handling that is tested, not assumed. 639 automated checks, including the full eBay
+- Money handling that is tested, not assumed. 649 automated checks, including the full eBay
   flow (connect, draft, publish, refusal, refund, retry, account deletion) against a real
   database, with eBay stubbed at the network layer. Key rules were checked by breaking them on
   purpose and confirming the tests fail.
 - The RevenueCat loop runs end to end through RevenueCat's test store: paywall, purchase,
   webhook, credits written, balance updates without a reload. **TODO:** a first real Google
   Play purchase. Until then, don't claim "verified on a device with a real purchase".
-- **TODO (after Derek's phone test):** "First real listing published to eBay from a phone on
-  [date]: [item], listed at $[price]." Leave this out until it has actually happened.
+- Real listings on eBay, made through Guestimator on Sep 27, 2026: an Intel Optane 256GB DCPMM
+  at $180 (eBay item 198671504189) and an SK Hynix 16GB DDR4 ECC RDIMM at $95 (eBay item
+  198671529701). Each used one Guestimator credit.
 
 ## What we learned
 
