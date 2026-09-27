@@ -332,11 +332,28 @@ async function startEbayListing(id, categoryId) {
   } catch (e) { toast(e.message); renderItemDetail(id); }
 }
 const CONDITION_FALLBACK = [{ value: "USED_EXCELLENT", label: "Used" }, { value: "NEW", label: "New" }];
+// The seller's own edits to a draft, per item. "Not yet — edit" on the fee screen and "Back to the
+// estimate" used to re-render from the AI's draft and silently throw every change away.
+const ebayEdits = {};
 function renderEbayDraft(id, d) {
   state.view = "ebay"; setChrome();
+  const e = ebayEdits[id] || null;
+  // Aspects and condition belong to a category; after a category switch only the free-text
+  // fields carry over.
+  const sameCat = e && d.category && e.category_id === d.category.id;
+  const val = {
+    title: e ? e.title : d.title,
+    price: e ? e.price : (d.price ? Number(d.price).toFixed(2) : ""),
+    condition: sameCat && e.condition ? e.condition : d.condition,
+    condition_note: e ? e.condition_note : (d.condition_note || ""),
+    description: e ? e.description : d.description,
+    postal_code: e && e.postal_code ? e.postal_code : ((ebayStatus && ebayStatus.postal_code) || ""),
+    shipping_cost: e ? e.shipping_cost : "",
+    handling_days: e ? String(e.handling_days) : "3",
+  };
   const conds = d.conditions && d.conditions.length ? d.conditions : CONDITION_FALLBACK;
   const aspectRow = (s, n) => {
-    const v = (d.aspects[s.name] || [])[0] || "";
+    const v = ((sameCat ? e.aspects[s.name] : d.aspects[s.name]) || [])[0] || "";
     const lab = `<label>${esc(s.name)}${s.required ? ` <span style="color:var(--rust)">*</span>` : ""}</label>`;
     if (s.selection_only) return `${lab}<select data-asp="${esc(s.name)}"><option value="">—</option>${s.values.map(x => `<option${x === v ? " selected" : ""}>${esc(x)}</option>`).join("")}</select><div style="height:8px"></div>`;
     return `${lab}<input data-asp="${esc(s.name)}" value="${esc(v)}" list="asp${n}" maxlength="65"><datalist id="asp${n}">${s.values.slice(0, 30).map(x => `<option value="${esc(x)}">`).join("")}</datalist><div style="height:8px"></div>`;
@@ -350,10 +367,10 @@ function renderEbayDraft(id, d) {
     ${d.images_skipped ? `<div class="muted" style="font-size:.78rem">${d.images_skipped} photo${d.images_skipped === 1 ? "" : "s"} left out — eBay can't take that format.</div>` : ""}
     <div class="card">
       <label>Title <span class="muted" id="tCount" style="text-transform:none;letter-spacing:0"></span></label>
-      <input id="eTitle" maxlength="80" value="${esc(d.title)}">
+      <input id="eTitle" maxlength="80" value="${esc(val.title)}">
       <div style="height:8px"></div>
       <label>Price</label>
-      <input id="ePrice" inputmode="decimal" value="${d.price ? Number(d.price).toFixed(2) : ""}" placeholder="$0.00">
+      <input id="ePrice" inputmode="decimal" value="${esc(val.price)}" placeholder="$0.00">
       ${d.price_basis ? `<div class="muted" style="font-size:.78rem;margin-top:3px">Starting from the ${esc(d.price_basis)}.</div>` : `<div style="font-size:.78rem;margin-top:3px;color:var(--rust)">The estimate didn't settle on a price — set one yourself.</div>`}
       <div style="height:8px"></div>
       <label>Category</label>
@@ -362,10 +379,10 @@ function renderEbayDraft(id, d) {
       ${d.condition_applies === false
         ? `<div class="muted" style="font-size:.82rem">eBay doesn't use a condition grade in this category — describe any wear in the description.</div>`
         : `<label>Condition</label>
-      <select id="eCond">${conds.map(c => `<option value="${esc(c.value)}"${c.value === d.condition ? " selected" : ""}>${esc(c.label)}</option>`).join("")}</select>
+      <select id="eCond">${conds.map(c => `<option value="${esc(c.value)}"${c.value === val.condition ? " selected" : ""}>${esc(c.label)}</option>`).join("")}</select>
       <div style="height:8px"></div>
       <label>Condition notes</label>
-      <input id="eCondNote" value="${esc(d.condition_note || "")}" placeholder="Chips, wear, repairs — buyers read this">`}
+      <input id="eCondNote" value="${esc(val.condition_note)}" placeholder="Chips, wear, repairs — buyers read this">`}
     </div>
     <div class="card">
       <label style="margin-bottom:8px">Item specifics</label>
@@ -374,14 +391,14 @@ function renderEbayDraft(id, d) {
     </div>
     <div class="card">
       <label>Description</label>
-      <textarea id="eDesc" rows="8">${esc(d.description)}</textarea>
+      <textarea id="eDesc" rows="8">${esc(val.description)}</textarea>
     </div>
     <div class="card">
       <label>Shipping</label>
       <div class="row" style="gap:8px">
-        <div style="flex:1"><div class="muted" style="font-size:.75rem">Ships from ZIP</div><input id="eZip" inputmode="numeric" maxlength="5" value="${esc((ebayStatus && ebayStatus.postal_code) || "")}" placeholder="12345"></div>
-        <div style="flex:1"><div class="muted" style="font-size:.75rem">Buyer pays</div><input id="eShip" inputmode="decimal" placeholder="e.g. 12.00 (0 = free)"></div>
-        <div style="flex:.7"><div class="muted" style="font-size:.75rem">Ships within</div><select id="eDays"><option value="1">1 day</option><option value="2">2 days</option><option value="3" selected>3 days</option><option value="5">5 days</option></select></div>
+        <div style="flex:1"><div class="muted" style="font-size:.75rem">Ships from ZIP</div><input id="eZip" inputmode="numeric" maxlength="5" value="${esc(val.postal_code)}" placeholder="12345"></div>
+        <div style="flex:1"><div class="muted" style="font-size:.75rem">Buyer pays</div><input id="eShip" inputmode="decimal" value="${esc(val.shipping_cost)}" placeholder="e.g. 12.00 (0 = free)"></div>
+        <div style="flex:.7"><div class="muted" style="font-size:.75rem">Ships within</div><select id="eDays">${["1", "2", "3", "5"].map(n => `<option value="${n}"${n === val.handling_days ? " selected" : ""}>${n} day${n === "1" ? "" : "s"}</option>`).join("")}</select></div>
       </div>
       <div class="muted" style="font-size:.75rem;margin-top:6px">USPS Priority, flat rate. 30-day returns, buyer pays return shipping. Change these any time in eBay Seller Hub.</div>
     </div>
@@ -389,19 +406,29 @@ function renderEbayDraft(id, d) {
     <div class="muted" style="font-size:.75rem;text-align:center;margin:8px 0 20px">Nothing goes live yet. Next you'll see the listing and eBay's exact fees, then decide.</div>`;
   const tc = () => $("#tCount").textContent = `(${$("#eTitle").value.length}/80)`;
   $("#eTitle").oninput = tc; tc();
-  $("#dBack").onclick = () => renderItemDetail(id);
-  $("#eCat").onchange = () => { if (!d.category || $("#eCat").value !== d.category.id) startEbayListing(id, $("#eCat").value); };
-  $("#eGo").onclick = async () => {
+  // Everything on the form, as the seller left it. category_id is the category these aspects and
+  // this condition were chosen for, so a later category switch knows not to carry them over.
+  const readForm = () => {
     const aspects = {};
     app.querySelectorAll("[data-asp]").forEach(x => { if (x.value.trim()) aspects[x.dataset.asp] = [x.value.trim()]; });
-    const miss = d.aspect_spec.filter(s => s.required && !aspects[s.name]).map(s => s.name);
-    if (miss.length) return toast("eBay requires: " + miss.join(", "));
-    const body = {
-      title: $("#eTitle").value, price: $("#ePrice").value, category_id: $("#eCat").value,
+    return {
+      title: $("#eTitle").value, price: $("#ePrice").value, category_id: d.category ? d.category.id : $("#eCat").value,
       condition: $("#eCond") ? $("#eCond").value : null, condition_note: $("#eCondNote") ? $("#eCondNote").value : "",
       aspects, description: $("#eDesc").value,
       postal_code: $("#eZip").value, shipping_cost: $("#eShip").value, handling_days: $("#eDays").value,
     };
+  };
+  $("#dBack").onclick = () => { ebayEdits[id] = readForm(); renderItemDetail(id); };
+  $("#eCat").onchange = () => {
+    if (!d.category || $("#eCat").value !== d.category.id) { ebayEdits[id] = readForm(); startEbayListing(id, $("#eCat").value); }
+  };
+  $("#eGo").onclick = async () => {
+    const body = readForm();
+    ebayEdits[id] = body;
+    const aspects = body.aspects;
+    const miss = d.aspect_spec.filter(s => s.required && !aspects[s.name]).map(s => s.name);
+    if (miss.length) return toast("eBay requires: " + miss.join(", "));
+    body.category_id = $("#eCat").value;
     if (!/^\d{5}$/.test(body.postal_code.trim())) { $("#eZip").focus(); return toast("Enter the ZIP code you ship from"); }
     if (body.shipping_cost.trim() === "" || isNaN(Number(body.shipping_cost))) { $("#eShip").focus(); return toast("What does the buyer pay for shipping? 0 for free."); }
     // Nothing goes live from this screen. Preview saves the listing on eBay UNPUBLISHED (buyers
@@ -460,6 +487,7 @@ function renderEbayPreview(id, d, body, r) {
     try {
       const res = await api("/items/" + id + "/ebay/publish", { method: "POST", body: JSON.stringify(body) });
       if (window.BTBilling) BTBilling.refresh();
+      delete ebayEdits[id];
       app.innerHTML = `<div class="card" style="text-align:center;margin-top:30px;border-color:var(--cobalt)">
         <div class="big" style="font-size:1.4rem">It's on eBay 🎉</div>
         <div class="muted" style="margin:6px 0 14px">${esc(body.title)}</div>
