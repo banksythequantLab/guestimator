@@ -1,12 +1,14 @@
 {
-  "name": "bottletree-app",
+  "name": "guestimator",
   "main": "worker.js",
   "compatibility_date": "2026-09-01",
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*", "/p/*", "/shop/*"]
+    "run_worker_first": ["/api/*", "/p/*"]
   },
+  // Shared with Bottle Tree on purpose: same accounts, same estimate credits, same photos.
+  // Guestimator adds only its own ebay_* tables (migrations/0012_ebay.sql).
   "d1_databases": [
     {
       "binding": "DB",
@@ -17,42 +19,36 @@
   "r2_buckets": [
     { "binding": "PHOTOS", "bucket_name": "bottletree-photos" }
   ],
+  // Its own queue. A queue has one consumer, and bottletree-app consumes bottletree-appraisals;
+  // sharing it would run Guestimator's estimates on Bottle Tree's copy of the appraiser.
   "queues": {
-    "producers": [{ "binding": "APPRAISALS", "queue": "bottletree-appraisals" }],
-    // One appraisal per invocation: they take ~2 min each and batching them would stack that up.
+    "producers": [{ "binding": "APPRAISALS", "queue": "guestimator-appraisals" }],
     "consumers": [{
-      "queue": "bottletree-appraisals",
+      "queue": "guestimator-appraisals",
       "max_batch_size": 1,
       "max_concurrency": 6,
       "max_retries": 2,
-      "dead_letter_queue": "bottletree-appraisals-dlq"
+      "dead_letter_queue": "guestimator-appraisals-dlq"
     }]
   },
   "vars": {
-    // No APPRAISER_URL: the appraisal runs inside the Worker (appraiser.js -> Token Factory + Tavily).
-    // Setting it again routes to the FastAPI container instead, which is how the offline kiosk runs.
     "NEBIUS_BASE_URL": "https://api.tokenfactory.nebius.com/v1/",
     "TEXT_MODEL": "nvidia/nemotron-3-super-120b-a12b",
     "VISION_MODEL": "google/gemma-3-27b-it",
-    "PUBLIC_ORIGIN": "https://bottletree-app.dj-b02.workers.dev",
-    // RevenueCat public SDK key for the Play Store app (Play service credentials validated 2026-09-20)
+    "PUBLIC_ORIGIN": "https://guestimator.dj-b02.workers.dev",
     "RC_ANDROID_KEY": "goog_bruXXcAjAfxUxeHpcoCYElturCQ",
-    // Google OAuth *web* client ID (project bottletree-app-2026). Public by design — it ships in the
-    // page and is the `aud` we require on every ID token. The client *secret* is not used: we verify
-    // ID tokens against Google's JWKS, we never do a server-side code exchange.
     "GOOGLE_CLIENT_ID": "751660268260-k999i5tdfr36um4c7uatbu11is4djh9g.apps.googleusercontent.com",
-    // RevenueCat Web Purchase Link. The paywall appends /<user_id>; the RevenueCat webhook credits
-    // that same id, so a web purchase and a Play purchase land in one ledger.
     "RC_WEB_LINK": "https://pay.rev.cat/ukvqowwbpdfmdjjz",
-    // eBay hashes this exact string into the challenge response, so it must match what is
-    // registered with eBay character for character — no trailing slash, no http.
-    "EBAY_DELETION_URL": "https://bottletree-app.dj-b02.workers.dev/api/ebay/deletion",
-    // The Stripe account STRIPE_SECRET_KEY belongs to. Not a secret — it is in every dashboard
-    // URL — but it is the whole access control on online checkout: a shop may take card
-    // payments only when users.stripe_account_id equals this, which is to say only when the
-    // money is going to the account that owns the key. Every other shop keeps the catalogue
-    // and tells buyers to contact them. See orders.js shopCanSellOnline().
-    "STRIPE_PLATFORM_ACCOUNT": "acct_1RZvItErbZFpxnC1"
+    // The RevenueCat webhook that credits purchases still points at bottletree-app, which writes
+    // this same D1. Purchases made in Guestimator are therefore credited - by that worker. If
+    // bottletree-app is ever retired, move the webhook here and set RC_WEBHOOK_SECRET first.
+    "RC_WEBHOOK_ON": "bottletree-app",
+    // Must match the endpoint registered with eBay character for character.
+    "EBAY_DELETION_URL": "https://guestimator.dj-b02.workers.dev/api/ebay/deletion",
+    "EBAY_MARKETPLACE": "EBAY_US",
+    // Credits one eBay listing costs: "0" (free) or "1".
+    "EBAY_LISTING_CREDITS": "1"
   }
-  // Secrets (wrangler secret put): APPRAISER_TOKEN (Nebius endpoint bearer), APPRAISER_SERVICE_KEY, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
+  // Secrets (wrangler secret put): NEBIUS_API_KEY, TAVILY_API_KEY, EBAY_CLIENT_ID,
+  // EBAY_CLIENT_SECRET, EBAY_VERIFY_TOKEN, EBAY_RUNAME, EBAY_TOKEN_KEY (32 random bytes, base64).
 }

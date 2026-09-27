@@ -1,9 +1,14 @@
-// Bottle Tree app v0.3 — API worker: accounts, sales, photos (R2), AI appraisals (Nebius), storefront + Stripe.
-// Runs first for /api/*, /p/* (photos) and /shop/* (public storefront); everything else is static assets.
+// Guestimator — API worker: accounts, items, photos (R2), AI estimates (Nebius), and listing on the
+// user's own eBay account. Runs first for /api/* and /p/* (photos); everything else is static assets.
+// Split from Bottle Tree (bottletree-appraiser) on 2026-09-27; the POS lives on there.
 import { planFor, consumeEstimate, refundEstimate, applyRevenueCatEvent, welcomeGrant } from "./billing.js";
 import { appraise } from "./appraiser.js";
-import { settle, periodError, canTransition } from "./settlements.js";
-import { webhookAction, fulfilResult, needsAttention, stripeReady, shopCanSellOnline } from "./orders.js";
+import * as ebay from "./ebay.js";
+// Every Guestimator item lives in one hidden per-user `sales` row (the schema is Bottle Tree's).
+const GUESS_BUCKET = "Guestimator";
+// What listing one item on eBay costs, in estimate credits. EBAY_LISTING_CREDITS may be 0 (free)
+// or 1; anything else is read as 1 until the ledger can take more than one credit at a time.
+const listingCredits = env => (String(env.EBAY_LISTING_CREDITS ?? "1").trim() === "0" ? 0 : 1);
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
 const enc = new TextEncoder();
@@ -138,124 +143,8 @@ async function itemBundle(db, itemId) {
   let appraisal = null;
   if (ap) appraisal = { id: ap.id, status: ap.status, error: ap.error, created_at: ap.created_at, completed_at: ap.completed_at,
                         result: ap.result_json ? JSON.parse(ap.result_json) : null };
-  return { item, photos: photos.map(p => ({ ...p, url: `/p/${p.r2_key}` })), appraisal };
-}
-
-// ---------- Stripe (raw REST, no SDK) ----------
-async function stripeCheckout(env, item, shop, photoUrl, origin) {
-  const form = new URLSearchParams();
-  form.set("mode", "payment");
-  form.set("success_url", `${origin}/shop/${shop.shop_slug}/item/${item.id}?paid=1`);
-  form.set("cancel_url", `${origin}/shop/${shop.shop_slug}/item/${item.id}`);
-  form.set("line_items[0][quantity]", "1");
-  form.set("line_items[0][price_data][currency]", "usd");
-  form.set("line_items[0][price_data][unit_amount]", String(item.price_cents));
-  form.set("line_items[0][price_data][product_data][name]", item.ai_title || item.name);
-  if (photoUrl) form.set("line_items[0][price_data][product_data][images][0]", photoUrl);
-  form.set("metadata[item_id]", item.id);
-  const r = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-    method: "POST", headers: { authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, "content-type": "application/x-www-form-urlencoded" }, body: form,
-  });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.error?.message || "stripe error");
-  return j;
-}
-async function verifyStripeSig(env, rawBody, sigHeader) {
-  const parts = Object.fromEntries((sigHeader || "").split(",").map(kv => kv.split("=")));
-  if (!parts.t || !parts.v1) return false;
-  const expected = await hmacHex(env.STRIPE_WEBHOOK_SECRET, `${parts.t}.${rawBody}`);
-  return timingEq(expected, parts.v1);
-}
-// The payment has settled. Sell the item if it is still there — and if it is not, say so on the
-// order instead of failing quietly, because the buyer has paid either way.
-async function markSoldOnline(db, itemId, sessionId, email, paymentIntent) {
-  // Stripe retries a webhook until it gets a 2xx, and sends completed and
-  // async_payment_succeeded for the same session. Without this, the second delivery would find
-  // the item no longer available — because this very order sold it — and tell the owner to
-  // refund a perfectly good sale. Settling is done once per session.
-  const existing = await db.prepare("SELECT status FROM orders WHERE stripe_session_id=?").bind(sessionId).first();
-  if (existing && existing.status !== "pending")
-    return { status: existing.status, note: null, sold: existing.status === "paid", already: true };
-  const item = itemId ? await db.prepare("SELECT * FROM items WHERE id=? AND status='available'").bind(itemId).first() : null;
-  const out = fulfilResult(!!item);
-  if (item) {
-    const txnId = uid();
-    await db.prepare("INSERT INTO txns (id,sale_id,total_cents,item_count,tender,created_at) VALUES (?,?,?,?,?,?)")
-      .bind(txnId, item.sale_id, item.price_cents, 1, "stripe", now()).run();
-    await db.prepare("UPDATE items SET status='sold', txn_id=?, sold_at=?, listing_status='hidden' WHERE id=?").bind(txnId, now(), itemId).run();
-  }
-  // paid_at records when the money settled, whether or not there was anything left to send.
-  await db.prepare("UPDATE orders SET status=?, note=?, paid_at=?, updated_at=?, buyer_email=COALESCE(?,buyer_email), " +
-    "payment_intent=COALESCE(?,payment_intent) WHERE stripe_session_id=?")
-    .bind(out.status, out.note, now(), now(), email || null, paymentIntent || null, sessionId).run();
-  return out;
-}
-
-// ---------- public storefront (server-rendered) ----------
-const SHOP_CSS = `:root{--bg:#F4ECDC;--panel:#FBF6EA;--ink:#241B10;--sub:#6A5B44;--line:#E0D2B4;--green:#0F6B59;--cobalt:#1E44C4}
-@media(prefers-color-scheme:dark){:root{--bg:#161210;--panel:#211B15;--ink:#F1E7D4;--sub:#B7A889;--line:#3A2F22;--green:#3FBBA0;--cobalt:#7C9BFF}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:"Nunito Sans",system-ui,sans-serif;line-height:1.5}
-h1,h2,h3{font-family:Fraunces,Georgia,serif;font-weight:600;margin:0}.wrap{max-width:1040px;margin:0 auto;padding:0 16px}
-header{padding:22px 0;border-bottom:1px solid var(--line);background:var(--panel)}header .wrap{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
-header a{color:inherit;text-decoration:none}.blurb{color:var(--sub)}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;padding:22px 0}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;display:block;color:inherit;text-decoration:none}
-.card img{width:100%;aspect-ratio:1;object-fit:cover;background:#ddd}.card .b{padding:12px 14px}.card .t{font-weight:700}.card .p{color:var(--green);font-weight:800;margin-top:4px}
-.item{display:grid;grid-template-columns:1fr;gap:22px;padding:22px 0}@media(min-width:760px){.item{grid-template-columns:1.1fr 1fr}}
-.gal img{width:100%;border-radius:12px;border:1px solid var(--line);margin-bottom:10px}.thumbs{display:flex;gap:8px;flex-wrap:wrap}.thumbs img{width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:pointer}
-.price{font-family:Fraunces,serif;font-size:2rem;color:var(--green);margin:8px 0}.desc{white-space:pre-wrap;color:var(--ink)}
-.btn{display:inline-block;background:var(--green);color:#fff;border:0;border-radius:11px;padding:14px 22px;font-weight:800;font-size:1rem;cursor:pointer;text-decoration:none}
-.meta{font-size:.85rem;color:var(--sub);margin-top:14px}.pill{display:inline-block;font-size:.72rem;font-weight:800;padding:2px 9px;border-radius:20px;background:var(--line);color:var(--sub);margin-right:6px}
-.empty{padding:60px 0;text-align:center;color:var(--sub)}footer{padding:30px 0;color:var(--sub);font-size:.8rem;text-align:center}.ok{background:var(--green);color:#fff;padding:10px 14px;border-radius:10px;margin:14px 0;font-weight:700}`;
-
-function shopPage(shop, title, body) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Nunito+Sans:wght@400;700;800&display=swap" rel="stylesheet">
-<style>${SHOP_CSS}</style></head><body><header><div class="wrap"><h1><a href="/shop/${esc(shop.shop_slug)}">${esc(shop.shop_name || shop.shop_slug)}</a></h1>
-${shop.shop_blurb ? `<span class="blurb">${esc(shop.shop_blurb)}</span>` : ""}</div></header><main class="wrap">${body}</main>
-<footer>Powered by Bottle Tree · listings drafted with NVIDIA Nemotron on Nebius</footer></body></html>`;
-}
-function firstPhoto(photos) { return photos.find(p => p.kind === "front") || photos[0]; }
-
-async function renderShop(db, slug) {
-  const shop = await db.prepare("SELECT id, shop_slug, shop_name, shop_blurb FROM users WHERE shop_slug=?").bind(slug).first();
-  if (!shop) return H("<h1>Shop not found</h1>", 404, "no-store");
-  const items = (await db.prepare(
-    "SELECT i.* FROM items i JOIN sales s ON s.id=i.sale_id WHERE s.user_id=? AND i.listing_status='live' AND i.status='available' ORDER BY i.listed_at DESC").bind(shop.id).all()).results;
-  const ids = items.map(i => i.id);
-  let photosBy = {};
-  if (ids.length) {
-    const ph = ids.map(() => "?").join(",");
-    const ps = (await db.prepare(`SELECT * FROM photos WHERE item_id IN (${ph}) ORDER BY sort, created_at`).bind(...ids).all()).results;
-    for (const p of ps) (photosBy[p.item_id] ||= []).push(p);
-  }
-  const cards = items.map(i => { const p = firstPhoto(photosBy[i.id] || []);
-    return `<a class="card" href="/shop/${esc(slug)}/item/${i.id}"><img src="${p ? "/p/" + esc(p.r2_key) : ""}" alt="${esc(i.ai_title || i.name)}" loading="lazy"><div class="b"><div class="t">${esc(i.ai_title || i.name)}</div><div class="p">${money(i.price_cents)}</div></div></a>`; }).join("");
-  const body = items.length ? `<div class="grid">${cards}</div>` : `<div class="empty">Nothing listed yet — check back soon.</div>`;
-  return H(shopPage(shop, shop.shop_name || slug, body));
-}
-
-async function renderItem(db, env, slug, itemId, paid) {
-  // stripe_account_id comes along because it decides whether this shop gets a Buy button.
-  const shop = await db.prepare("SELECT id, shop_slug, shop_name, shop_blurb, stripe_account_id FROM users WHERE shop_slug=?").bind(slug).first();
-  if (!shop) return H("<h1>Shop not found</h1>", 404, "no-store");
-  const b = await itemBundle(db, itemId);
-  if (!b || b.item.listing_status === "draft") return H(shopPage(shop, "Not found", `<div class="empty">Item not found.</div>`), 404, "no-store");
-  const { item, photos, appraisal } = b;
-  const sold = item.status !== "available" || item.listing_status !== "live";
-  const ident = appraisal?.result?.identification || {};
-  const main = firstPhoto(photos);
-  const gallery = photos.length ? `<div class="gal"><img id="mainImg" src="${esc(main.url)}" alt=""><div class="thumbs">${photos.map(p => `<img src="${esc(p.url)}" alt="${esc(p.kind)}" onclick="document.getElementById('mainImg').src=this.src">`).join("")}</div></div>` : `<div class="gal"></div>`;
-  const pills = [ident.maker, ident.period, ident.origin, appraisal?.result?.listing?.condition_grade].filter(Boolean).map(x => `<span class="pill">${esc(x)}</span>`).join("");
-  // The same test as the endpoint, so a shopper is never shown a Buy button that answers 503
-  // — or worse, one that charges them into the wrong person's Stripe account.
-  const buy = sold ? `<div class="meta"><b>Sold</b></div>` : (shopCanSellOnline(env, shop)
-    ? `<form method="post" action="/api/public/checkout"><input type="hidden" name="item_id" value="${item.id}"><button class="btn">Buy now — ${money(item.price_cents)}</button></form>`
-    : `<div class="meta">Contact the shop to purchase.</div>`);
-  const body = `<div class="item">${gallery}<div>${paid ? `<div class="ok">Thank you — your payment went through.</div>` : ""}
-<h2>${esc(item.ai_title || item.name)}</h2><div style="margin:8px 0">${pills}</div><div class="price">${money(item.price_cents)}</div>
-<div class="desc">${esc(item.ai_description || item.description || "")}</div><div style="margin-top:18px">${buy}</div>
-${item.markings ? `<div class="meta">Marks: ${esc(item.markings)}</div>` : ""}</div></div>`;
-  return H(shopPage(shop, item.ai_title || item.name, body), 200, "no-store");
+  const el = await db.prepare("SELECT status, listing_url, listing_id, error, updated_at FROM ebay_listings WHERE item_id=? ORDER BY created_at DESC LIMIT 1").bind(itemId).first();
+  return { item, photos: photos.map(p => ({ ...p, url: `/p/${p.r2_key}` })), appraisal, ebay: el || null };
 }
 
 export default {
@@ -272,71 +161,7 @@ export default {
         if (!obj) return new Response("not found", { status: 404 });
         return new Response(obj.body, { headers: { "content-type": obj.httpMetadata?.contentType || "image/jpeg", "cache-control": "public, max-age=31536000, immutable", etag: obj.httpEtag } });
       }
-      // ---------- PUBLIC: storefront ----------
-      if (parts[0] === "shop" && m === "GET") {
-        if (parts.length === 2) return renderShop(db, parts[1]);
-        if (parts.length === 4 && parts[2] === "item") return renderItem(db, env, parts[1], parts[3], url.searchParams.get("paid") === "1");
-        return H("<h1>Not found</h1>", 404, "no-store");
-      }
       if (!p.startsWith("/api/")) return env.ASSETS.fetch(request);
-
-      // ---------- PUBLIC API: checkout + stripe webhook + shop JSON ----------
-      if (parts[1] === "public") {
-        if (parts[2] === "shop" && parts[3] && m === "GET") {
-          const shop = await db.prepare("SELECT id, shop_slug, shop_name, shop_blurb FROM users WHERE shop_slug=?").bind(parts[3]).first();
-          if (!shop) return J({ error: "not found" }, 404);
-          const items = (await db.prepare("SELECT i.id, i.name, i.ai_title, i.ai_description, i.price_cents, i.listed_at FROM items i JOIN sales s ON s.id=i.sale_id WHERE s.user_id=? AND i.listing_status='live' AND i.status='available' ORDER BY i.listed_at DESC").bind(shop.id).all()).results;
-          return J({ shop: { slug: shop.shop_slug, name: shop.shop_name, blurb: shop.shop_blurb }, items });
-        }
-        if (parts[2] === "checkout" && m === "POST") {
-          // Both halves or neither. Taking a payment you cannot hear the confirmation for is
-          // worse than not taking it: the buyer is charged, the webhook is rejected for want of
-          // a signing secret, the item stays on sale and the order sits pending forever. A key
-          // installed without its webhook secret is a trap, so it does not open the door.
-          if (!stripeReady(env)) return J({ error: "online checkout not enabled" }, 503);
-          const ct = request.headers.get("content-type") || "";
-          const itemId = ct.includes("json") ? (await readJson(request)).item_id : (await request.formData()).get("item_id");
-          const row = await db.prepare("SELECT i.*, u.shop_slug, u.shop_name, u.stripe_account_id FROM items i JOIN sales s ON s.id=i.sale_id JOIN users u ON u.id=s.user_id WHERE i.id=? AND i.listing_status='live' AND i.status='available'").bind(itemId).first();
-          if (!row) return J({ error: "item unavailable" }, 404);
-          // Hiding the button is presentation; this is the control. A shop that is not paid
-          // into the platform's own Stripe account cannot take a card payment here, however
-          // the request was constructed, because the money would land in the wrong hands.
-          if (!shopCanSellOnline(env, row))
-            return J({ error: "This shop takes payment directly, not through the site. " +
-                              "Contact the shop to buy this item.", online_checkout: false }, 503);
-          if (row.price_cents < 50) return J({ error: "price too low for card checkout" }, 400);
-          const ph = await db.prepare("SELECT r2_key FROM photos WHERE item_id=? ORDER BY sort, created_at LIMIT 1").bind(row.id).first();
-          const origin = env.PUBLIC_ORIGIN || url.origin;
-          const sess = await stripeCheckout(env, row, row, ph ? `${origin}/p/${ph.r2_key}` : null, origin);
-          await db.prepare("INSERT INTO orders (id,item_id,stripe_session_id,amount_cents,status,created_at) VALUES (?,?,?,?,'pending',?)").bind(uid(), row.id, sess.id, row.price_cents, now()).run();
-          return ct.includes("json") ? J({ url: sess.url }) : Response.redirect(sess.url, 303);
-        }
-        if (parts[2] === "stripe-webhook" && m === "POST") {
-          const raw = await request.text();
-          if (!env.STRIPE_WEBHOOK_SECRET || !(await verifyStripeSig(env, raw, request.headers.get("stripe-signature")))) return J({ error: "bad signature" }, 400);
-          const ev = JSON.parse(raw);
-          // What the event means is decided in orders.js, away from the database, because the
-          // rules are about money and deserve to be tested as rules. In particular a completed
-          // session is not necessarily a paid one: ACH and vouchers complete first and confirm
-          // later, and selling the item on completion alone takes it off the shelf for a
-          // payment that may never arrive.
-          const act = webhookAction(ev);
-          if (act.do === "fulfil" && act.session_id)
-            return J({ received: true, ...(await markSoldOnline(db, act.item_id, act.session_id, act.email, act.payment_intent)) });
-          if (act.do === "cancel" && act.session_id) {
-            // Only a live order can be cancelled. One that already settled must never be
-            // reopened by a late or duplicated event.
-            await db.prepare("UPDATE orders SET status='cancelled', note=?, updated_at=? WHERE stripe_session_id=? AND status='pending'")
-              .bind(act.reason || null, now(), act.session_id).run();
-            return J({ received: true, cancelled: true });
-          }
-          if (act.do === "wait" && act.session_id)
-            await db.prepare("UPDATE orders SET note=?, updated_at=? WHERE stripe_session_id=? AND status='pending'")
-              .bind(act.reason || null, now(), act.session_id).run();
-          return J({ received: true, action: act.do });
-        }
-        return J({ error: "not found" }, 404);
-      }
 
       // ---------- BILLING: RevenueCat webhook (Authorization: Bearer <RC_WEBHOOK_SECRET>, set in the RC dashboard) ----------
       if (parts[1] === "billing" && parts[2] === "revenuecat" && m === "POST") {
@@ -372,47 +197,59 @@ export default {
           return J({ challengeResponse: hex });
         }
         if (m === "POST") {
-          // Nothing of the deleting user's is held here: we never ask for eBay user tokens and
-          // store no eBay account identifiers. Acknowledge so eBay does not retry, and leave a
-          // trace so a compliance question later has an answer.
+          // Guestimator DOES hold eBay user data: a linked account's sealed tokens, its eBay user
+          // id and username. A closed eBay account takes all of that with it. The listings log
+          // keeps its rows (they are the user's own history in this app) but nothing of eBay's.
           const body = await readJson(request).catch(() => ({}));
+          const d = body?.notification?.data || {};
+          let removed = 0;
+          if (d.userId || d.username) {
+            const r = await db.prepare("DELETE FROM ebay_accounts WHERE ebay_user_id=? OR ebay_username=?")
+              .bind(d.userId || "\u0000", d.username || "\u0000").run();
+            removed = r.meta?.changes || 0;
+          }
           console.log("ebay account deletion notification", JSON.stringify({
-            at: now(), notificationId: body?.notification?.notificationId || null,
+            at: now(), notificationId: body?.notification?.notificationId || null, removed,
           }));
           return new Response(null, { status: 204 });
         }
         return J({ error: "method not allowed" }, 405);
       }
 
-      // ---------- DEVICE (Jetson kiosk) intake: X-Device-Key instead of a session ----------
-      if (parts[1] === "device" && parts[2] === "intake" && m === "POST") {
-        const key = request.headers.get("x-device-key") || "";
-        const owner = key ? await db.prepare("SELECT id FROM users WHERE device_key=?").bind(key).first() : null;
-        if (!owner) return J({ error: "bad device key" }, 401);
-        const fd = await request.formData();
-        const files = fd.getAll("photos").filter(f => typeof f === "object" && f.size);
-        if (!files.length) return J({ error: "no photos" }, 400);
-        const kinds = String(fd.get("kinds") || "").split(",").map(k => k.trim());
-        let sale = await db.prepare("SELECT id FROM sales WHERE user_id=? AND name='Kiosk intake' AND status='open'").bind(owner.id).first();
-        if (!sale) { sale = { id: uid() }; await db.prepare("INSERT INTO sales (id,name,status,created_at,user_id) VALUES (?,?,'open',?,?)").bind(sale.id, "Kiosk intake", now(), owner.id).run(); }
-        let ap = null; try { ap = JSON.parse(String(fd.get("appraisal") || "")); } catch {}
-        const title = String(fd.get("title") || "").trim() || ap?.listing?.title || "Kiosk item";
-        const price_cents = Math.max(0, Math.round(Number(fd.get("price") || ap?.price_range?.suggested_retail || 0) * 100)) || 0;
-        const itemId = uid();
-        await db.prepare("INSERT INTO items (id,sale_id,name,price_cents,status,created_at,description,markings,ai_title,ai_description,source) VALUES (?,?,?,?,'available',?,?,?,?,?,'kiosk')")
-          .bind(itemId, sale.id, title, price_cents, now(), String(fd.get("description") || "") || null, String(fd.get("markings") || "") || null,
-                ap?.listing?.title || null, ap?.listing?.description || null).run();
-        for (let i = 0; i < files.length; i++) {
-          const f = files[i], ctype = f.type || "image/jpeg";
-          const ext = ctype.includes("png") ? "png" : ctype.includes("webp") ? "webp" : "jpg";
-          const rkey = `${itemId}/${uid()}.${ext}`;
-          await env.PHOTOS.put(rkey, f.stream(), { httpMetadata: { contentType: ctype } });
-          await db.prepare("INSERT INTO photos (id,item_id,r2_key,kind,content_type,bytes,sort,created_at) VALUES (?,?,?,?,?,?,?,?)")
-            .bind(uid(), itemId, rkey, PHOTO_KINDS.has(kinds[i]) ? kinds[i] : "other", ctype, f.size, i, now()).run();
+      // ---------- eBay OAuth callback (public: it lands in whatever browser eBay opened) ----------
+      // On a phone that is Chrome, not the app, so there is no session cookie here. The single-use
+      // `state` row is what ties the code to a Guestimator account, and it expires in 15 minutes.
+      if (parts[1] === "ebay" && parts[2] === "callback" && m === "GET") {
+        const page = (title, msg, ok) => H(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
+<style>body{font-family:system-ui,sans-serif;background:#F4ECDC;color:#241B10;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:20px}
+.c{background:#FBF6EA;border:1px solid #E0D2B4;border-radius:14px;padding:22px;max-width:420px;text-align:center}.c h1{font-size:1.3rem;margin:0 0 8px}
+.ok{color:#0F6B59}.bad{color:#B4552B}a{display:inline-block;margin-top:14px;background:#0F6B59;color:#fff;padding:12px 18px;border-radius:10px;text-decoration:none;font-weight:700}</style></head>
+<body><div class="c"><h1 class="${ok ? "ok" : "bad"}">${esc(title)}</h1><p>${esc(msg)}</p><a href="/">Back to Guestimator</a></div></body></html>`, ok ? 200 : 400, "no-store");
+        const state = url.searchParams.get("state") || "";
+        const st = state ? await db.prepare("SELECT * FROM ebay_oauth_states WHERE state=?").bind(state).first() : null;
+        if (st) await db.prepare("DELETE FROM ebay_oauth_states WHERE state=?").bind(state).run();
+        if (!st || Date.now() - Date.parse(st.created_at) > 15 * 60e3)
+          return page("That link has expired", "Go back to Guestimator and tap Connect eBay again.", false);
+        const code = url.searchParams.get("code");
+        if (!code) return page("eBay was not connected", "You declined on eBay, so nothing was linked. You can connect any time.", false);
+        try {
+          const tok = await ebay.exchangeCode(env, code);
+          if (!tok.refresh_token) throw new Error("eBay did not grant lasting access; try connecting again");
+          const who = await ebay.identity(env, tok.access_token);
+          const ts = now();
+          const refreshExp = tok.refresh_token_expires_in ? new Date(Date.now() + tok.refresh_token_expires_in * 1000).toISOString() : null;
+          await db.prepare(
+            "INSERT INTO ebay_accounts (user_id,ebay_user_id,ebay_username,refresh_token_enc,refresh_expires_at,access_token_enc,access_expires_at,created_at,updated_at) " +
+            "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET ebay_user_id=excluded.ebay_user_id, ebay_username=excluded.ebay_username, " +
+            "refresh_token_enc=excluded.refresh_token_enc, refresh_expires_at=excluded.refresh_expires_at, access_token_enc=excluded.access_token_enc, " +
+            "access_expires_at=excluded.access_expires_at, updated_at=excluded.updated_at")
+            .bind(st.user_id, who.userId, who.username, await ebay.seal(env, tok.refresh_token), refreshExp,
+                  await ebay.seal(env, tok.access_token), new Date(Date.now() + (tok.expires_in || 7200) * 1000).toISOString(), ts, ts).run();
+          return page("eBay connected", `Guestimator can now list items on ${who.username ? `the eBay account ${who.username}` : "your eBay account"}. Nothing is listed until you review it and tap List.`, true);
+        } catch (e) {
+          console.log("ebay callback failed", String(e && e.message));
+          return page("eBay was not connected", String(e && e.message || e), false);
         }
-        if (ap) await db.prepare("INSERT INTO appraisals (id,item_id,status,result_json,model_text,model_vision,created_at,completed_at) VALUES (?,?,'done',?,?,?,?,?)")
-          .bind(uid(), itemId, JSON.stringify(ap), ap.models?.text || null, ap.models?.vision || null, now(), now()).run();
-        return J({ item_id: itemId, sale_id: sale.id, photos: files.length });
       }
 
       // ---------- AUTH ----------
@@ -501,7 +338,8 @@ export default {
         // The Road Show deployment was exactly that: RC_WEB_LINK set, RC_WEBHOOK_SECRET absent, so
         // every purchase would have 503'd at the webhook and never reached the buyer's account.
         // Fail closed — offer no purchase route unless the webhook that credits it is configured.
-        const canCredit = !!env.RC_WEBHOOK_SECRET;
+        // Guestimator: the webhook lives on bottletree-app (RC_WEBHOOK_ON), writing this same D1.
+        const canCredit = !!(env.RC_WEBHOOK_SECRET || env.RC_WEBHOOK_ON);
         return J({
           user_id: userId, email: me?.email || null,
           rc_android_key: canCredit ? (env.RC_ANDROID_KEY || null) : null,
@@ -512,301 +350,61 @@ export default {
         });
       }
 
-      // ---------- sellers (account-wide: the dealer's consignors, not one sale's) ----------
-      if (parts[1] === "me" && parts[2] === "sellers") {
-        if (parts.length === 3 && m === "GET")
-          // The settlement terms come back with the dealer. A list that omitted them would make
-          // the page fetch every seller twice to show a commission it already had.
-          return J((await db.prepare(
-            "SELECT id,name,created_at,commission_pct,rent_cents,booth,terms_note,active,payout_method " +
-            "FROM sellers WHERE user_id=? ORDER BY name COLLATE NOCASE").bind(userId).all()).results);
-        if (parts.length === 3 && m === "POST") {
-          const b = await readJson(request); const name = (b.name || "").trim();
-          if (!name) return J({ error: "name required" }, 400);
-          const dup = await db.prepare("SELECT id,name FROM sellers WHERE user_id=? AND lower(trim(name))=lower(?)").bind(userId, name).first();
-          if (dup) return J(dup);   // idempotent: adding "Mom" twice gives you the same Mom
+      // ---------- the user's eBay connection ----------
+      if (parts[1] === "ebay" && parts.length === 3) {
+        if (parts[2] === "status" && m === "GET") {
+          const a = await db.prepare("SELECT ebay_username, postal_code, created_at FROM ebay_accounts WHERE user_id=?").bind(userId).first();
+          return J({ configured: ebay.ebayConfigured(env), connected: !!a, username: a?.ebay_username || null,
+                     postal_code: a?.postal_code || null, signup_url: ebay.SIGNUP_URL,
+                     listing_credits: listingCredits(env) });
+        }
+        if (parts[2] === "connect" && m === "POST") {
+          if (!ebay.ebayConfigured(env)) return J({ error: "eBay listing isn't switched on yet." }, 503);
+          const state = randHex(24);
+          await db.prepare("DELETE FROM ebay_oauth_states WHERE created_at < ?").bind(new Date(Date.now() - 3600e3).toISOString()).run();
+          await db.prepare("INSERT INTO ebay_oauth_states (state,user_id,created_at) VALUES (?,?,?)").bind(state, userId, now()).run();
+          return J({ url: ebay.consentUrl(env, state) });
+        }
+        if (parts[2] === "connection" && m === "DELETE") {
+          // Forgetting the tokens is all we can do from here; the user revokes the app itself
+          // in My eBay > Account > Third-party app access, and the app says so.
+          const r = await db.prepare("DELETE FROM ebay_accounts WHERE user_id=?").bind(userId).run();
+          return J({ disconnected: r.meta?.changes || 0 });
+        }
+        if (parts[2] === "settings" && m === "PUT") {
+          const b = await readJson(request);
+          const zip = String(b.postal_code || "").trim();
+          if (!/^\d{5}(-\d{4})?$/.test(zip)) return J({ error: "Enter a 5-digit ZIP code" }, 400);
+          const r = await db.prepare("UPDATE ebay_accounts SET postal_code=?, updated_at=? WHERE user_id=?").bind(zip.slice(0, 5), now(), userId).run();
+          if (!r.meta?.changes) return J({ error: "Connect your eBay account first" }, 409);
+          return J({ postal_code: zip.slice(0, 5) });
+        }
+      }
+
+      // ---------- Guestimator: one flat list of the user's items ----------
+      // Items still hang off a `sales` row because the D1 schema is shared with Bottle Tree. The
+      // app never shows sales: every item goes into one per-user container, made on first use.
+      if (parts[1] === "items" && parts.length === 2) {
+        if (m === "GET") {
+          const { results } = await db.prepare(
+            "SELECT i.id, i.name, i.ai_title, i.price_cents, i.created_at, " +
+            "(SELECT r2_key FROM photos p WHERE p.item_id=i.id ORDER BY p.sort, p.created_at LIMIT 1) AS thumb_key, " +
+            "(SELECT status FROM appraisals a WHERE a.item_id=i.id ORDER BY a.created_at DESC LIMIT 1) AS appraisal_status, " +
+            "(SELECT status FROM ebay_listings e WHERE e.item_id=i.id ORDER BY e.created_at DESC LIMIT 1) AS ebay_status " +
+            "FROM items i JOIN sales s ON s.id=i.sale_id WHERE s.user_id=? ORDER BY i.created_at DESC LIMIT 500").bind(userId).all();
+          return J(results);
+        }
+        if (m === "POST") {
+          const b = await readJson(request);
+          let sale = await db.prepare("SELECT id FROM sales WHERE user_id=? AND name=? ORDER BY created_at LIMIT 1").bind(userId, GUESS_BUCKET).first();
+          if (!sale) {
+            sale = { id: uid() };
+            await db.prepare("INSERT INTO sales (id,name,status,created_at,user_id) VALUES (?,?,'open',?,?)").bind(sale.id, GUESS_BUCKET, now(), userId).run();
+          }
           const id = uid();
-          await db.prepare("INSERT INTO sellers (id,user_id,name,created_at) VALUES (?,?,?,?)").bind(id, userId, name, now()).run();
-          return J({ id, name });
-        }
-        if (parts.length === 4) {
-          const sid2 = parts[3];
-          const own = await db.prepare("SELECT id FROM sellers WHERE id=? AND user_id=?").bind(sid2, userId).first();
-          if (!own) return J({ error: "not found" }, 404);
-          if (m === "PUT") {
-            const b = await readJson(request); const name = (b.name || "").trim();
-            if (!name) return J({ error: "name required" }, 400);
-            const clash = await db.prepare("SELECT id FROM sellers WHERE user_id=? AND lower(trim(name))=lower(?) AND id<>?").bind(userId, name, sid2).first();
-            if (clash) return J({ error: "You already have a seller by that name" }, 409);
-            await db.prepare("UPDATE sellers SET name=? WHERE id=?").bind(name, sid2).run();
-            return J({ id: sid2, name });
-          }
-          // Settlement terms. Separate from PUT, which renames, because renaming a dealer and
-          // changing what they are paid are different acts and one should not quietly do the other.
-          if (m === "PATCH") {
-            const b = await readJson(request);
-            // The typo that matters here is 1200 for 12%. Out of range is always a mistake, and
-            // a mistake in this field is money.
-            if (b.commission_pct !== undefined) {
-              const p = Number(b.commission_pct);
-              if (!(p >= 0 && p <= 100)) return J({ error: "Commission must be between 0 and 100 percent" }, 400);
-            }
-            if (b.rent_cents !== undefined && !(Number(b.rent_cents) >= 0))
-              return J({ error: "Rent cannot be negative" }, 400);
-            await db.prepare(
-              "UPDATE sellers SET commission_pct=COALESCE(?,commission_pct), rent_cents=COALESCE(?,rent_cents), " +
-              "booth=COALESCE(?,booth), terms_note=COALESCE(?,terms_note), active=COALESCE(?,active), " +
-              "payout_method=COALESCE(?,payout_method) WHERE id=?")
-              .bind(b.commission_pct ?? null, b.rent_cents === undefined ? null : Math.round(Number(b.rent_cents)),
-                    b.booth ?? null, b.terms_note ?? null,
-                    b.active === undefined ? null : (b.active ? 1 : 0), b.payout_method ?? null, sid2).run();
-            return J(await db.prepare(
-              "SELECT id,name,commission_pct,rent_cents,booth,terms_note,active,payout_method FROM sellers WHERE id=?")
-              .bind(sid2).first());
-          }
-          if (m === "DELETE") {
-            // Items keep their history; they just lose the attribution. Never delete a seller's items.
-            const n = await db.prepare("SELECT COUNT(*) AS n FROM items WHERE seller_id=?").bind(sid2).first();
-            if (n.n && url.searchParams.get("force") !== "1")
-              return J({ error: "This seller is on items", items: n.n, needs_force: true }, 409);
-            await db.prepare("UPDATE items SET seller_id=NULL WHERE seller_id=?").bind(sid2).run();
-            await db.prepare("DELETE FROM sellers WHERE id=?").bind(sid2).run();
-            return J({ deleted: 1, unassigned: n.n });
-          }
-        }
-        return J({ error: "not found" }, 404);
-      }
-
-      // ---------- settlements: what each dealer is owed, and a frozen record of it ----------
-      // The arithmetic lives in settlements.js and is tested without a database. What is here is
-      // the querying, the freezing, and refusing the things that have to be refused.
-      if (parts[1] === "me" && parts[2] === "statements") {
-        // Shared by preview and create so the two can never disagree about the numbers. A preview
-        // that differs from what gets saved is worse than no preview.
-        const settleFor = async (b) => {
-          const from = String(b.from || ""), to = String(b.to || "");
-          const bad = periodError(from, to);
-          if (bad) return { error: bad, status: 400 };
-          const seller = await db.prepare("SELECT * FROM sellers WHERE id=? AND user_id=?")
-            .bind(String(b.seller_id || ""), userId).first();
-          if (!seller) return { error: "Dealer not found", status: 404 };
-          // This dealer's sold items, in the period, from this account's sales only. The join on
-          // sales is what stops another account's item ever reaching a statement.
-          const items = (await db.prepare(
-            "SELECT i.id, i.name, i.price_cents, i.sold_at FROM items i " +
-            "JOIN sales sa ON sa.id = i.sale_id " +
-            "WHERE i.seller_id=? AND sa.user_id=? AND i.status='sold' " +
-            "AND i.sold_at IS NOT NULL AND i.sold_at >= ? AND i.sold_at <= ? " +
-            "ORDER BY i.sold_at, i.name")
-            .bind(seller.id, userId, from, to + "￿").all()).results;
-          // Terms are read ONCE, here. Everything downstream uses this copy and nothing reads
-          // sellers.commission_pct again, which is what stops a later rate change rewriting a
-          // statement that has already been handed to someone.
-          const settled = settle({ items, commission_pct: seller.commission_pct,
-                                   rent_cents: seller.rent_cents, adjustments: b.adjustments || [] });
-          return { seller: { id: seller.id, name: seller.name, booth: seller.booth }, from, to, settled };
-        };
-
-        if (parts.length === 3 && m === "GET") {
-          return J({ statements: (await db.prepare(
-            "SELECT st.*, s.name AS seller_name, s.booth FROM statements st " +
-            "JOIN sellers s ON s.id=st.seller_id WHERE st.user_id=? " +
-            "ORDER BY st.period_start DESC, s.name COLLATE NOCASE").bind(userId).all()).results });
-        }
-
-        // The numbers, saved nowhere. This is what the owner looks at before committing.
-        if (parts.length === 4 && parts[3] === "preview" && m === "POST") {
-          const built = await settleFor(await readJson(request));
-          return built.error ? J({ error: built.error }, built.status) : J(built);
-        }
-
-        if (parts.length === 3 && m === "POST") {
-          const b = await readJson(request);
-          const built = await settleFor(b);
-          if (built.error) return J({ error: built.error }, built.status);
-          // The partial unique index enforces this in the database too. It is here so the answer
-          // is a sentence rather than a constraint error.
-          const clash = await db.prepare(
-            "SELECT id FROM statements WHERE seller_id=? AND period_start=? AND period_end=? AND status<>'void'")
-            .bind(b.seller_id, built.from, built.to).first();
-          if (clash) return J({ error: "A statement for this dealer and period already exists",
-                                statement_id: clash.id }, 409);
-          const id = uid(), ts = now(), s = built.settled;
-          await db.prepare(
-            "INSERT INTO statements (id,user_id,seller_id,period_start,period_end,basis,commission_pct,rent_cents," +
-            "gross_cents,commission_cents,rent_charged_cents,adjust_cents,net_cents,item_count,status,note,created_at) " +
-            "VALUES (?,?,?,?,?,'sold_at',?,?,?,?,?,?,?,?,'draft',?,?)")
-            .bind(id, userId, b.seller_id, built.from, built.to, s.commission_pct, s.rent_cents,
-                  s.gross_cents, s.commission_cents, s.rent_charged_cents, s.adjust_cents, s.net_cents,
-                  s.item_count, b.note ?? null, ts).run();
-          // The lines are copied, not joined. From here the statement does not care whether the
-          // items are renamed, repriced, reassigned to another dealer or deleted outright.
-          for (const l of s.lines)
-            await db.prepare("INSERT INTO statement_items (id,statement_id,item_id,name,price_cents,sold_at) VALUES (?,?,?,?,?,?)")
-              .bind(uid(), id, l.item_id, l.name, l.price_cents, l.sold_at).run();
-          for (const a of (b.adjustments || []))
-            await db.prepare("INSERT INTO statement_adjustments (id,statement_id,label,cents,created_at) VALUES (?,?,?,?,?)")
-              .bind(uid(), id, String(a.label || "adjustment").slice(0, 80), Math.round(Number(a.cents) || 0), ts).run();
-          return J({ statement_id: id, ...s }, 201);
-        }
-
-        if (parts.length === 4 && m === "GET") {
-          const st = await db.prepare(
-            "SELECT st.*, s.name AS seller_name, s.booth, s.payout_method FROM statements st " +
-            "JOIN sellers s ON s.id=st.seller_id WHERE st.id=? AND st.user_id=?").bind(parts[3], userId).first();
-          if (!st) return J({ error: "not found" }, 404);
-          return J({ ...st, owes: st.net_cents < 0,
-            items: (await db.prepare("SELECT * FROM statement_items WHERE statement_id=? ORDER BY sold_at, name").bind(st.id).all()).results,
-            adjustments: (await db.prepare("SELECT * FROM statement_adjustments WHERE statement_id=? ORDER BY created_at").bind(st.id).all()).results });
-        }
-
-        // The thing a dealer is actually handed. CSV because every dealer already has something
-        // that opens one, and a print view because a mall owner hands over paper.
-        if (parts.length === 5 && (parts[4] === "csv" || parts[4] === "print") && m === "GET") {
-          const st = await db.prepare(
-            "SELECT st.*, s.name AS seller_name, s.booth, s.payout_method FROM statements st " +
-            "JOIN sellers s ON s.id=st.seller_id WHERE st.id=? AND st.user_id=?").bind(parts[3], userId).first();
-          if (!st) return J({ error: "not found" }, 404);
-          const lines = (await db.prepare("SELECT * FROM statement_items WHERE statement_id=? ORDER BY sold_at, name").bind(st.id).all()).results;
-          const adj = (await db.prepare("SELECT * FROM statement_adjustments WHERE statement_id=? ORDER BY created_at").bind(st.id).all()).results;
-          const d = c => (c < 0 ? "-$" : "$") + (Math.abs(c) / 100).toFixed(2);
-          const owner = await db.prepare("SELECT shop_name FROM users WHERE id=?").bind(userId).first();
-          const who = (owner && owner.shop_name) || "";
-          const head = `${st.seller_name}${st.booth ? ` (booth ${st.booth})` : ""}`;
-          const period = `${st.period_start} to ${st.period_end}`;
-
-          if (parts[4] === "csv") {
-            // Excel decides a field is a formula if it starts with = + - or @, so a name like
-            // "-- spare parts" becomes #NAME? or worse. Prefixing a quote is the standard defusing
-            // and it survives the round trip back out.
-            const cell = v => {
-              let s = String(v ?? "");
-              if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
-              return `"${s.replace(/"/g, '""')}"`;
-            };
-            const rows = [
-              ["Statement", st.id], ["Dealer", head], ["Period", period], ["Status", st.status], [],
-              ["Sold", "Item", "Price"],
-              ...lines.map(l => [l.sold_at || "", l.name, (l.price_cents / 100).toFixed(2)]),
-              [],
-              ["", "Gross", (st.gross_cents / 100).toFixed(2)],
-              ["", `Commission ${st.commission_pct}%`, (-st.commission_cents / 100).toFixed(2)],
-              ["", "Booth rent", (-st.rent_charged_cents / 100).toFixed(2)],
-              ...adj.map(a => ["", a.label, (a.cents / 100).toFixed(2)]),
-              ["", st.net_cents < 0 ? "OWES" : "Net due", (st.net_cents / 100).toFixed(2)],
-            ];
-            return new Response(rows.map(r => r.map(cell).join(",")).join("\r\n"), { headers: {
-              "content-type": "text/csv; charset=utf-8",
-              "content-disposition": `attachment; filename="statement-${st.period_start}-${String(st.seller_name).replace(/[^\w-]+/g, "_")}.csv"`,
-              "cache-control": "no-store" } });
-          }
-
-          const row = (label, cents, cls = "") =>
-            `<tr class="${cls}"><td>${esc(label)}</td><td class="n">${esc(d(cents))}</td></tr>`;
-          return H(`<!doctype html><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Statement ${esc(period)} — ${esc(head)}</title>
-<style>
- body{font:15px/1.5 system-ui,sans-serif;max-width:720px;margin:24px auto;padding:0 16px;color:#111}
- h1{font-size:1.25rem;margin:0 0 2px} .sub{color:#666;margin:0 0 18px}
- table{width:100%;border-collapse:collapse;margin:14px 0}
- th,td{text-align:left;padding:6px 4px;border-bottom:1px solid #eee}
- .n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
- .tot td{border-top:2px solid #111;border-bottom:none;font-weight:700;font-size:1.05rem}
- .owed td{color:#b00}
- .st{display:inline-block;padding:1px 8px;border:1px solid #bbb;border-radius:99px;font-size:.78rem;color:#555}
- @media print{body{margin:0}.noprint{display:none}}
-</style>
-<h1>${esc(who || "Settlement statement")}</h1>
-<p class="sub">${esc(head)} · ${esc(period)} · <span class="st">${esc(st.status)}</span></p>
-<table><thead><tr><th>Sold</th><th>Item</th><th class="n">Price</th></tr></thead><tbody>
-${lines.map(l => `<tr><td>${esc(String(l.sold_at || "").slice(0, 10))}</td><td>${esc(l.name)}</td><td class="n">${esc(d(l.price_cents))}</td></tr>`).join("")
-  || `<tr><td colspan="3">No items sold in this period.</td></tr>`}
-</tbody></table>
-<table><tbody>
-${row("Gross", st.gross_cents)}
-${row(`Commission ${st.commission_pct}%`, -st.commission_cents)}
-${row("Booth rent", -st.rent_charged_cents)}
-${adj.map(a => row(a.label, a.cents)).join("")}
-${row(st.net_cents < 0 ? "Owes" : "Net due", st.net_cents, st.net_cents < 0 ? "tot owed" : "tot")}
-</tbody></table>
-${st.payout_method ? `<p class="sub">Paid by ${esc(st.payout_method)}.</p>` : ""}
-${st.note ? `<p class="sub">${esc(st.note)}</p>` : ""}
-<p class="sub noprint"><a href="/api/me/statements/${esc(st.id)}/csv">Download CSV</a></p>`, 200, "no-store");
-        }
-
-        if (parts.length === 5 && parts[4] === "status" && m === "POST") {
-          const st = await db.prepare("SELECT * FROM statements WHERE id=? AND user_id=?").bind(parts[3], userId).first();
-          if (!st) return J({ error: "not found" }, 404);
-          const to = String((await readJson(request)).to || "");
-          if (!canTransition(st.status, to))
-            return J({ error: st.status === "paid"
-              ? "A paid statement cannot be changed — void it and issue a new one"
-              : `Cannot go from ${st.status} to ${to || "nothing"}` }, 409);
-          const ts = now();
-          await db.prepare(
-            "UPDATE statements SET status=?, issued_at=CASE WHEN ?='issued' THEN ? ELSE issued_at END, " +
-            "paid_at=CASE WHEN ?='paid' THEN ? ELSE paid_at END WHERE id=?")
-            .bind(to, to, ts, to, ts, st.id).run();
-          return J({ id: st.id, status: to });
-        }
-        return J({ error: "not found" }, 404);
-      }
-
-      // ---------- orders: what the online store sold, and what still has to be sent ----------
-      // These rows existed from the first day of the storefront and nothing ever read them.
-      if (parts[1] === "me" && parts[2] === "orders") {
-        if (parts.length === 3 && m === "GET") {
-          // The join through items and sales is what scopes these to this shop. An order has no
-          // user_id of its own; the item it is for is what makes it yours.
-          const rows = (await db.prepare(
-            "SELECT o.*, i.name AS item_name, i.ai_title, i.status AS item_status " +
-            "FROM orders o JOIN items i ON i.id=o.item_id JOIN sales s ON s.id=i.sale_id " +
-            "WHERE s.user_id=? ORDER BY o.created_at DESC LIMIT 200").bind(userId).all()).results;
-          return J({ orders: rows.map(o => ({ ...o, needs_attention: needsAttention(o) })) });
-        }
-        // Marking an order sent, and taking that back — a tracking number typed against the
-        // wrong row is a mistake worth being able to undo.
-        if (parts.length === 5 && parts[4] === "sent" && (m === "POST" || m === "DELETE")) {
-          const o = await db.prepare(
-            "SELECT o.* FROM orders o JOIN items i ON i.id=o.item_id JOIN sales s ON s.id=i.sale_id " +
-            "WHERE o.id=? AND s.user_id=?").bind(parts[3], userId).first();
-          if (!o) return J({ error: "not found" }, 404);
-          if (m === "DELETE") {
-            await db.prepare("UPDATE orders SET fulfilled_at=NULL, updated_at=? WHERE id=?").bind(now(), o.id).run();
-            return J({ id: o.id, fulfilled_at: null });
-          }
-          // Only something that was actually paid for can be sent. Marking a pending or
-          // cancelled order as sent would put a lie in the only record of it.
-          if (o.status !== "paid")
-            return J({ error: o.status === "needs_refund"
-              ? "This buyer paid for something that had already sold. Refund them in Stripe rather than marking it sent."
-              : `This order is ${o.status}, so there is nothing to send yet.`, status: o.status }, 409);
-          const ts = now();
-          await db.prepare("UPDATE orders SET fulfilled_at=?, updated_at=? WHERE id=?").bind(ts, ts, o.id).run();
-          return J({ id: o.id, fulfilled_at: ts });
-        }
-        return J({ error: "not found" }, 404);
-      }
-
-      // ---------- device key (for the counter kiosk) ----------
-      if (parts[1] === "me" && parts[2] === "device-key") {
-        if (m === "GET") { const u = await db.prepare("SELECT device_key FROM users WHERE id=?").bind(userId).first(); return J({ device_key: u.device_key || null }); }
-        if (m === "POST") { const k = "btd_" + randHex(20); await db.prepare("UPDATE users SET device_key=? WHERE id=?").bind(k, userId).run(); return J({ device_key: k }); }
-        if (m === "DELETE") { await db.prepare("UPDATE users SET device_key=NULL WHERE id=?").bind(userId).run(); return J({ ok: true }); }
-      }
-
-      // ---------- shop settings ----------
-      if (parts[1] === "me" && parts[2] === "shop") {
-        if (m === "GET") return J(await db.prepare("SELECT shop_slug, shop_name, shop_blurb FROM users WHERE id=?").bind(userId).first());
-        if (m === "PUT") {
-          const b = await readJson(request);
-          const slug = slugify(b.slug || b.shop_name);
-          if (slug.length < 3) return J({ error: "slug must be at least 3 characters" }, 400);
-          const taken = await db.prepare("SELECT id FROM users WHERE shop_slug=? AND id<>?").bind(slug, userId).first();
-          if (taken) return J({ error: "that shop address is taken" }, 409);
-          await db.prepare("UPDATE users SET shop_slug=?, shop_name=?, shop_blurb=? WHERE id=?").bind(slug, (b.shop_name || "").trim() || slug, (b.shop_blurb || "").trim() || null, userId).run();
-          return J({ shop_slug: slug, shop_name: (b.shop_name || "").trim() || slug, url: `${env.PUBLIC_ORIGIN || url.origin}/shop/${slug}` });
+          await db.prepare("INSERT INTO items (id,sale_id,name,price_cents,status,created_at,description,markings) VALUES (?,?,?,0,'available',?,?,?)")
+            .bind(id, sale.id, (b.name || "").trim() || "New item", now(), (b.description || "").trim() || null, (b.markings || "").trim() || null).run();
+          return J({ id });
         }
       }
 
@@ -886,16 +484,6 @@ ${st.note ? `<p class="sub">${esc(st.note)}</p>` : ""}
           const r = await db.prepare("DELETE FROM sales WHERE id=? AND user_id=?").bind(sid, userId).run();
           return J({ deleted: r.meta.changes, photos: ps.length });
         }
-        // Kept for older clients: adding a seller "to a sale" now adds them to the account.
-        if (parts[3] === "sellers" && m === "POST") {
-          const b = await readJson(request); const name = (b.name || "").trim();
-          if (!name) return J({ error: "name required" }, 400);
-          const dup = await db.prepare("SELECT id,name FROM sellers WHERE user_id=? AND lower(trim(name))=lower(?)").bind(userId, name).first();
-          if (dup) return J(dup);
-          const id = uid();
-          await db.prepare("INSERT INTO sellers (id,user_id,name,created_at) VALUES (?,?,?,?)").bind(id, userId, name, now()).run();
-          return J({ id, name });
-        }
         if (parts[3] === "items" && m === "POST") {
           const b = await readJson(request);
           const name = (b.name || "").trim() || "New item";
@@ -905,96 +493,6 @@ ${st.note ? `<p class="sub">${esc(st.note)}</p>` : ""}
           await db.prepare("INSERT INTO items (id,sale_id,seller_id,name,price_cents,status,created_at,description,markings) VALUES (?,?,?,?,?,'available',?,?,?)")
             .bind(id, sid, b.seller_id || null, name, price_cents, now(), (b.description || "").trim() || null, (b.markings || "").trim() || null).run();
           return J({ id });
-        }
-        if (parts[3] === "checkout" && m === "POST") {
-          const b = await readJson(request);
-          const ids = Array.isArray(b.item_ids) ? b.item_ids.filter(Boolean) : [];
-          if (!ids.length) return J({ error: "no items" }, 400);
-          const ph = ids.map(() => "?").join(",");
-          const rows = (await db.prepare(`SELECT id,name,price_cents FROM items WHERE sale_id=? AND status='available' AND id IN (${ph})`).bind(sid, ...ids).all()).results;
-          if (!rows.length) return J({ error: "items unavailable" }, 400);
-          // An item created before it was priced would otherwise ring up free and be marked sold,
-          // with nothing on screen to say so. Giving something away is a real thing at a sale, so
-          // it stays possible — but only on purpose.
-          const unpriced = rows.filter(r => r.price_cents <= 0);
-          if (unpriced.length && b.allow_free !== true)
-            return J({
-              error: unpriced.length === 1
-                ? `${unpriced[0].name} has no price`
-                : `${unpriced.length} items have no price`,
-              unpriced: unpriced.map(r => ({ id: r.id, name: r.name })),
-              needs_price: true,
-            }, 409);
-          const total = rows.reduce((a, r) => a + r.price_cents, 0);
-          const txnId = uid();
-          await db.prepare("INSERT INTO txns (id,sale_id,total_cents,item_count,tender,created_at) VALUES (?,?,?,?,?,?)").bind(txnId, sid, total, rows.length, (b.tender || "cash"), now()).run();
-          const soldIds = rows.map(r => r.id), ph2 = soldIds.map(() => "?").join(",");
-          await db.prepare(`UPDATE items SET status='sold', txn_id=?, sold_at=?, listing_status=CASE WHEN listing_status='live' THEN 'hidden' ELSE listing_status END WHERE id IN (${ph2})`).bind(txnId, now(), ...soldIds).run();
-          return J({ txn_id: txnId, total_cents: total, item_count: rows.length });
-        }
-        // Undo a sale that should not have happened: wrong tag scanned, customer changed their
-        // mind at the door, card declined after the drawer opened. The transaction is kept and
-        // marked, never deleted — the drawer has to reconcile against something, and "it is not
-        // there any more" is not an explanation anybody can give a customer or an accountant.
-        if (parts[3] === "txns" && parts[5] === "void" && m === "POST") {
-          const t = await db.prepare("SELECT * FROM txns WHERE id=? AND sale_id=?").bind(parts[4], sid).first();
-          if (!t) return J({ error: "not found" }, 404);
-          if (t.status === "void") return J({ error: "This sale was already voided", voided_at: t.voided_at }, 409);
-          // An online sale took real money through Stripe. Marking it void here would put the
-          // books and the card processor permanently out of step, and this app cannot move
-          // money. The refund has to happen where the charge did.
-          if (t.tender === "stripe")
-            return J({ error: "This was an online card sale. Refund it in Stripe first — " +
-                              "voiding it here would leave the books and the card processor disagreeing.",
-                       tender: "stripe" }, 409);
-          const b = await readJson(request);
-          // The items go back on the shelf, but a listing that was pulled down when they sold
-          // stays down: we recorded that it went from live to hidden, not that it should come
-          // back, and silently republishing something to a storefront is not ours to decide.
-          const back = (await db.prepare("SELECT id,name,price_cents FROM items WHERE txn_id=?").bind(t.id).all()).results;
-          // A statement that has already been issued has a frozen copy of these lines, and the
-          // money on it has been promised to a dealer. Voiding is still allowed — a return is a
-          // real event and refusing to record it would be worse — but it cannot be silent: the
-          // correction belongs on the next statement as an adjustment, and the owner has to be
-          // the one who decides that. Drafts do not count; they recompute.
-          const ids = back.map(r => r.id);
-          if (ids.length) {
-            const ph3 = ids.map(() => "?").join(",");
-            const hit = (await db.prepare(
-              "SELECT st.id, st.status, s.name AS seller_name, st.period_start, st.period_end, " +
-              "COUNT(si.id) AS n, COALESCE(SUM(si.price_cents),0) AS cents " +
-              "FROM statement_items si JOIN statements st ON st.id=si.statement_id " +
-              "JOIN sellers s ON s.id=st.seller_id " +
-              `WHERE st.status IN ('issued','paid') AND si.item_id IN (${ph3}) ` +
-              "GROUP BY st.id ORDER BY st.period_start").bind(...ids).all()).results;
-            if (hit.length && b.acknowledge_statements !== true)
-              return J({
-                error: hit.length === 1
-                  ? `${hit[0].n} of these items ${hit[0].n === 1 ? "is" : "are"} on ${hit[0].seller_name}'s ` +
-                    `${hit[0].status} statement for ${hit[0].period_start} to ${hit[0].period_end}, ` +
-                    `worth $${(hit[0].cents / 100).toFixed(2)}. Voiding here does not change that ` +
-                    `statement — take it off their next one as an adjustment.`
-                  : `These items are on ${hit.length} statements that have already gone out. ` +
-                    `Voiding here does not change them — take the returns off the next statements ` +
-                    `as adjustments.`,
-                statements: hit, needs_acknowledgement: true }, 409);
-          }
-          await db.prepare("UPDATE txns SET status='void', voided_at=?, void_reason=? WHERE id=?")
-            .bind(now(), (b.reason || "").trim().slice(0, 200) || null, t.id).run();
-          // sold_at is what a statement filters on, so clearing it is what actually takes these
-          // items back out of every future payout. status alone would not.
-          await db.prepare("UPDATE items SET status='available', txn_id=NULL, sold_at=NULL WHERE txn_id=?").bind(t.id).run();
-          return J({ voided: t.id, total_cents: t.total_cents, items_returned: back.length,
-                     items: back.map(r => ({ id: r.id, name: r.name })) });
-        }
-        if (parts[3] === "summary" && m === "GET") {
-          const totals = await db.prepare("SELECT COALESCE(SUM(total_cents),0) AS revenue_cents, COUNT(*) AS txn_count FROM txns WHERE sale_id=? AND status='complete'").bind(sid).first();
-          const sold = await db.prepare("SELECT COUNT(*) AS sold_items FROM items WHERE sale_id=? AND status='sold'").bind(sid).first();
-          const avail = await db.prepare("SELECT COUNT(*) AS available_items, COALESCE(SUM(price_cents),0) AS available_cents FROM items WHERE sale_id=? AND status='available'").bind(sid).first();
-          const split = (await db.prepare(
-            "SELECT COALESCE(s.name,'Unassigned') AS seller, COUNT(i.id) AS items, COALESCE(SUM(i.price_cents),0) AS cents " +
-            "FROM items i LEFT JOIN sellers s ON s.id=i.seller_id WHERE i.sale_id=? AND i.status='sold' GROUP BY i.seller_id ORDER BY cents DESC").bind(sid).all()).results;
-          return J({ ...totals, ...sold, ...avail, split });
         }
       }
 
@@ -1014,6 +512,122 @@ ${st.note ? `<p class="sub">${esc(st.note)}</p>` : ""}
           const r = await db.prepare("DELETE FROM items WHERE id=?").bind(iid).run();
           return J({ deleted: r.meta.changes });
         }
+        // ---------- eBay: build the draft a person reviews ----------
+        if (parts[3] === "ebay" && parts[4] === "draft" && m === "POST") {
+          if (!ebay.ebayConfigured(env)) return J({ error: "eBay listing isn't switched on yet." }, 503);
+          const bundle = await itemBundle(db, iid);
+          if (!bundle.appraisal?.result || bundle.appraisal.status !== "done")
+            return J({ error: "Get an estimate first — the listing is written from it." }, 409);
+          const last = await db.prepare("SELECT * FROM ebay_listings WHERE item_id=? ORDER BY created_at DESC LIMIT 1").bind(iid).first();
+          if (last?.status === "published")
+            return J({ draft: null, listing: { status: "published", url: last.listing_url, listing_id: last.listing_id } });
+          const db0 = await readJson(request);
+          const draft = await ebay.buildDraft(env, { item, photos: bundle.photos, result: bundle.appraisal.result,
+                                                     origin: env.PUBLIC_ORIGIN || url.origin, categoryId: db0.category_id });
+          const ts = now();
+          if (last) await db.prepare("UPDATE ebay_listings SET draft_json=?, category_id=?, updated_at=? WHERE id=?")
+            .bind(JSON.stringify(draft), draft.category?.id || null, ts, last.id).run();
+          else await db.prepare("INSERT INTO ebay_listings (id,item_id,user_id,sku,status,category_id,draft_json,created_at,updated_at) VALUES (?,?,?,?,'draft',?,?,?,?)")
+            .bind(uid(), iid, userId, ebay.skuFor(iid), draft.category?.id || null, JSON.stringify(draft), ts, ts).run();
+          return J({ draft, listing: last ? { status: last.status, error: last.error } : { status: "draft" } });
+        }
+
+        // ---------- eBay: publish the reviewed draft to the user's own account ----------
+        if (parts[3] === "ebay" && parts[4] === "publish" && m === "POST") {
+          if (!ebay.ebayConfigured(env)) return J({ error: "eBay listing isn't switched on yet." }, 503);
+          const b = await readJson(request);
+          const title = ebay.ebayTitle(b.title);
+          const price = Math.round(Number(b.price) * 100) / 100;
+          const conditions = new Set(Object.values(ebay.CONDITION_ENUM));
+          if (!title) return J({ error: "Give the listing a title" }, 400);
+          if (!(price >= 0.99)) return J({ error: "Set a price of at least $0.99" }, 400);
+          if (!b.category_id) return J({ error: "Pick an eBay category" }, 400);
+          if (!conditions.has(b.condition)) return J({ error: "Pick a condition" }, 400);
+          if (!String(b.description || "").trim()) return J({ error: "Add a description" }, 400);
+
+          const ut = await ebay.userToken(env, db, userId);
+          if (!ut) return J({ error: "Connect your eBay account first", needs_connect: true }, 409);
+          const zip = String(b.postal_code || ut.acct.postal_code || "").trim();
+          if (!/^\d{5}(-\d{4})?$/.test(zip)) return J({ error: "Enter the ZIP code you ship from", needs_zip: true }, 400);
+          if (zip.slice(0, 5) !== ut.acct.postal_code)
+            await db.prepare("UPDATE ebay_accounts SET postal_code=?, updated_at=? WHERE user_id=?").bind(zip.slice(0, 5), now(), userId).run();
+
+          let row = await db.prepare("SELECT * FROM ebay_listings WHERE item_id=? ORDER BY created_at DESC LIMIT 1").bind(iid).first();
+          if (row?.status === "published")
+            return J({ error: "This item is already listed on eBay", url: row.listing_url, already: true }, 409);
+          // Two taps on List must not make two listings or take two credits.
+          if (row?.status === "publishing" && Date.now() - Date.parse(row.updated_at) < 120e3)
+            return J({ error: "Already sending this one to eBay — give it a moment." }, 409);
+
+          const bundle = await itemBundle(db, iid);
+          const images = ebay.imageUrls(bundle.photos, env.PUBLIC_ORIGIN || url.origin);
+          if (!images.length) return J({ error: "eBay needs at least one JPEG or PNG photo of the item" }, 400);
+          const spec = ebay.aspectSpec(await ebay.categoryAspects(env, b.category_id));
+          const aspects = ebay.cleanAspects(b.aspects || {}, spec);
+          const missing = ebay.missingRequired(aspects, spec);
+          if (missing.length) return J({ error: `eBay requires: ${missing.join(", ")}`, missing }, 400);
+
+          const tok = ut.token;
+          const pol = await ebay.listPolicies(env, tok);
+          if (pol.notOptedIn) {
+            await ebay.optIn(env, tok);
+            return J({ error: "eBay is switching on selling policies for your account. That usually takes a few minutes — tap List again shortly.",
+                       retry_later: true }, 409);
+          }
+          if (pol.error) return J({ error: `eBay: ${pol.error}` }, 502);
+          let fulfillmentPolicyId = pol.fulfillment.some(p => p.id === b.fulfillment_policy_id) ? b.fulfillment_policy_id : null;
+          if (!fulfillmentPolicyId) {
+            if (b.shipping_cost === undefined || b.shipping_cost === null || b.shipping_cost === "")
+              return J({ error: "How much should the buyer pay for shipping?", needs_shipping: true, policies: pol.fulfillment }, 400);
+            if (!(Number(b.shipping_cost) >= 0)) return J({ error: "Shipping can't be negative" }, 400);
+          }
+
+          const ts = now();
+          if (!row) {
+            row = { id: uid(), offer_id: null };
+            await db.prepare("INSERT INTO ebay_listings (id,item_id,user_id,sku,status,created_at,updated_at) VALUES (?,?,?,?,'publishing',?,?)")
+              .bind(row.id, iid, userId, ebay.skuFor(iid), ts, ts).run();
+          } else await db.prepare("UPDATE ebay_listings SET status='publishing', error=NULL, updated_at=? WHERE id=?").bind(ts, row.id).run();
+
+          const credits = listingCredits(env);
+          let fundedBy = null;
+          if (credits) {
+            fundedBy = await consumeEstimate(db, userId);
+            if (!fundedBy) {
+              await db.prepare("UPDATE ebay_listings SET status='draft', updated_at=? WHERE id=?").bind(now(), row.id).run();
+              return J({ error: "Listing on eBay uses a credit, and you're out", paywall: true, plan: await planFor(db, userId) }, 402);
+            }
+          }
+          const fail = async (msg, stage, offerId) => {
+            if (fundedBy) await refundEstimate(db, userId, fundedBy, `ebay listing failed: ${String(msg).slice(0, 250)}`);
+            await db.prepare("UPDATE ebay_listings SET status='error', error=?, offer_id=COALESCE(?,offer_id), updated_at=? WHERE id=?")
+              .bind(String(msg).slice(0, 1000), offerId || null, now(), row.id).run();
+            return J({ error: msg, stage, refunded: !!fundedBy }, 502);
+          };
+          try {
+            if (!fulfillmentPolicyId) fulfillmentPolicyId = await ebay.createFulfillmentPolicy(env, tok, b.shipping_cost, b.handling_days);
+            const paymentPolicyId = pol.payment[0]?.id || await ebay.createPaymentPolicy(env, tok);
+            const returnPolicyId = (pol.return.some(p => p.id === b.return_policy_id) ? b.return_policy_id : pol.return[0]?.id)
+              || await ebay.createReturnPolicy(env, tok);
+            const locationKey = await ebay.ensureLocation(env, tok, zip);
+            const text = String(b.description).trim();
+            const res = await ebay.publishListing(env, tok, {
+              sku: ebay.skuFor(iid), offerId: row.offer_id, title, price, categoryId: b.category_id, condition: b.condition,
+              conditionDescription: String(b.condition_note || "").trim(), aspects, imageUrls: images,
+              descriptionText: text, descriptionHtml: ebay.descriptionHtml(text),
+              fulfillmentPolicyId, paymentPolicyId, returnPolicyId, locationKey,
+            });
+            if (res.error) return await fail(res.error, res.stage, res.offerId);
+            await db.prepare("UPDATE ebay_listings SET status='published', offer_id=?, listing_id=?, listing_url=?, category_id=?, price_cents=?, funded_by=?, error=NULL, updated_at=? WHERE id=?")
+              .bind(res.offerId, res.listingId, res.url, String(b.category_id), Math.round(price * 100), fundedBy, now(), row.id).run();
+            await db.prepare("UPDATE items SET ai_title=?, price_cents=?, listing_status='live', listed_at=COALESCE(listed_at,?) WHERE id=?")
+              .bind(title, Math.round(price * 100), now(), iid).run();
+            return J({ status: "published", listing_id: res.listingId, url: res.url, warnings: res.warnings, credits_used: fundedBy ? 1 : 0 });
+          } catch (e) {
+            return await fail(String(e && e.message || e), "setup");
+          }
+        }
+
         if (parts[3] === "photos" && m === "POST") {
           const fd = await request.formData();
           const files = fd.getAll("photos").filter(f => typeof f === "object" && f.size);
@@ -1083,23 +697,6 @@ ${st.note ? `<p class="sub">${esc(st.note)}</p>` : ""}
           if (env.APPRAISALS) await env.APPRAISALS.send({ appraisalId: apId, itemId: iid });
           else ctx.waitUntil(runAppraisal(env, apId, item, photos));   // local dev without the queue binding
           return J({ appraisal_id: apId, status: "pending", funded_by: fundedBy }, 202);
-        }
-        if (parts[3] === "publish" && m === "POST") {
-          const b = await readJson(request);
-          const u = await db.prepare("SELECT shop_slug FROM users WHERE id=?").bind(userId).first();
-          if (!u.shop_slug) return J({ error: "set up your shop address first" }, 400);
-          const status = b.listing_status === "hidden" ? "hidden" : "live";
-          const price_cents = b.price === undefined ? item.price_cents : Math.round(Number(b.price) * 100);
-          if (!Number.isFinite(price_cents) || price_cents < 0) return J({ error: "bad price" }, 400);
-          if (status === "live" && price_cents <= 0) return J({ error: "set a price before listing" }, 400);
-          // listing_description is the shop-page copy. `description` is accepted only as a
-          // fallback for an older cached client, and writes ai_description here exactly as it
-          // always did — this endpoint never touched the dealer's own words, so honouring the
-          // legacy name costs nothing.
-          const listingDesc = b.listing_description ?? b.description;
-          await db.prepare("UPDATE items SET ai_title=COALESCE(?,ai_title), ai_description=COALESCE(?,ai_description), price_cents=?, listing_status=?, listed_at=COALESCE(listed_at,?) WHERE id=?")
-            .bind((b.title || "").trim() || null, (listingDesc || "").trim() || null, price_cents, status, now(), iid).run();
-          return J({ listing_status: status, url: `${env.PUBLIC_ORIGIN || url.origin}/shop/${u.shop_slug}/item/${iid}` });
         }
       }
       if (parts[1] === "photos" && parts.length === 3 && m === "DELETE") {
