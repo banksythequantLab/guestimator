@@ -53,7 +53,7 @@ function syncBottomPad() {
   if (visible(tabs)) pad = tabs.getBoundingClientRect().height;
   if (visible(cartbar)) pad = Math.max(pad, window.innerHeight - cartbar.getBoundingClientRect().top);
   // A little air under the last element, and never less than the safe-area inset on its own.
-  document.body.style.setProperty("--bottom-pad", pad ? `${Math.ceil(pad) + 12}px` : "env(safe-area-inset-bottom)");
+  document.body.style.setProperty("--bottom-pad", pad ? `${Math.ceil(pad) + 12}px` : "calc(20px + var(--sab))");
 }
 addEventListener("resize", syncBottomPad);
 addEventListener("orientationchange", syncBottomPad);
@@ -397,7 +397,7 @@ function openCamera(title) {
     ov.style.cssText = "position:fixed;inset:0;z-index:9999;background:#000;display:flex;flex-direction:column";
     const btn = "background:rgba(255,255,255,.14);color:#fff;border:0;border-radius:10px;padding:8px 14px;font:inherit;font-weight:700;cursor:pointer";
     ov.innerHTML = `
-      <div style="flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;color:#fff">
+      <div style="flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:calc(12px + var(--sat)) 14px 12px;color:#fff">
         <button id="camX" style="${btn}">Cancel</button>
         <span style="font-weight:800;font-size:.95rem;text-align:center">${esc(title || "Take a photo")}</span>
         <button id="camFlip" style="${btn}">Flip</button>
@@ -406,7 +406,7 @@ function openCamera(title) {
         <video id="camV" playsinline autoplay muted style="width:100%;height:100%;object-fit:contain;background:#000"></video>
         <div id="camErr" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;text-align:center;color:#fff;padding:28px;font-size:.95rem;line-height:1.45"></div>
       </div>
-      <div style="flex:0 0 auto;display:flex;align-items:center;justify-content:center;gap:18px;padding:18px 14px 26px">
+      <div style="flex:0 0 auto;display:flex;align-items:center;justify-content:center;gap:18px;padding:18px 14px calc(26px + var(--sab))">
         <button id="camShot" aria-label="Take photo" style="width:74px;height:74px;border-radius:50%;background:#fff;border:5px solid rgba(255,255,255,.45);cursor:pointer"></button>
       </div>`;
     document.body.appendChild(ov);

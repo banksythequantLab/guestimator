@@ -13,6 +13,11 @@
  --bg:#F4ECDC;--panel:#FBF6EA;--panel2:#EFE4CC;--ink:#241B10;--sub:#6A5B44;--line:#E0D2B4;
  --green:#0F6B59;--green-d:#0A4F42;--cobalt:#1E44C4;--gold:#B8862F;--rust:#B4552B;--ok:#0F6B59;
  --shadow:0 1px 2px rgba(40,28,10,.06),0 8px 22px rgba(40,28,10,.08);
+ /* Android draws the app edge to edge, under the status bar (clock, battery) and the gesture/nav
+    bar. Capacitor 8's SystemBars injects --safe-area-inset-* because Android WebView < 140 reports
+    env(safe-area-inset-*) wrong; env() is the fallback everywhere else, 0 on a desktop browser. */
+ --sat:var(--safe-area-inset-top,env(safe-area-inset-top,0px));
+ --sab:var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px));
 }
 @media(prefers-color-scheme:dark){:root:not([data-theme=light]){
  --bg:#161210;--panel:#211B15;--panel2:#2A2219;--ink:#F1E7D4;--sub:#B7A889;--line:#3A2F22;
@@ -32,7 +37,7 @@ main#app{padding-bottom:var(--bottom-pad,calc(76px + env(safe-area-inset-bottom)
 h1,h2,h3{font-family:"Fraunces",Georgia,serif;font-weight:600;margin:0}
 button{font-family:inherit;cursor:pointer}
 .wrap{max-width:620px;margin:0 auto;padding:0 14px}
-header.top{position:sticky;top:0;z-index:10;background:var(--panel);border-bottom:1px solid var(--line);padding:12px 0}
+header.top{position:sticky;top:0;z-index:10;background:var(--panel);border-bottom:1px solid var(--line);padding:calc(12px + var(--sat)) 0 12px}
 .top .wrap{display:flex;align-items:center;gap:10px}
 .mark{display:flex;align-items:center;gap:8px;font-family:"Fraunces",serif;font-weight:600;font-size:1.05rem}
 .mark span{color:var(--green)}
@@ -95,7 +100,7 @@ textarea:focus{outline:2px solid var(--cobalt);border-color:var(--cobalt)}
 .thumbs img{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
 ul.ev{margin:4px 0 0;padding-left:18px;font-size:.88rem}ul.ev li{margin:3px 0}
 .paywall{position:fixed;inset:0;background:rgba(20,16,12,.55);display:flex;align-items:flex-end;justify-content:center;z-index:50}
-.pw-card{background:var(--panel,#fff);width:100%;max-width:560px;border-radius:18px 18px 0 0;padding:16px 16px 28px;box-shadow:0 -8px 30px rgba(0,0,0,.25);max-height:88vh;overflow:auto}
+.pw-card{background:var(--panel,#fff);width:100%;max-width:560px;border-radius:18px 18px 0 0;padding:16px 16px calc(28px + var(--sab));box-shadow:0 -8px 30px rgba(0,0,0,.25);max-height:88vh;overflow:auto}
 .pw-opt{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;text-align:left;background:var(--panel2,#f4efe6);border:1px solid var(--line,#e2d9c8);border-radius:12px;padding:12px;margin-top:8px;font:inherit;cursor:pointer}
 .pw-opt:disabled{opacity:.5}
 .pw-opt .pr{font-weight:800;white-space:nowrap}
@@ -117,6 +122,6 @@ ul.ev{margin:4px 0 0;padding-left:18px;font-size:.88rem}ul.ev li{margin:3px 0}
 <div class="toast" id="toast"></div>
 <script src="/rc-sdk.js?v=0.4"></script>
 <script src="/billing.js?v=0.7"></script>
-<script src="/app.js?v=2.0"></script>
+<script src="/app.js?v=2.1"></script>
 </body>
 </html>
