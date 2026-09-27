@@ -245,6 +245,11 @@ function wireEbayCard(after) {
 // changed meanwhile, say so and redraw the current screen - not only the home screen.
 document.addEventListener("visibilitychange", async () => {
   if (document.visibilityState !== "visible" || !user || !["home", "item"].includes(state.view)) return;
+  // Android freezes timers while the app is in the background, so a poll scheduled before the
+  // dealer switched apps may never fire. Coming back to a screen that is waiting on an estimate
+  // reloads it straight away.
+  if (state.view === "item" && state.itemId && state.pendingId === state.itemId) renderItemDetail(state.itemId);
+  else if (state.view === "home") renderHome();
   const was = !!(ebayStatus && ebayStatus.connected);
   const s = await loadEbayStatus();
   if (s && !!s.connected !== was) {
@@ -287,6 +292,12 @@ async function renderHome() {
       <span class="pr">${i.price_cents ? money(i.price_cents) : ""}</span>
     </div>`).join("");
   el.querySelectorAll("[data-open]").forEach(li => li.onclick = () => renderItemDetail(li.dataset.open));
+  // An "estimating…" badge used to sit there until the dealer pulled to refresh. Keep checking
+  // while anything is still being priced.
+  if (list.some(i => i.appraisal_status === "pending")) {
+    clearTimeout(pollT);
+    pollT = setTimeout(() => { if (state.view === "home") renderHome(); }, 6000);
+  }
 }
 
 // ---------- eBay: the listing card on an item, and the review screen ----------
@@ -732,10 +743,18 @@ async function renderItemDetail(id) {
   clearTimeout(pollT);
   state.tab = "items"; setChrome();
   let b;
-  try { b = await api("/items/" + id); } catch (e) { return toast(e.message); }
+  try { b = await api("/items/" + id); } catch (e) {
+    // One failed check (a phone dropping signal for a second) used to end polling for good and
+    // leave "Appraising…" on screen long after the result was saved. Keep trying while the
+    // estimate is still outstanding.
+    if (state.pendingId === id)
+      pollT = setTimeout(() => { if (state.view === "item" && state.itemId === id) renderItemDetail(id); }, 6000);
+    return toast(e.message);
+  }
   const { item, photos, appraisal } = b;
   const r = appraisal && appraisal.result;
   const pending = appraisal && appraisal.status === "pending";
+  state.pendingId = pending ? id : null;
   const pr = r && r.price_range;
   const conf = r ? Math.round(r.confidence * 100) : 0;
   // When the identification is contested there is no headline number, so there is nothing to
