@@ -1,7 +1,7 @@
 {
-  "name": "Bottle Tree — Run a Sale",
-  "short_name": "Bottle Tree",
-  "description": "Price it, sell it, split it. Sell antiques and run garage sales from your phone.",
+  "name": "Guestimator — What’s it worth?",
+  "short_name": "Guestimator",
+  "description": "Snap it, price it from what is selling now, and list it on your own eBay account.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0F6B59",

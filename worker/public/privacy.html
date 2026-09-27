@@ -1,39 +1,44 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Bottle Tree — Privacy Policy</title>
+<title>Guestimator — Privacy Policy</title>
 <style>body{font:16px/1.55 system-ui,Segoe UI,Roboto,sans-serif;max-width:720px;margin:0 auto;padding:24px 18px;color:#2a241c;background:#f6f1e7}h1,h2{line-height:1.2}h2{margin-top:28px;font-size:1.15rem}a{color:#1f5fa8}.muted{color:#6b6257;font-size:.9rem}</style></head>
 <body>
-<h1>Bottle Tree — Privacy Policy</h1>
-<p class="muted">Effective September 19, 2026 · Banksy AI LLC</p>
+<h1>Guestimator — Privacy Policy</h1>
+<p class="muted">Effective September 27, 2026 · Banksy AI LLC</p>
 
-<p>Bottle Tree is a point-of-sale, inventory and AI price-estimate app for antique dealers and resellers, offered by Banksy AI LLC ("we"). This policy explains what we collect, why, and what we do with it.</p>
+<p>Guestimator is an AI price-estimate app that can also list items on your own eBay account, offered by Banksy AI LLC ("we"). It was previously published as Bottle Tree. This policy explains what we collect, why, and what we do with it.</p>
 
 <h2>What we collect</h2>
-<p><b>Account:</b> your email address and a hashed password. <b>Inventory:</b> the sales, items, prices, notes, seller names and photos you add. <b>Estimates:</b> the descriptions and markings you type and the results our AI returns. <b>Purchases:</b> if you buy estimates or a subscription in the Android app, Google Play and RevenueCat send us the product purchased, an anonymous purchase identifier and the subscription status — never your card details. <b>Technical:</b> standard server logs (IP address, browser, timestamps) kept briefly for security.</p>
+<p><b>Account:</b> your email address, and either a hashed password or the Google account identifier you signed in with. <b>Items:</b> the items, prices, notes and photos you add. <b>Estimates:</b> the descriptions and markings you type and the results our AI returns. <b>eBay:</b> if you connect eBay, the items below under "eBay". <b>Purchases:</b> if you buy estimates or a subscription, Google Play and RevenueCat send us the product purchased, an anonymous purchase identifier and the subscription status — never your card details. <b>Technical:</b> standard server logs (IP address, browser, timestamps) kept briefly for security.</p>
 <p>We do not collect your contacts, precise location, or advertising identifiers, and we show no ads.</p>
 
 <h2>How photos and descriptions are used</h2>
-<p>When you request an estimate, the photos and text for that item are sent to AI models to identify and price the piece. Those models run on <a href="https://nebius.com">Nebius AI Cloud</a> (NVIDIA Nemotron and Gemma models) and comparable-sales lookups use <a href="https://tavily.com">Tavily</a> web search. These providers process the data to return a result and are not permitted to use it to train models. Photos are stored in Cloudflare R2 so they can appear in your inventory and, only if you choose to list an item, on your public storefront page.</p>
+<p>When you request an estimate, the photos and text for that item are sent to AI models to identify and price it. Those models run on <a href="https://nebius.com">Nebius AI Cloud</a> (NVIDIA Nemotron and Gemma models). Current asking prices come from eBay's public search, and other comparable-sales lookups use <a href="https://tavily.com">Tavily</a> web search. These providers process the data to return a result and are not permitted to use it to train models. Photos are stored in Cloudflare R2 so they appear with your items and, only if you list an item, in that eBay listing.</p>
+
+<h2 id="ebay">eBay</h2>
+<p>Connecting eBay is optional. When you connect, eBay asks you to allow Guestimator to manage your listings and selling policies and to read your eBay username. We then store an eBay access token and refresh token (encrypted), your eBay user ID and username, and the ZIP code you ship from.</p>
+<p>We use that access only when you tap <b>List on eBay</b> for an item you have reviewed. We then: create the listing (title, description, photos, category, item specifics, condition and price you approved); set a ship-from location using your ZIP code; and, if your account has none, create a payment, a 30-day return and a flat-rate shipping policy named "Guestimator …". We do not read your eBay messages, orders, buyers or payouts, and we never list anything you have not approved.</p>
+<p>You can disconnect eBay in the app at any time, which deletes the stored tokens. To also withdraw the permission on eBay's side, remove Guestimator under My eBay › Account › Third-party app access. If you close your eBay account, eBay notifies us and we delete the stored eBay data automatically. Listings already published stay on eBay under your control; end them in eBay. eBay's own fees and policies apply to anything you sell there.</p>
 
 <h2>Where data lives</h2>
-<p>Cloudflare (Workers, D1, R2) hosts the app and database. RevenueCat manages in-app purchases. Google Play processes payments for the Android app. Each acts as a processor under its own privacy terms.</p>
+<p>Cloudflare (Workers, D1, R2) hosts the app and database. RevenueCat manages in-app purchases. Google Play processes payments for the Android app. eBay receives the listings you publish. Each acts under its own privacy terms.</p>
 
 <h2>What we never do</h2>
-<p>We do not sell your data, share it with advertisers, or use your photos for anything other than the estimate and inventory features you use.</p>
+<p>We do not sell your data, share it with advertisers, or use your photos for anything other than the estimate and listing features you use.</p>
 
 <h2>Your choices</h2>
-<p>You can edit or delete any item, photo or sale in the app at any time. Subscriptions are managed and cancelled in Google Play.</p>
+<p>You can delete any item or photo in the app at any time, and disconnect eBay at any time. Subscriptions are managed and cancelled in Google Play.</p>
 
-<h2 id="delete-account">Delete your Bottle Tree account</h2>
-<p>To delete your Bottle Tree account and all data associated with it:</p>
+<h2 id="delete-account">Delete your Guestimator account</h2>
+<p>To delete your account and all data associated with it:</p>
 <ol>
-<li>Email <a href="mailto:dj@soltis.info?subject=Delete%20my%20Bottle%20Tree%20account">dj@soltis.info</a> with the subject "Delete my Bottle Tree account", sent from the email address on the account.</li>
+<li>Email <a href="mailto:dj@soltis.info?subject=Delete%20my%20Guestimator%20account">dj@soltis.info</a> with the subject "Delete my Guestimator account", sent from the email address on the account.</li>
 <li>We confirm the request by reply and delete the account within 30 days.</li>
 </ol>
-<p>What is deleted: your account and login, all sales, items, photos, sellers, storefront pages, appraisal history and estimate credits. What is kept: Google Play purchase records (held by Google) and anonymised usage counts required for tax and accounting, for the period the law requires. Unused credits and active subscription time are not refunded by us; cancel subscriptions in Google Play before requesting deletion.</p>
+<p>What is deleted: your account and login, all items, photos, estimate history, stored eBay tokens and identifiers, and estimate credits. What is kept: Google Play purchase records (held by Google), listings already on eBay (held by eBay under your eBay account), and anonymised usage counts required for tax and accounting, for the period the law requires. Unused credits and active subscription time are not refunded by us; cancel subscriptions in Google Play before requesting deletion.</p>
 
 <h2>Children</h2>
-<p>Bottle Tree is for adults running a business and is not directed at children under 13.</p>
+<p>Guestimator is for adults and is not directed at children under 13. eBay requires sellers to be 18 or older.</p>
 
 <h2>Estimates are not appraisals</h2>
 <p>Price estimates are generated by AI to help you decide on a listing price. They are not certified appraisals and should not be relied on for insurance, estate, tax or legal purposes.</p>

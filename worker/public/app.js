@@ -1,12 +1,12 @@
-// Bottle Tree app v0.1 — front-end
+// Guestimator — front-end (split from Bottle Tree 2026-09-27)
 const $ = s => document.querySelector(s);
 const app = $("#app"), tabs = $("#tabs"), ctx = $("#ctx"), backBtn = $("#backBtn"),
       cartbar = $("#cartbar");
-let state = { view: "sales", saleId: null, detail: null, tab: "items", cart: new Set() };
+let state = { view: "home" };
 let user = null;
 let billingInit = false;
 let pendingPhotos = [];   // photos staged on the manual "Add an item" card
-window.addEventListener("bt:plan", () => { if (state.view === "sales") renderSales(); });
+window.addEventListener("bt:plan", () => { if (state.view === "home") renderHome(); });
 
 const money = c => "$" + (c / 100).toFixed(2);
 const esc = s => (s || "").replace(/[&<>"]/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
@@ -59,14 +59,10 @@ addEventListener("resize", syncBottomPad);
 addEventListener("orientationchange", syncBottomPad);
 
 function setChrome() {
-  const inSale = state.view === "sale";
-  tabs.classList.toggle("hidden", !inSale);
-  // The payouts screens are one level down from sales too, so they get the back arrow —
-  // but not the tab bar, which belongs to a sale.
-  backBtn.classList.toggle("hidden", !(inSale || state.view === "statements"));
-  ctx.textContent = inSale && state.detail ? state.detail.sale.name : "";
-  cartbar.classList.toggle("hidden", !(inSale && state.tab === "cashier" && state.cart.size));
-  [...tabs.children].forEach(b => b.classList.toggle("on", b.dataset.tab === state.tab));
+  tabs.classList.add("hidden");
+  cartbar.classList.add("hidden");
+  backBtn.classList.add("hidden");
+  ctx.textContent = "";
   syncBottomPad();
 }
 
@@ -97,7 +93,7 @@ function loadGis() {
 async function signInWithGoogleToken(credential) {
   try {
     const r = await api("/auth/google", { method: "POST", body: JSON.stringify({ credential }) });
-    user = r.email; billingInit = false; toast("Signed in"); renderSales();
+    user = r.email; billingInit = false; toast("Signed in"); renderHome();
   } catch (e) { toast(e.message); }
 }
 async function nativeGoogleSignIn(btn) {
@@ -170,7 +166,7 @@ function renderAuth(mode) {
     if (!email || !password) return toast("Email and password, please");
     try {
       await api("/auth/" + (isLogin ? "login" : "register"), { method: "POST", body: JSON.stringify({ email, password }) });
-      user = email; toast(isLogin ? "Signed in" : "Account created"); renderSales();
+      user = email; toast(isLogin ? "Signed in" : "Account created"); renderHome();
     } catch (e) { toast(e.message); }
   };
   $("#auGo").onclick = go;
@@ -184,205 +180,206 @@ async function logout() {
   user = null; billingInit = false; renderAuth("login");
 }
 
-// ---------- Sales list ----------
-async function renderSales() {
-  state.view = "sales"; state.saleId = null; state.detail = null; setChrome();
-  // Four links no longer fit beside the title on a phone: they wrapped, and "Sign out" broke
-  // across two lines mid-word. The title gets its own line and the links get a row of their
-  // own that wraps as whole words.
-  const navLink = (id, text, extra = "") =>
-    `<a href="#" id="${id}" class="muted" style="font-size:.85rem;font-weight:700;white-space:nowrap">${text}${extra}</a>`;
-  app.innerHTML = `<h1 class="h1" style="margin:6px 0 2px">Your sales</h1>
-    <div class="row" style="gap:14px;flex-wrap:wrap;align-items:center;margin:0 0 6px">
-      ${navLink("orders", "Orders", `<span id="ordersDot"></span>`)}
-      ${navLink("payouts", "Payouts")}
-      ${navLink("myshop", "My shop")}
-      ${navLink("signout", "Sign out")}
-    </div>
-    <div class="row" style="justify-content:space-between;align-items:center;margin:2px 0 4px;gap:8px;flex-wrap:wrap"><span class="muted" style="font-size:.82rem">${esc(user || "")}</span>${planPill()}</div>
-    <div class="card">
-      <label>Start a new sale</label>
-      <div class="row"><input id="newName" placeholder="e.g. Saturday Garage Sale" enterkeyhint="go"></div>
-      <div style="height:8px"></div>
-      <button class="btn" id="newBtn">+ New sale</button>
-    </div>
-    <div id="salesList" class="list"></div>
-    <div class="card" style="margin-top:14px">
-      <div class="row" style="justify-content:space-between;align-items:center">
-        <label style="margin:0">Your sellers</label>
-        <button class="btn sec sm" id="sellAdd" style="margin:0">+ Add</button>
-      </div>
-      <div class="muted" style="font-size:.8rem;margin-top:4px">Consignors and booth partners. They carry across every sale.</div>
-      <div id="sellList" style="margin-top:8px"></div>
+// ---------- Home: what's it worth, and your items ----------
+let ebayStatus = null;
+async function loadEbayStatus() {
+  try { ebayStatus = await api("/ebay/status"); } catch { ebayStatus = null; }
+  return ebayStatus;
+}
+function ebayCardHtml(s) {
+  if (!s || !s.configured) return "";
+  if (s.connected) return `<div class="card" style="padding:12px 16px">
+      <div class="row" style="justify-content:space-between;align-items:center;gap:8px">
+        <div><b>eBay connected</b><div class="muted" style="font-size:.82rem">${s.username ? "as " + esc(s.username) : "Ready to list"}</div></div>
+        <a href="#" id="ebayOff" class="muted" style="font-size:.8rem;font-weight:700">Disconnect</a>
+      </div></div>`;
+  return `<div class="card" style="border-color:var(--cobalt)">
+      <label>Sell it on eBay</label>
+      <div class="muted" style="font-size:.88rem;margin-bottom:10px">Guestimator writes the listing for you — title, photos, item specifics and a price from what's selling now. You check it, tap List, and it goes up on your own eBay account.</div>
+      <button class="btn" id="ebayOn" style="background:var(--cobalt)">Connect my eBay account</button>
+      <div class="muted" style="font-size:.82rem;margin-top:8px;text-align:center">No eBay account? <a href="${esc(s.signup_url)}" target="_blank" rel="noopener" style="color:var(--cobalt);font-weight:800">Create one free</a>, then come back and connect it.</div>
     </div>`;
-  $("#newBtn").onclick = createSale;
-  $("#sellAdd").onclick = async () => {
-    const name = prompt("Seller name (e.g. Mom, Booth 12):");
-    if (!name || !name.trim()) return;
-    try { await api("/me/sellers", { method: "POST", body: JSON.stringify({ name: name.trim() }) }); }
-    catch (e) { return toast(e.message); }
-    toast("Seller added"); loadSellers();
-  };
-  loadSellers();
-  $("#newName").addEventListener("keydown", e => { if (e.key === "Enter") createSale(); });
-  $("#signout").onclick = e => { e.preventDefault(); logout(); };
-  $("#myshop").onclick = e => { e.preventDefault(); renderShopSetup(renderSales); };
-  $("#payouts").onclick = e => { e.preventDefault(); renderStatements(); };
-  $("#orders").onclick = e => { e.preventDefault(); renderOrders(); };
-  // An order nobody looks at is the same as no order. A count in the corner is what makes the
-  // owner open the screen on the day something sells, rather than a week later.
-  markOrders();
-  if ($("#planPill")) $("#planPill").onclick = e => { e.preventDefault(); BTBilling.open(); };
-  if (window.BTBilling && !billingInit) { billingInit = true; BTBilling.init().then(p => { if (p && state.view === "sales") renderSales(); }); }
-  const list = await api("/sales");
-  const el = $("#salesList");
-  if (!list.length) { el.innerHTML = `<div class="empty"><div class="em">🏷️</div>No sales yet. Start one above.</div>`; return; }
-  el.innerHTML = list.map(s => `<div class="li tap" data-id="${s.id}">
-      <div><div class="nm">${esc(s.name)}</div><div class="muted" style="font-size:.82rem">${s.items} items · ${money(s.revenue_cents)} sold</div></div>
-      <span class="pr">${s.status === "open" ? "" : "✓ "}<span class="pill">${s.status}</span></span>
-      <button class="btn rust sm" data-del="${s.id}" data-name="${esc(s.name)}" title="Delete sale" style="margin-left:8px">✕</button>
-    </div>`).join("");
-  el.querySelectorAll("[data-del]").forEach(b => b.onclick = e => { e.stopPropagation(); deleteSale(b.dataset.del, b.dataset.name); });
-  el.querySelectorAll(".li").forEach(li => li.onclick = () => openSale(li.dataset.id));
 }
-async function loadSellers() {
-  const el = $("#sellList"); if (!el) return;
-  let rows = [];
-  try { rows = await api("/me/sellers"); } catch { return; }
-  if (!rows.length) { el.innerHTML = `<div class="muted" style="font-size:.82rem">None yet — add the people whose things you sell.</div>`; return; }
-  el.innerHTML = rows.map(s => `<div class="row" style="justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--line)">
-      <span style="font-weight:700">${esc(s.name)}</span>
-      <span><a href="#" data-ren="${s.id}" data-n="${esc(s.name)}" class="muted" style="font-size:.8rem;font-weight:700;margin-right:12px">Rename</a>
-            <a href="#" data-del="${s.id}" data-n="${esc(s.name)}" class="muted" style="font-size:.8rem;font-weight:700">Remove</a></span>
-    </div>`).join("");
-  el.querySelectorAll("[data-ren]").forEach(a => a.onclick = async e => {
-    e.preventDefault();
-    const name = prompt("Rename seller:", a.dataset.n);
-    if (!name || !name.trim() || name.trim() === a.dataset.n) return;
-    try { await api("/me/sellers/" + a.dataset.ren, { method: "PUT", body: JSON.stringify({ name: name.trim() }) }); }
-    catch (err) { return toast(err.message); }
-    toast("Renamed"); loadSellers();
-  });
-  el.querySelectorAll("[data-del]").forEach(a => a.onclick = async e => {
-    e.preventDefault();
-    if (!confirm(`Remove ${a.dataset.n}?`)) return;
-    try { await api("/me/sellers/" + a.dataset.del, { method: "DELETE" }); }
-    catch (err) {
-      if (!/on items/i.test(err.message)) return toast(err.message);
-      // Their items stay; they just stop being attributed to anyone.
-      if (!confirm(`${a.dataset.n} is on items already.\n\nRemoving them keeps those items and their sales, but the items stop being attributed to anyone and drop out of the payout split.\n\nRemove anyway?`)) return;
-      try { await api("/me/sellers/" + a.dataset.del + "?force=1", { method: "DELETE" }); }
-      catch (e2) { return toast(e2.message); }
-    }
-    toast("Removed"); loadSellers();
-  });
-}
-async function deleteSale(id, name) {
-  if (!confirm(`Delete "${name}"?\n\nThis removes its items and their photos for good. Your sellers are kept.`)) return;
+async function connectEbay() {
   try {
-    await api("/sales/" + id, { method: "DELETE" });
-  } catch (e) {
-    // The API refuses a sale with recorded sales unless we say we mean it.
-    if (!/recorded sales/i.test(e.message)) return toast(e.message);
-    if (!confirm(`"${name}" has recorded sales in it.\n\nDeleting it also erases those takings and the seller payout split. There is no undo.\n\nStill delete?`)) return;
-    try { await api("/sales/" + id + "?force=1", { method: "DELETE" }); }
-    catch (e2) { return toast(e2.message); }
-  }
-  toast("Sale deleted"); renderSales();
+    const { url } = await api("/ebay/connect", { method: "POST" });
+    // eBay's sign-in opens outside the app on a phone; the page it returns to says "go back".
+    // When the app comes forward again it re-checks, so the card flips to "connected" by itself.
+    toast("Opening eBay…");
+    location.href = url;
+  } catch (e) { toast(e.message); }
 }
-async function createSale() {
-  const name = $("#newName").value.trim();
-  const r = await api("/sales", { method: "POST", body: JSON.stringify({ name }) });
-  toast("Sale created"); openSale(r.id);
+function wireEbayCard(after) {
+  if ($("#ebayOn")) $("#ebayOn").onclick = connectEbay;
+  if ($("#ebayOff")) $("#ebayOff").onclick = async e => {
+    e.preventDefault();
+    if (!confirm("Disconnect eBay?\n\nListings already on eBay stay up. To fully remove access, also remove Guestimator in My eBay > Account > Third-party app access.")) return;
+    try { await api("/ebay/connection", { method: "DELETE" }); } catch (err) { return toast(err.message); }
+    toast("eBay disconnected"); after();
+  };
 }
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState !== "visible" || !user || state.view !== "home") return;
+  const was = ebayStatus && ebayStatus.connected;
+  const now = await loadEbayStatus();
+  if (now && now.connected !== was) { toast(now.connected ? "eBay connected" : "eBay disconnected"); renderHome(); }
+});
 
-// ---------- Sale detail ----------
-async function openSale(id) {
-  state.view = "sale"; state.saleId = id; state.tab = "items"; state.cart = new Set();
-  await loadDetail(); renderTab();
-}
-async function loadDetail() { state.detail = await api("/sales/" + state.saleId); }
-
-function renderTab() { setChrome(); ({ items: renderItems, cashier: renderCashier, summary: renderSummary }[state.tab])(); }
-
-function sellerOptions(sel) {
-  const s = state.detail.sellers;
-  return `<option value="">— seller (optional) —</option>` +
-    s.map(x => `<option value="${x.id}"${x.id === sel ? " selected" : ""}>${esc(x.name)}</option>`).join("");
-}
-
-// Items tab: add item + list
-function renderItems() {
-  const d = state.detail;
-  const avail = d.items.filter(i => i.status === "available");
+async function renderHome() {
+  state.view = "home"; setChrome();
   app.innerHTML = `
+    <div class="row" style="justify-content:space-between;align-items:center;margin:10px 0 2px;gap:8px;flex-wrap:wrap">
+      <span class="muted" style="font-size:.82rem">${esc(user || "")}</span>
+      <span class="row" style="gap:10px">${planPill()}<a href="#" id="signout" class="muted" style="font-size:.82rem;font-weight:700">Sign out</a></span>
+    </div>
     <div class="card" style="border-color:var(--green)">
-      <label>Photograph &amp; price with AI</label>
-      <div class="muted" style="font-size:.85rem;margin-bottom:8px">Snap a few shots, tell us what you know, and get an identification, price range and listing draft.</div>
-      <button class="btn" id="aiAdd">📷 Add item with AI</button>
+      <h1 class="h1" style="margin:0 0 4px">What's it worth?</h1>
+      <div class="muted" style="font-size:.9rem;margin-bottom:12px">Snap a few photos, say what you know, and get a price from what's listed right now — with the comparables to prove it.</div>
+      <button class="btn" id="aiAdd">📷 Guestimate something</button>
+    </div>
+    <div id="ebayCard"></div>
+    <div class="row" style="justify-content:space-between;margin:14px 2px 6px"><h3>Your items</h3></div>
+    <div id="itemList" class="list"><div class="muted" style="padding:10px">Loading…</div></div>`;
+  $("#aiAdd").onclick = () => renderCapture();
+  $("#signout").onclick = e => { e.preventDefault(); logout(); };
+  if ($("#planPill")) $("#planPill").onclick = e => { e.preventDefault(); BTBilling.open(); };
+  if (window.BTBilling && !billingInit) { billingInit = true; BTBilling.init().then(p => { if (p && state.view === "home") renderHome(); }); }
+  loadEbayStatus().then(s => { const c = $("#ebayCard"); if (c && state.view === "home") { c.innerHTML = ebayCardHtml(s); wireEbayCard(renderHome); } });
+  let list = [];
+  try { list = await api("/items"); } catch (e) { $("#itemList").innerHTML = `<div class="muted">${esc(e.message)}</div>`; return; }
+  const el = $("#itemList");
+  if (!list.length) { el.innerHTML = `<div class="empty"><div class="em">🔎</div>Nothing yet. Tap <b>Guestimate something</b> to price your first item.</div>`; return; }
+  const badge = i => i.ebay_status === "published" ? `<span class="pill" style="background:var(--cobalt);color:#fff">on eBay</span>`
+    : i.appraisal_status === "pending" ? `<span class="pill">estimating…</span>`
+    : i.appraisal_status === "error" ? `<span class="pill" style="color:var(--rust)">needs a retry</span>`
+    : i.appraisal_status === "done" ? `<span class="pill">priced</span>` : "";
+  el.innerHTML = list.map(i => `<div class="li tap" data-open="${i.id}">
+      ${i.thumb_key ? `<img src="/p/${esc(i.thumb_key)}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:8px">` : `<span style="width:48px;text-align:center">📦</span>`}
+      <div style="min-width:0"><div class="nm" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(i.ai_title || i.name)}</div><div style="margin-top:2px">${badge(i)}</div></div>
+      <span class="pr">${i.price_cents ? money(i.price_cents) : ""}</span>
+    </div>`).join("");
+  el.querySelectorAll("[data-open]").forEach(li => li.onclick = () => renderItemDetail(li.dataset.open));
+}
+
+// ---------- eBay: the listing card on an item, and the review screen ----------
+function ebayPanelHtml(b, canList) {
+  const el = b.ebay;
+  if (el && el.status === "published")
+    return `<div class="card" style="border-color:var(--cobalt)"><b>Listed on eBay ✓</b>
+      <div style="height:8px"></div><a class="btn" style="display:block;text-align:center;text-decoration:none;background:var(--cobalt)" href="${esc(el.listing_url || "#")}" target="_blank" rel="noopener">View on eBay ↗</a></div>`;
+  if (!canList) return "";
+  if (ebayStatus && !ebayStatus.configured) return "";
+  return `<div class="card" style="border-color:var(--cobalt)">
+      <label>Sell it</label>
+      <div class="muted" style="font-size:.85rem;margin-bottom:10px">We'll write the eBay listing from this estimate — you check every word before anything goes live.</div>
+      ${el && el.status === "error" ? `<div style="font-size:.82rem;color:var(--rust);margin-bottom:8px">Last try didn't go through: ${esc(el.error || "")}</div>` : ""}
+      <button class="btn" id="ebayList" style="background:var(--cobalt)">List it on eBay</button>
+    </div>`;
+}
+async function startEbayListing(id, categoryId) {
+  const s = ebayStatus || await loadEbayStatus();
+  if (!s || !s.configured) return toast("eBay listing isn't switched on yet");
+  if (!s.connected) {
+    if (confirm("First, connect your eBay account.\n\nOK to sign in to eBay now. (No account? You can create one on the next screen.)")) connectEbay();
+    return;
+  }
+  clearTimeout(pollT);
+  app.innerHTML = `<div class="card" style="text-align:center;margin-top:30px"><div class="big" style="font-size:1.3rem">Writing your eBay listing…</div>
+    <div class="muted">Picking the category and filling in the item specifics. About half a minute.</div></div>`;
+  try {
+    const r = await api("/items/" + id + "/ebay/draft", { method: "POST", body: JSON.stringify(categoryId ? { category_id: categoryId } : {}) });
+    if (r.listing && r.listing.status === "published") return renderItemDetail(id);
+    renderEbayDraft(id, r.draft);
+  } catch (e) { toast(e.message); renderItemDetail(id); }
+}
+const CONDITION_FALLBACK = [{ value: "USED_EXCELLENT", label: "Used" }, { value: "NEW", label: "New" }];
+function renderEbayDraft(id, d) {
+  state.view = "ebay"; setChrome();
+  const conds = d.conditions && d.conditions.length ? d.conditions : CONDITION_FALLBACK;
+  const aspectRow = (s, n) => {
+    const v = (d.aspects[s.name] || [])[0] || "";
+    const lab = `<label>${esc(s.name)}${s.required ? ` <span style="color:var(--rust)">*</span>` : ""}</label>`;
+    if (s.selection_only) return `${lab}<select data-asp="${esc(s.name)}"><option value="">—</option>${s.values.map(x => `<option${x === v ? " selected" : ""}>${esc(x)}</option>`).join("")}</select><div style="height:8px"></div>`;
+    return `${lab}<input data-asp="${esc(s.name)}" value="${esc(v)}" list="asp${n}" maxlength="65"><datalist id="asp${n}">${s.values.slice(0, 30).map(x => `<option value="${esc(x)}">`).join("")}</datalist><div style="height:8px"></div>`;
+  };
+  const credits = ebayStatus && ebayStatus.listing_credits;
+  app.innerHTML = `
+    <button class="back" id="dBack" style="padding:8px 0">‹ Back to the estimate</button>
+    <h1 class="h1">Your eBay listing</h1>
+    <div class="muted" style="font-size:.85rem">Check it over. Nothing goes to eBay until you tap List.</div>
+    <div class="thumbs">${d.images.map(u => `<img src="${esc(u)}" alt="">`).join("")}</div>
+    ${d.images_skipped ? `<div class="muted" style="font-size:.78rem">${d.images_skipped} photo${d.images_skipped === 1 ? "" : "s"} left out — eBay can't take that format.</div>` : ""}
+    <div class="card">
+      <label>Title <span class="muted" id="tCount" style="text-transform:none;letter-spacing:0"></span></label>
+      <input id="eTitle" maxlength="80" value="${esc(d.title)}">
+      <div style="height:8px"></div>
+      <label>Price</label>
+      <input id="ePrice" inputmode="decimal" value="${d.price ? Number(d.price).toFixed(2) : ""}" placeholder="$0.00">
+      ${d.price_basis ? `<div class="muted" style="font-size:.78rem;margin-top:3px">Starting from the ${esc(d.price_basis)}.</div>` : `<div style="font-size:.78rem;margin-top:3px;color:var(--rust)">The estimate didn't settle on a price — set one yourself.</div>`}
+      <div style="height:8px"></div>
+      <label>Category</label>
+      <select id="eCat">${(d.categories || []).map(c => `<option value="${esc(c.id)}"${d.category && c.id === d.category.id ? " selected" : ""}>${esc(c.path || c.name)}</option>`).join("")}</select>
+      <div style="height:8px"></div>
+      <label>Condition</label>
+      <select id="eCond">${conds.map(c => `<option value="${esc(c.value)}"${c.value === d.condition ? " selected" : ""}>${esc(c.label)}</option>`).join("")}</select>
+      <div style="height:8px"></div>
+      <label>Condition notes</label>
+      <input id="eCondNote" value="${esc(d.condition_note || "")}" placeholder="Chips, wear, repairs — buyers read this">
     </div>
     <div class="card">
-      <label>Add an item</label>
-      <div class="row"><input id="iName" placeholder="Item name" enterkeyhint="next" style="flex:2"><input id="iPrice" placeholder="$0.00" inputmode="decimal" style="flex:1"></div>
-      <div style="height:8px"></div>
-      <select id="iSeller">${sellerOptions("")}</select>
-      <div style="height:8px"></div>
-      <div class="row" style="gap:8px;align-items:center">
-        <button class="btn sec sm" id="iCam" style="display:none">📷 Photo</button>
-        <!-- Not accept="image/*". An iPhone writes HEIC by default, and with a wildcard accept
-             iOS hands the HEIC over untouched: the browser cannot decode it, shrink() passes it
-             through at full size, the blur gate measures null and waves it past, and the vision
-             model is handed a .heic URL it cannot read. Measured 2026-09-24 end to end - the
-             appraisal came back "vision model failed on every photo; appraisal relies on dealer
-             text only" and every line of its evidence began "Dealer reports". The paid feature
-             silently became a text guesser for anyone on an iPhone.
-             Naming the formats explicitly makes iOS transcode to JPEG as it hands the file over. -->
-        <label class="btn sec sm" style="display:inline-block;margin:0">Choose photos<input type="file" accept="image/jpeg,image/png,image/webp" multiple hidden id="iFiles"></label>
-        <span class="muted" id="iCount" style="font-size:.82rem"></span>
-      </div>
-      <div id="iThumbs" class="row" style="gap:6px;flex-wrap:wrap;margin-top:8px"></div>
-      <div style="height:8px"></div>
-      <button class="btn" id="addItem">+ Add item</button>
-      <div style="height:6px"></div>
-      <button class="btn sec sm" id="addSeller">+ Add a seller</button>
+      <label style="margin-bottom:8px">Item specifics</label>
+      ${d.aspect_spec.length ? d.aspect_spec.map(aspectRow).join("") : `<div class="muted" style="font-size:.85rem">eBay doesn't ask for any in this category.</div>`}
+      ${d.missing.length ? `<div style="font-size:.8rem;color:var(--rust)">Fill in the starred ones — eBay requires them.</div>` : ""}
     </div>
-    <div class="row" style="justify-content:space-between;margin:6px 2px"><h3>Items (${avail.length} available)</h3></div>
-    <div id="itemList" class="list"></div>`;
-  // Photos on a manual add: a plain item is still an item you want a picture of, and the
-  // storefront uses the first photo as its thumbnail.
-  pendingPhotos = [];
-  const drawThumbs = () => {
-    const t = $("#iThumbs"); if (!t) return;
-    t.innerHTML = pendingPhotos.map((f, n) =>
-      `<span style="position:relative;display:inline-block">
-         <img src="${URL.createObjectURL(f)}" alt="" style="width:52px;height:52px;object-fit:cover;border-radius:8px">
-         <button data-rm="${n}" title="Remove" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:0;background:var(--rust,#a33);color:#fff;font-size:.7rem;line-height:1;cursor:pointer">✕</button>
-       </span>`).join("");
-    t.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { pendingPhotos.splice(+b.dataset.rm, 1); drawThumbs(); });
-    $("#iCount").textContent = pendingPhotos.length ? `${pendingPhotos.length} photo${pendingPhotos.length === 1 ? "" : "s"}` : "";
+    <div class="card">
+      <label>Description</label>
+      <textarea id="eDesc" rows="8">${esc(d.description)}</textarea>
+    </div>
+    <div class="card">
+      <label>Shipping</label>
+      <div class="row" style="gap:8px">
+        <div style="flex:1"><div class="muted" style="font-size:.75rem">Ships from ZIP</div><input id="eZip" inputmode="numeric" maxlength="5" value="${esc((ebayStatus && ebayStatus.postal_code) || "")}" placeholder="12345"></div>
+        <div style="flex:1"><div class="muted" style="font-size:.75rem">Buyer pays</div><input id="eShip" inputmode="decimal" placeholder="e.g. 12.00 (0 = free)"></div>
+        <div style="flex:.7"><div class="muted" style="font-size:.75rem">Ships within</div><select id="eDays"><option value="1">1 day</option><option value="2">2 days</option><option value="3" selected>3 days</option><option value="5">5 days</option></select></div>
+      </div>
+      <div class="muted" style="font-size:.75rem;margin-top:6px">USPS Priority, flat rate. 30-day returns, buyer pays return shipping. Change these any time in eBay Seller Hub.</div>
+    </div>
+    <button class="btn" id="eGo" style="background:var(--cobalt)">List on eBay${credits ? " · 1 credit" : ""}</button>
+    <div class="muted" style="font-size:.75rem;text-align:center;margin:8px 0 20px">${credits ? "If eBay turns it down, the credit comes back." : ""} eBay's own selling fees apply when it sells.</div>`;
+  const tc = () => $("#tCount").textContent = `(${$("#eTitle").value.length}/80)`;
+  $("#eTitle").oninput = tc; tc();
+  $("#dBack").onclick = () => renderItemDetail(id);
+  $("#eCat").onchange = () => { if (!d.category || $("#eCat").value !== d.category.id) startEbayListing(id, $("#eCat").value); };
+  $("#eGo").onclick = async () => {
+    const aspects = {};
+    app.querySelectorAll("[data-asp]").forEach(x => { if (x.value.trim()) aspects[x.dataset.asp] = [x.value.trim()]; });
+    const miss = d.aspect_spec.filter(s => s.required && !aspects[s.name]).map(s => s.name);
+    if (miss.length) return toast("eBay requires: " + miss.join(", "));
+    const body = {
+      title: $("#eTitle").value, price: $("#ePrice").value, category_id: $("#eCat").value, condition: $("#eCond").value,
+      condition_note: $("#eCondNote").value, aspects, description: $("#eDesc").value,
+      postal_code: $("#eZip").value, shipping_cost: $("#eShip").value, handling_days: $("#eDays").value,
+    };
+    if (!/^\d{5}$/.test(body.postal_code.trim())) { $("#eZip").focus(); return toast("Enter the ZIP code you ship from"); }
+    if (body.shipping_cost.trim() === "" || isNaN(Number(body.shipping_cost))) { $("#eShip").focus(); return toast("What does the buyer pay for shipping? 0 for free."); }
+    const btn = $("#eGo"); btn.disabled = true; btn.textContent = "Sending to eBay…";
+    try {
+      const r = await api("/items/" + id + "/ebay/publish", { method: "POST", body: JSON.stringify(body) });
+      if (window.BTBilling) BTBilling.refresh();
+      app.innerHTML = `<div class="card" style="text-align:center;margin-top:30px;border-color:var(--cobalt)">
+        <div class="big" style="font-size:1.4rem">It's on eBay 🎉</div>
+        <div class="muted" style="margin:6px 0 14px">${esc(body.title)}</div>
+        ${r.url ? `<a class="btn" style="display:block;text-decoration:none;background:var(--cobalt)" href="${esc(r.url)}" target="_blank" rel="noopener">View your listing ↗</a>` : ""}
+        ${(r.warnings || []).length ? `<div class="muted" style="font-size:.78rem;margin-top:8px">eBay notes: ${r.warnings.map(esc).join(" · ")}</div>` : ""}
+        <div style="height:8px"></div><button class="btn sec" id="doneHome">Back to my items</button></div>`;
+      $("#doneHome").onclick = renderHome;
+    } catch (e) {
+      btn.disabled = false; btn.textContent = "List on eBay" + (credits ? " · 1 credit" : "");
+      if (e.needs_connect) return connectEbay();
+      if (e.missing) toast("eBay requires: " + e.missing.join(", "));
+      else toast(e.message + (e.refunded ? " — your credit was returned" : ""));
+    }
   };
-  $("#iFiles").onchange = e => { pendingPhotos.push(...e.target.files); e.target.value = ""; drawThumbs(); };
-  if (canUseCamera()) {
-    const ic = $("#iCam"); ic.style.display = "inline-block";
-    ic.onclick = async () => { const f = await openCamera("Photo of the item"); if (f) { pendingPhotos.push(f); drawThumbs(); } };
-  }
-  $("#addItem").onclick = addItem;
-  $("#aiAdd").onclick = () => renderCapture();
-  $("#iPrice").addEventListener("keydown", e => { if (e.key === "Enter") addItem(); });
-  $("#addSeller").onclick = addSeller;
-  const el = $("#itemList");
-  if (!d.items.length) { el.innerHTML = `<div class="empty"><div class="em">📦</div>No items yet. Add your first one.</div>`; return; }
-  const nameOf = id => (d.sellers.find(s => s.id === id) || {}).name;
-  const badge = i => i.listing_status === "live" ? `<span class="pill" style="background:var(--green);color:#fff">online</span>` :
-    i.appraisal_status === "pending" ? `<span class="pill">appraising…</span>` : i.appraisal_status === "done" ? `<span class="pill">AI priced</span>` : "";
-  el.innerHTML = d.items.map(i => `<div class="li ${i.status === "sold" ? "sold" : ""} tap" data-open="${i.id}">
-      ${i.thumb_key ? `<img src="/p/${esc(i.thumb_key)}" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:8px">` : ""}
-      <div><div class="nm">${esc(i.ai_title || i.name)}</div><div class="muted" style="font-size:.8rem">${i.status === "sold" ? "sold" : "available"}${i.seller_id ? " · " + esc(nameOf(i.seller_id) || "") : ""} ${badge(i)}</div></div>
-      <span class="pr">${money(i.price_cents)}</span>
-      ${i.status === "available" ? `<button class="btn rust sm" data-del="${i.id}" style="margin-left:8px">✕</button>` : ""}
-    </div>`).join("");
-  el.querySelectorAll("[data-del]").forEach(b => b.onclick = async (e) => { e.stopPropagation(); if (!confirm("Delete this item?")) return; await api("/items/" + b.dataset.del, { method: "DELETE" }); await loadDetail(); renderItems(); });
-  el.querySelectorAll("[data-open]").forEach(li => li.onclick = () => renderItemDetail(li.dataset.open));
 }
 
 // ---------- In-page camera ----------
@@ -482,10 +479,8 @@ function renderCapture() {
       <div style="height:10px"></div>
       <label>Any writing, stamps or marks on it</label>
       <textarea id="cMarks" rows="2" placeholder="Copy exactly what you can read, e.g. 'Stickley', 'Made in Occupied Japan', '1847 Rogers Bros'"></textarea>
-      <div style="height:10px"></div>
-      <select id="cSeller">${sellerOptions("")}</select>
       <div style="height:12px"></div>
-      <button class="btn" id="cGo">✨ Identify &amp; price</button>
+      <button class="btn" id="cGo">✨ Guestimate it</button>
       <div style="height:6px"></div>
       <button class="btn sec" id="cCancel">Cancel</button>
     </div>`;
@@ -526,11 +521,11 @@ function renderCapture() {
       const ok = await acceptPhoto(f); if (ok) { more.push(ok); bumpMore(); }
     };
   }
-  $("#cCancel").onclick = renderItems;
+  $("#cCancel").onclick = renderHome;
   $("#cGo").onclick = async () => {
     const files = [...Object.entries(shots).map(([k, f]) => ({ kind: k, f })), ...more.map(f => ({ kind: "other", f }))];
     if (!files.length) return toast("Take at least one photo");
-    const description = $("#cDesc").value.trim(), markings = $("#cMarks").value.trim(), seller_id = $("#cSeller").value;
+    const description = $("#cDesc").value.trim(), markings = $("#cMarks").value.trim();
     // Photographs alone are not enough, and the dealer standing in front of the item knows more
     // than any camera does. Four rolls of nickels shot end-on were read as shotgun shells; the
     // words "four rolls of war nickels" would have settled it in one line.
@@ -541,16 +536,16 @@ function renderCapture() {
     }
     $("#cGo").disabled = true; $("#cGo").textContent = "Uploading…";
     try {
-      const { id } = await api("/sales/" + state.saleId + "/items", { method: "POST", body: JSON.stringify({ name: "New item", description, markings, seller_id }) });
+      const { id } = await api("/items", { method: "POST", body: JSON.stringify({ name: "New item", description, markings }) });
       const fd = new FormData();
       for (const { kind, f } of files) fd.append("photos", await shrink(f), f.name || (kind + ".jpg"));
       fd.append("kinds", files.map(x => x.kind).join(","));
       const up = await fetch("/api/items/" + id + "/photos", { method: "POST", body: fd, credentials: "same-origin" });
       if (!up.ok) throw new Error((await up.json()).error || "upload failed");
-      $("#cGo").textContent = "Asking the appraiser…";
+      $("#cGo").textContent = "Pricing it…";
       await api("/items/" + id + "/appraise", { method: "POST", body: JSON.stringify({}) });
-      await loadDetail(); renderItemDetail(id);
-    } catch (e) { toast(e.message); $("#cGo").disabled = false; $("#cGo").textContent = "✨ Identify & price"; }
+      renderItemDetail(id);
+    } catch (e) { toast(e.message); $("#cGo").disabled = false; $("#cGo").textContent = "✨ Guestimate it"; }
   };
 }
 // How sharp a photo is, as the variance of its Laplacian: high where edges are crisp, near zero
@@ -665,7 +660,7 @@ async function renderItemDetail(id) {
   // anchor on and nothing to pre-fill into the price box either.
   const nc = r && r.needs_clarification;
   app.innerHTML = `
-    <button class="back" id="toItems" style="padding:8px 0">‹ Items</button>
+    <button class="back" id="toItems" style="padding:8px 0">‹ My items</button>
     <div class="thumbs">${photos.map(p => `<img src="${esc(p.url)}" alt="${esc(p.kind)}" title="${esc(p.kind)}">`).join("")}</div>
     ${pending ? `<div class="card" style="text-align:center"><div class="big" style="font-size:1.3rem">Appraising…</div><div class="muted">Nemotron is reading ${photos.length} photo${photos.length === 1 ? "" : "s"}. Usually under a minute.</div></div>` : ""}
     ${appraisal && appraisal.status === "error" ? `<div class="card" style="border-color:var(--rust)"><b>Appraisal failed.</b><div class="muted" style="font-size:.85rem">${esc(appraisal.error)}</div><div style="height:8px"></div><button class="btn sec sm" id="retry">Try again</button></div>` : ""}
@@ -725,33 +720,12 @@ async function renderItemDetail(id) {
       ${r.warnings.length ? `<div class="muted" style="font-size:.75rem;margin-top:8px">${r.warnings.map(esc).join(" · ")}</div>` : ""}
       <div class="muted" style="font-size:.72rem;margin-top:8px">${esc(r.models.text)} + ${esc(r.models.vision)} on Nebius</div>
     </div>` : ""}
-    <div class="card">
-      <label>Listing title</label><input id="lTitle" value="${esc(item.ai_title || item.name)}">
-      <div style="height:8px"></div>
-      <label>Price</label><input id="lPrice" inputmode="decimal" value="${item.price_cents ? (item.price_cents / 100).toFixed(2) : (pr && !nc ? Math.round(pr.suggested_retail).toFixed(2) : "")}" placeholder="$0.00">
-      <div style="height:8px"></div>
-      <label>Description</label><textarea id="lDesc" rows="6">${esc(item.ai_description || item.description || "")}</textarea>
-      <div style="height:12px"></div>
-      ${item.status !== "available" ? `<div class="muted">Sold.</div>` :
-        item.listing_status === "live" ? `<a class="btn" style="display:block;text-align:center;text-decoration:none" id="viewLive" target="_blank">View online listing ↗</a><div style="height:6px"></div><button class="btn sec" id="unlist">Take offline</button><div style="height:6px"></div><button class="btn sec" id="saveDraft">Save changes</button>` :
-        `<button class="btn" id="publish">✓ Approve &amp; list online</button><div style="height:6px"></div><button class="btn sec" id="saveDraft">Save (keep in store only)</button>`}
-      ${!pending && photos.length ? `<div style="height:6px"></div><button class="btn sec sm" id="reappraise">↻ Re-run appraisal</button>` : ""}
-    </div>`;
-  $("#toItems").onclick = async () => { clearTimeout(pollT); await loadDetail(); renderItems(); };
-  // listing_description, not description. This box holds the shop-page copy; the dealer's own
-  // account of the item is items.description and is edited nowhere on this form. They were both
-  // called "description" and posted to two endpoints that meant opposite things by it, which is
-  // how the model's prose came to overwrite a dealer's own words. Distinct names, no collision.
-  const payload = (extra = {}) => ({ title: $("#lTitle").value, listing_description: $("#lDesc").value, price: $("#lPrice").value, ...extra });
-  const publishAs = async (listing_status) => {
-    try { const res = await api("/items/" + id + "/publish", { method: "POST", body: JSON.stringify(payload({ listing_status })) });
-      toast(listing_status === "live" ? "Listed online" : "Saved"); renderItemDetail(id); return res; }
-    catch (e) { if (/shop address/.test(e.message)) return renderShopSetup(() => renderItemDetail(id)); toast(e.message); }
-  };
-  if ($("#publish")) $("#publish").onclick = () => publishAs("live");
-  if ($("#saveDraft")) $("#saveDraft").onclick = () => publishAs(item.listing_status === "live" ? "live" : "hidden");
-  if ($("#unlist")) $("#unlist").onclick = () => publishAs("hidden");
-  if ($("#viewLive")) { const me = await api("/auth/me"); $("#viewLive").href = "/shop/" + me.shop_slug + "/item/" + id; }
+    ${ebayPanelHtml(b, !!(r && !nc && appraisal.status === "done"))}
+    ${!pending && photos.length ? `<button class="btn sec sm" id="reappraise" style="margin-bottom:16px">↻ Re-run the estimate</button>` : ""}
+`;
+  $("#toItems").onclick = () => { clearTimeout(pollT); renderHome(); };
+  if ($("#ebayList")) $("#ebayList").onclick = () => startEbayListing(id);
+  if (!ebayStatus) loadEbayStatus();
   // Re-running must NOT post the form's description. That box holds the LISTING copy — the
   // shop-page prose the model wrote — and the appraise endpoint reads `description` as the
   // dealer's own account of the item. Posting one as the other overwrote "These are 4 rolls of
@@ -815,541 +789,18 @@ async function renderItemDetail(id) {
     await answerWith(answered.join(". "), $("#clarifyGo"));
   };
   if ($("#retry")) $("#retry").onclick = rerun;
-  if (pending) pollT = setTimeout(() => renderItemDetail(id), 4000);
+  state.view = "item";
+  if (pending) pollT = setTimeout(() => { if (state.view === "item") renderItemDetail(id); }, 4000);
 }
-
-// ---------- Shop setup ----------
-async function renderShopSetup(done) {
-  const me = await api("/auth/me");
-  app.innerHTML = `<h1 class="h1">Your online shop</h1>
-    <div class="muted" style="font-size:.85rem">Approved items appear at your shop address. Set it once.</div>
-    <div class="card">
-      <label>Shop name</label><input id="sName" value="${esc(me.shop_name || "")}" placeholder="e.g. Bottle Tree Antiques">
-      <div style="height:8px"></div>
-      <label>Shop address</label><div class="row"><span class="muted" style="font-size:.85rem">${location.origin}/shop/</span><input id="sSlug" value="${esc(me.shop_slug || "")}" placeholder="bottle-tree" style="flex:1"></div>
-      <div style="height:8px"></div>
-      <label>Tagline (optional)</label><input id="sBlurb" value="${esc(me.shop_blurb || "")}" placeholder="Antiques, curiosities and estate finds in Hudson, NY">
-      <div style="height:12px"></div>
-      <button class="btn" id="sSave">Save shop</button><div style="height:6px"></div><button class="btn sec" id="sBack">Back</button>
-    </div>
-    <div class="card">
-      <label>Counter kiosk (Jetson)</label>
-      <div class="muted" style="font-size:.85rem">Items appraised on the counter kiosk land here. Paste this key into the kiosk's BOTTLETREE_DEVICE_KEY.</div>
-      <div style="height:8px"></div>
-      <input id="dKey" readonly placeholder="no device key yet" style="font-family:monospace;font-size:.85rem">
-      <div style="height:8px"></div>
-      <div class="row"><button class="btn sec sm" id="dNew">Generate new key</button><button class="btn sec sm" id="dCopy">Copy</button><button class="btn rust sm" id="dRevoke">Revoke</button></div>
-    </div>`;
-  $("#sBack").onclick = done;
-  const loadKey = async () => { const k = await api("/me/device-key"); $("#dKey").value = k.device_key || ""; };
-  loadKey();
-  $("#dNew").onclick = async () => { if ($("#dKey").value && !confirm("Replace the current kiosk key? The old one stops working.")) return; await api("/me/device-key", { method: "POST" }); toast("New kiosk key"); loadKey(); };
-  $("#dCopy").onclick = () => { navigator.clipboard?.writeText($("#dKey").value); toast("Copied"); };
-  $("#dRevoke").onclick = async () => { if (!confirm("Revoke the kiosk key?")) return; await api("/me/device-key", { method: "DELETE" }); toast("Revoked"); loadKey(); };
-  $("#sSave").onclick = async () => {
-    try { await api("/me/shop", { method: "PUT", body: JSON.stringify({ shop_name: $("#sName").value, slug: $("#sSlug").value, shop_blurb: $("#sBlurb").value }) }); toast("Shop saved"); done(); }
-    catch (e) { toast(e.message); }
-  };
-}
-
-async function addItem() {
-  const name = $("#iName").value.trim(), price = $("#iPrice").value.trim(), seller_id = $("#iSeller").value;
-  if (!name) return toast("Item name?");
-  if (price === "" || isNaN(Number(price))) return toast("Enter a price");
-  const btn = $("#addItem"), photos = pendingPhotos.slice();
-  btn.disabled = true; if (photos.length) btn.textContent = "Uploading…";
-  let id;
-  try { ({ id } = await api("/sales/" + state.saleId + "/items", { method: "POST", body: JSON.stringify({ name, price, seller_id }) })); }
-  catch (e) { btn.disabled = false; btn.textContent = "+ Add item"; return toast(e.message); }
-  // The item exists now. A photo upload that fails must not lose it — say so and move on.
-  if (photos.length) {
-    try {
-      const fd = new FormData();
-      for (const f of photos) fd.append("photos", await shrink(f), f.name || "photo.jpg");
-      fd.append("kinds", photos.map(() => "other").join(","));
-      const up = await fetch("/api/items/" + id + "/photos", { method: "POST", body: fd, credentials: "same-origin" });
-      if (!up.ok) throw new Error((await up.json().catch(() => ({}))).error || "upload failed");
-    } catch (e) {
-      toast(`Item added, but the photos didn't upload (${e.message}) — open it to try again`);
-      pendingPhotos = []; await loadDetail(); return renderItems();
-    }
-  }
-  pendingPhotos = [];
-  toast("Added"); await loadDetail(); renderItems(); $("#iName").focus();
-}
-async function addSeller() {
-  const name = prompt("Seller name (e.g. Mom, Booth 12):");
-  if (!name || !name.trim()) return;
-  await api("/sales/" + state.saleId + "/sellers", { method: "POST", body: JSON.stringify({ name: name.trim() }) });
-  toast("Seller added"); await loadDetail(); renderItems();
-}
-
-// Cashier tab: tap available items into cart, charge
-function cartTotal() { const d = state.detail; return d.items.filter(i => state.cart.has(i.id)).reduce((a, i) => a + i.price_cents, 0); }
-function renderCashier() {
-  const d = state.detail;
-  const avail = d.items.filter(i => i.status === "available");
-  app.innerHTML = `<div class="row" style="justify-content:space-between;margin:8px 2px"><h3>Tap items to sell</h3><span class="muted" style="font-size:.85rem">${avail.length} available</span></div>
-    <div id="cashList" class="list"></div>`;
-  const el = $("#cashList");
-  if (!avail.length) { el.innerHTML = `<div class="empty"><div class="em">💵</div>Nothing available to sell. Add items first.</div>`; }
-  else el.innerHTML = avail.map(i => `<div class="li tap ${state.cart.has(i.id) ? "selected" : ""}" data-id="${i.id}">
-      <div class="nm">${state.cart.has(i.id) ? "✓ " : ""}${esc(i.name)}</div><span class="pr">${money(i.price_cents)}</span></div>`).join("");
-  el.querySelectorAll(".li").forEach(li => li.onclick = () => { const id = li.dataset.id; state.cart.has(id) ? state.cart.delete(id) : state.cart.add(id); renderCashier(); });
-  updateCart();
-}
-function updateCart() { $("#cartTot").textContent = money(cartTotal()); $("#cartCnt").textContent = state.cart.size + " item" + (state.cart.size === 1 ? "" : "s"); setChrome(); }
-async function charge() {
-  if (!state.cart.size) return;
-  const ids = [...state.cart];
-  await ring(ids, false);
-}
-
-// Split out so the unpriced case can ring the same sale again once the dealer has said yes.
-// A cashier with a queue in front of them needs one tap to resolve this, not a trip to the item.
-async function ring(ids, allowFree) {
-  try {
-    const r = await api("/sales/" + state.saleId + "/checkout", {
-      method: "POST",
-      body: JSON.stringify(allowFree ? { item_ids: ids, allow_free: true } : { item_ids: ids }),
-    });
-    toast("Sold — " + money(r.total_cents) + " (cash)");
-    state.cart = new Set();
-    await loadDetail();
-    renderCashier();
-  } catch (e) {
-    if (e.needs_price) {
-      const names = (e.unpriced || []).map(u => u.name).join(", ");
-      if (confirm(`${names} has no price.\n\nPrice it first, or tap OK to give it away for $0.`)) {
-        await ring(ids, true);
-      }
-      return;
-    }
-    toast(e.message);
-  }
-}
-
-// Summary tab
-async function renderSummary() {
-  app.innerHTML = `<div class="muted" style="padding:20px;text-align:center">Loading…</div>`;
-  const s = await api("/sales/" + state.saleId + "/summary");
-  app.innerHTML = `<h1 class="h1" style="margin-top:16px">Sale summary</h1>
-    <div class="kpis" style="margin:10px 0">
-      <div class="kpi"><div class="n">${money(s.revenue_cents)}</div><div class="l">Cash taken · ${s.txn_count} sale${s.txn_count === 1 ? "" : "s"}</div></div>
-      <div class="kpi"><div class="n">${s.sold_items}</div><div class="l">Items sold</div></div>
-      <div class="kpi"><div class="n">${s.available_items}</div><div class="l">Still available</div></div>
-      <div class="kpi"><div class="n">${money(s.available_cents)}</div><div class="l">Unsold value</div></div>
-    </div>
-    <div class="card">
-      <h3 style="margin-bottom:6px">Payout split</h3>
-      ${s.split.length ? s.split.map(r => `<div class="split"><span>${esc(r.seller)} <span class="muted" style="font-size:.82rem">· ${r.items} item${r.items === 1 ? "" : "s"}</span></span><span class="amt">${money(r.cents)}</span></div>`).join("")
-        : `<div class="muted" style="padding:10px 0">No sales yet — the split fills in as you sell.</div>`}
-    </div>
-    <div class="card">
-      <h3 style="margin-bottom:2px">Transactions</h3>
-      <div class="muted" style="font-size:.8rem;margin-bottom:6px">Rang something up wrong? Void it. The items go back on the shelf and the takings drop, but the line stays so the drawer still adds up.</div>
-      <div id="txnList"></div>
-    </div>
-    <div class="muted" style="font-size:.8rem;text-align:center;margin-top:10px">Bottle Tree v0.3 · cash in store, cards online · AI appraisals by NVIDIA Nemotron on Nebius.</div>`;
-  renderTxns();
-}
-
-// The transactions of this sale, newest first, each with a way to undo it. state.detail is
-// already loaded and carries them, so this does not re-fetch.
-const TENDER = { cash: "cash", stripe: "online card", card: "card" };
-function renderTxns() {
-  const el = $("#txnList"); if (!el) return;
-  const rows = (state.detail && state.detail.txns) || [];
-  if (!rows.length) { el.innerHTML = `<div class="muted" style="font-size:.82rem;padding:4px 0">Nothing rung up yet.</div>`; return; }
-  el.innerHTML = rows.map(t => {
-    const dead = t.status === "void";
-    return `<div class="split" style="align-items:center${dead ? ";opacity:.6" : ""}">
-      <span>
-        <span style="${dead ? "text-decoration:line-through" : ""}">${money(t.total_cents)}</span>
-        <span class="muted" style="font-size:.8rem">· ${t.item_count} item${t.item_count === 1 ? "" : "s"} · ${esc(TENDER[t.tender] || t.tender)} · ${esc(String(t.created_at || "").slice(11, 16))}</span>
-        ${dead ? `<div class="muted" style="font-size:.78rem">Voided${t.void_reason ? " — " + esc(t.void_reason) : ""}</div>` : ""}
-      </span>
-      ${dead ? `<span class="pill">void</span>`
-             : `<button class="btn rust sm" data-void="${t.id}" data-amt="${money(t.total_cents)}" style="margin:0">Void</button>`}
-    </div>`;
-  }).join("");
-  el.querySelectorAll("[data-void]").forEach(b => b.onclick = () => voidTxn(b.dataset.void, b.dataset.amt));
-}
-
-async function voidTxn(id, amt) {
-  if (!confirm(`Void this ${amt} sale?\n\nThe items go back on the shelf and the takings drop by ${amt}. The line stays on record as voided so the drawer still reconciles.`)) return;
-  const reason = prompt("What happened? (optional — it goes on the record)") || "";
-  const send = (extra = {}) => api("/sales/" + state.saleId + "/txns/" + id + "/void",
-    { method: "POST", body: JSON.stringify({ reason, ...extra }) });
-  try { await send(); }
-  catch (e) {
-    // The API refuses once, with the detail, when a dealer has already been handed a statement
-    // covering these items. It is still allowed — but the owner has to know the correction
-    // lands on the next statement, not this one.
-    if (!e.needs_acknowledgement) return toast(e.message);
-    if (!confirm(`${e.message}\n\nVoid anyway?`)) return;
-    try { await send({ acknowledge_statements: true }); }
-    catch (e2) { return toast(e2.message); }
-  }
-  toast("Voided");
-  await loadDetail();
-  renderSummary();
-}
-
-// ---------- Orders from the online store ----------
-// These rows were written from the first day the storefront existed and nothing ever showed
-// them. An online sale happened, the item flipped to sold, and the owner had no list of what
-// was bought, by whom, or where to send it.
-
-const ORDER_STATE = {
-  paid: { label: "paid", tone: "" },
-  needs_refund: { label: "refund owed", tone: "bad" },
-  pending: { label: "not paid yet", tone: "" },
-  cancelled: { label: "cancelled", tone: "" },
-};
-const orderName = o => o.ai_title || o.item_name || "Item";
-const onDay = s => {
-  const d = String(s || "").slice(0, 10).split("-");
-  return d.length === 3 ? `${Number(d[2])} ${MON[+d[1] - 1]}` : "";
-};
-
-// The count beside the Orders link. Failure here is silent on purpose: a storefront the owner
-// has not set up yet should not put an error on the sales screen every time they open it.
-async function markOrders() {
-  const dot = $("#ordersDot"); if (!dot) return;
-  let rows = [];
-  try { rows = (await api("/me/orders")).orders || []; } catch { return; }
-  const n = rows.filter(o => o.needs_attention).length;
-  if (!n) return;
-  const owed = rows.some(o => o.status === "needs_refund");
-  dot.outerHTML = `<span id="ordersDot" class="pill" style="margin-left:5px;${owed ? "color:var(--rust,#b00);border-color:currentColor" : ""}">${n}</span>`;
-}
-
-async function renderOrders() {
-  state.view = "statements"; state.saleId = null; state.detail = null; setChrome();
-  app.innerHTML = `<div class="muted" style="padding:20px;text-align:center">Loading…</div>`;
-  let rows = [];
-  try { rows = (await api("/me/orders")).orders || []; }
-  catch (e) { app.innerHTML = ""; return toast(e.message); }
-
-  const todo = rows.filter(o => o.needs_attention);
-  const rest = rows.filter(o => !o.needs_attention);
-  app.innerHTML = `<h1 class="h1" style="margin:6px 0 2px">Orders</h1>
-    <div class="muted" style="font-size:.82rem;margin:0 0 10px">What the online store has sold. Paid orders stay here until you mark them sent.</div>
-    ${rows.length ? "" : `<div class="empty"><div class="em">📦</div>Nothing has sold online yet. Orders show up here the moment a payment clears.</div>`}
-    ${todo.length ? `<div class="card">
-      <label>Needs you</label>
-      <div id="ordTodo" style="margin-top:6px"></div>
-    </div>` : rows.length ? `<div class="card"><div class="muted" style="font-size:.82rem">Nothing waiting — everything paid for has been sent.</div></div>` : ""}
-    ${rest.length ? `<div class="card" style="margin-top:14px">
-      <label>Everything else</label>
-      <div id="ordRest" style="margin-top:6px"></div>
-    </div>` : ""}
-    <div style="height:14px"></div>
-    <button class="btn sec" id="ordBack">← Your sales</button>
-    <div style="height:20px"></div>`;
-  $("#ordBack").onclick = renderSales;
-  if (todo.length) fillOrders($("#ordTodo"), todo, true);
-  if (rest.length) fillOrders($("#ordRest"), rest, false);
-}
-
-function fillOrders(el, rows, actionable) {
-  el.innerHTML = rows.map(o => {
-    const st = ORDER_STATE[o.status] || { label: o.status, tone: "" };
-    const bad = st.tone === "bad";
-    return `<div style="padding:8px 0;border-bottom:1px solid var(--line)">
-      <div class="split" style="align-items:baseline">
-        <span style="font-weight:700">${esc(orderName(o))}</span>
-        <span class="amt">${money(o.amount_cents)}</span>
-      </div>
-      <div class="muted" style="font-size:.8rem">
-        ${esc(onDay(o.paid_at || o.created_at))} ·
-        <span class="pill" style="${bad ? "color:var(--rust,#b00);border-color:currentColor" : ""}">${esc(st.label)}</span>
-        ${o.buyer_email ? " · " + esc(o.buyer_email) : ""}
-        ${o.fulfilled_at ? " · sent " + esc(onDay(o.fulfilled_at)) : ""}
-      </div>
-      ${o.note ? `<div class="muted" style="font-size:.8rem;margin-top:2px${bad ? ";color:var(--rust,#b00)" : ""}">${esc(o.note)}</div>` : ""}
-      ${bad && o.payment_intent ? `<div style="margin-top:4px"><a href="https://dashboard.stripe.com/payments/${encodeURIComponent(o.payment_intent)}" target="_blank" rel="noopener" style="font-size:.8rem;font-weight:700">Open this payment in Stripe →</a></div>` : ""}
-      ${actionable && o.status === "paid" ? `<div style="margin-top:6px"><button class="btn sec sm" data-sent="${o.id}" style="margin:0">Mark sent</button></div>` : ""}
-      ${!actionable && o.fulfilled_at ? `<div style="margin-top:4px"><a href="#" data-unsent="${o.id}" class="muted" style="font-size:.78rem;font-weight:700">Not sent after all</a></div>` : ""}
-    </div>`;
-  }).join("");
-
-  el.querySelectorAll("[data-sent]").forEach(b => b.onclick = async () => {
-    b.disabled = true;
-    try { await api("/me/orders/" + b.dataset.sent + "/sent", { method: "POST" }); }
-    catch (e) { b.disabled = false; return toast(e.message); }
-    toast("Marked sent"); renderOrders();
-  });
-  el.querySelectorAll("[data-unsent]").forEach(a => a.onclick = async e => {
-    e.preventDefault();
-    try { await api("/me/orders/" + a.dataset.unsent + "/sent", { method: "DELETE" }); }
-    catch (err) { return toast(err.message); }
-    toast("Back on the list"); renderOrders();
-  });
-}
-
-// ---------- Dealer payouts (settlements) ----------
-// A statement is the piece of paper a consignor or booth dealer is handed: what of theirs
-// sold, what the shop kept, what rent was charged, what they are owed. Terms live on the
-// dealer, but a statement freezes its own copy of them — so raising a commission rate next
-// month never quietly rewrites a statement somebody is already holding.
-
-// Default period is the previous calendar month, because that is when anyone sits down to
-// do this. Built from local date parts, not toISOString(), which would shift the boundary
-// by a timezone and quietly drop the 1st or the 31st.
-function lastMonth() {
-  const n = new Date(), y = n.getFullYear(), m = n.getMonth();
-  const pad = x => String(x).padStart(2, "0");
-  const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  return { from: iso(new Date(y, m - 1, 1)), to: iso(new Date(y, m, 0)) };
-}
-const dollars = c => (c < 0 ? "-$" : "$") + (Math.abs(c) / 100).toFixed(2);
-// "2026-08-01 → 2026-08-31" is 23 characters and wraps the line on a phone. In a list, where
-// the point is to recognise a period at a glance, "1–31 Aug 2026" says the same thing in half
-// the width. The statement itself, and anything printed, keeps full ISO dates.
-const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-function periodShort(from, to) {
-  const a = String(from || "").split("-"), b = String(to || "").split("-");
-  if (a.length !== 3 || b.length !== 3) return `${from} → ${to}`;
-  const d = x => String(Number(x));
-  if (a[0] === b[0] && a[1] === b[1]) return `${d(a[2])}–${d(b[2])} ${MON[+a[1] - 1]} ${a[0]}`;
-  if (a[0] === b[0]) return `${d(a[2])} ${MON[+a[1] - 1]} – ${d(b[2])} ${MON[+b[1] - 1]} ${a[0]}`;
-  return `${d(a[2])} ${MON[+a[1] - 1]} ${a[0]} – ${d(b[2])} ${MON[+b[1] - 1]} ${b[0]}`;
-}
-const netAmt = c => `<span style="font-weight:800;${c < 0 ? "color:var(--rust,#b00)" : ""}">${dollars(c)}</span>`;
-// Three fields on one phone-width row. A column flex per field keeps each caption above its
-// own box; left to the sheet's default a caption sits beside its input and overlaps the next.
-const TERM_LBL = "flex:1;min-width:0;margin:0;font-size:.72rem;display:flex;flex-direction:column;gap:2px";
-// The adjustment row wants four controls and a phone has room for three. "What for" takes a
-// line of its own; the rest share the next one, with min-width:0 so the select shrinks instead
-// of pushing the Add button off the edge.
-const ADJ_LBL = "min-width:0;margin:0;font-size:.72rem;display:flex;flex-direction:column;gap:2px";
-
-async function renderStatements() {
-  state.view = "statements"; state.saleId = null; state.detail = null; setChrome();
-  app.innerHTML = `<div class="muted" style="padding:20px;text-align:center">Loading…</div>`;
-  let dealers = [], made = [];
-  try { dealers = await api("/me/sellers"); made = (await api("/me/statements")).statements || []; }
-  catch (e) { app.innerHTML = ""; return toast(e.message); }
-  const per = lastMonth();
-  app.innerHTML = `<h1 class="h1" style="margin:6px 0 2px">Dealer payouts</h1>
-    <div class="muted" style="font-size:.82rem;margin:0 0 10px">What each dealer is owed for a period, frozen at the moment you save it.</div>
-    ${dealers.length ? `<div class="card">
-      <label>New statement</label>
-      <select id="stWho" style="width:100%">${dealers.map(d =>
-        `<option value="${d.id}">${esc(d.name)}${d.booth ? " · booth " + esc(d.booth) : ""}</option>`).join("")}</select>
-      <div style="height:8px"></div>
-      <div class="row" style="gap:8px">
-        <label style="flex:1;margin:0;font-size:.8rem">From<input type="date" id="stFrom" value="${per.from}"></label>
-        <label style="flex:1;margin:0;font-size:.8rem">To<input type="date" id="stTo" value="${per.to}"></label>
-      </div>
-      <div style="height:10px"></div>
-      <button class="btn sec" id="stPrev">Preview the numbers</button>
-      <div id="stOut"></div>
-    </div>` : `<div class="empty"><div class="em">👥</div>No dealers yet. Add one on the sales screen, then come back.</div>`}
-    <div class="card" style="margin-top:14px">
-      <label>Statements</label>
-      <div id="stList" style="margin-top:6px">${made.length ? "" :
-        `<div class="muted" style="font-size:.82rem;padding:6px 0">None yet.</div>`}</div>
-    </div>
-    ${dealers.length ? `<div class="card" style="margin-top:14px">
-      <label>Dealer terms</label>
-      <div class="muted" style="font-size:.8rem;margin-top:4px">Commission is a percent of what sold. Rent is charged once per statement. Leave both blank for a dealer who keeps everything.</div>
-      <div id="stTerms" style="margin-top:10px"></div>
-    </div>` : ""}
-    <div style="height:20px"></div>`;
-
-  const list = $("#stList");
-  if (made.length) {
-    list.innerHTML = made.map(s => `<div class="li tap" data-st="${s.id}">
-        <div><div class="nm">${esc(s.seller_name)}${s.booth ? ` <span class="muted" style="font-size:.8rem">· booth ${esc(s.booth)}</span>` : ""}</div>
-          <div class="muted" style="font-size:.82rem">${esc(periodShort(s.period_start, s.period_end))} · ${s.item_count} item${s.item_count === 1 ? "" : "s"}</div></div>
-        <span class="pr">${netAmt(s.net_cents)} <span class="pill">${esc(s.status)}</span></span>
-      </div>`).join("");
-    list.querySelectorAll("[data-st]").forEach(li => li.onclick = () => renderStatement(li.dataset.st));
-  }
-
-  const terms = $("#stTerms");
-  if (terms) {
-    terms.innerHTML = dealers.map(d => `<div data-terms="${d.id}" style="padding:6px 0;border-bottom:1px solid var(--line)">
-        <div style="font-weight:700;margin-bottom:4px">${esc(d.name)}</div>
-        <div class="row" style="gap:6px;align-items:flex-end">
-          <label style="${TERM_LBL}">Comm %<input type="number" min="0" max="100" step="0.5" data-f="pct" value="${d.commission_pct ?? ""}"></label>
-          <label style="${TERM_LBL}">Rent $<input type="number" min="0" step="1" data-f="rent" value="${d.rent_cents == null ? "" : (d.rent_cents / 100)}"></label>
-          <label style="${TERM_LBL}">Booth<input type="text" data-f="booth" value="${esc(d.booth ?? "")}"></label>
-          <button class="btn sec sm" data-save="${d.id}" style="margin:0">Save</button>
-        </div>
-      </div>`).join("");
-    terms.querySelectorAll("[data-save]").forEach(b => b.onclick = async () => {
-      const box = b.closest("[data-terms]"), f = k => box.querySelector(`[data-f="${k}"]`).value.trim();
-      const pct = f("pct"), rent = f("rent");
-      if (pct !== "" && !(Number(pct) >= 0 && Number(pct) <= 100)) return toast("Commission must be 0–100%");
-      if (rent !== "" && !(Number(rent) >= 0)) return toast("Rent can't be negative");
-      b.disabled = true;
-      try {
-        await api("/me/sellers/" + b.dataset.save, { method: "PATCH", body: JSON.stringify({
-          commission_pct: pct === "" ? null : Number(pct),
-          rent_cents: rent === "" ? null : Math.round(Number(rent) * 100),
-          booth: f("booth") || null }) });
-        toast("Terms saved");
-      } catch (e) { toast(e.message); }
-      b.disabled = false;
-    });
-  }
-
-  // Adjustments belong to the statement being built, and are thrown away if the dealer or the
-  // period changes underneath them — an adjustment is about a particular dealer's particular
-  // month, and carrying one across would put a stranger's correction on someone's payout.
-  let stAdj = [];
-  const adjKey = () => `${$("#stWho") && $("#stWho").value}|${$("#stFrom") && $("#stFrom").value}|${$("#stTo") && $("#stTo").value}`;
-  let stAdjKey = adjKey();
-  ["stWho", "stFrom", "stTo"].forEach(id => { const el = $("#" + id); if (el) el.onchange = () => {
-    if (adjKey() !== stAdjKey) { stAdj = []; stAdjKey = adjKey(); }
-    const o = $("#stOut"); if (o) o.innerHTML = "";
-  }; });
-
-  const prev = $("#stPrev");
-  const runPreview = async () => {
-    stAdjKey = adjKey();
-    const body = JSON.stringify({ seller_id: $("#stWho").value, from: $("#stFrom").value, to: $("#stTo").value,
-                                  adjustments: stAdj });
-    const out = $("#stOut");
-    out.innerHTML = `<div class="muted" style="font-size:.82rem;padding:10px 0">Working…</div>`;
-    let p;
-    try { p = await api("/me/statements/preview", { method: "POST", body }); }
-    catch (e) { out.innerHTML = ""; return toast(e.message); }
-    const s = p.settled;
-    // Preview and save go through the same server-side arithmetic, so what is shown here is
-    // exactly what gets frozen. Nothing is stored until the button below is pressed.
-    out.innerHTML = `<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
-        <div class="split"><span>${esc(p.seller.name)} · ${esc(periodShort(p.from, p.to))}</span><span class="muted" style="font-size:.82rem;white-space:nowrap">${s.item_count} item${s.item_count === 1 ? "" : "s"}</span></div>
-        <div class="split"><span>Sold</span><span class="amt">${dollars(s.gross_cents)}</span></div>
-        <div class="split"><span>Commission ${s.commission_pct}%</span><span class="amt">${dollars(-s.commission_cents)}</span></div>
-        <div class="split"><span>Booth rent</span><span class="amt">${dollars(-s.rent_charged_cents)}</span></div>
-        ${stAdj.map((a, i) => `<div class="split"><span>${esc(a.label)}
-            <a href="#" data-rmadj="${i}" class="muted" style="font-size:.75rem;font-weight:700;margin-left:6px">remove</a></span>
-            <span class="amt">${dollars(a.cents)}</span></div>`).join("")}
-        <div class="split" style="border-top:2px solid var(--ink,#111);margin-top:4px;padding-top:6px">
-          <span style="font-weight:800">${s.owes ? "Dealer owes you" : "Dealer is owed"}</span><span class="amt">${netAmt(s.net_cents)}</span></div>
-        ${s.item_count ? "" : `<div class="muted" style="font-size:.8rem;margin-top:6px">Nothing of theirs sold in this period. Saving still records the rent.</div>`}
-        <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:8px">
-          <label style="margin:0">Adjustment</label>
-          <div class="muted" style="font-size:.78rem;margin:2px 0 6px">A correction that belongs on this statement rather than in the item list — a return from last month, a damaged piece, a supply you covered for them. For something returned after they were paid for it, take off what <em>they</em> received, not the ticket price${s.commission_pct ? ` — ${100 - s.commission_pct}% of it, after your ${s.commission_pct}% commission` : ""}.</div>
-          <label style="${ADJ_LBL};margin-bottom:6px">What for<input type="text" id="adjLabel" maxlength="80" placeholder="e.g. crock returned"></label>
-          <div class="row" style="gap:6px;align-items:flex-end">
-            <label style="${ADJ_LBL};flex:1">Amount $<input type="number" id="adjAmt" min="0" step="0.01" inputmode="decimal"></label>
-            <label style="${ADJ_LBL};flex:1.4">Direction<select id="adjDir" style="width:100%"><option value="-1">Take off</option><option value="1">Pay extra</option></select></label>
-            <button class="btn sec sm" id="adjAdd" style="margin:0;flex:0 0 auto">Add</button>
-          </div>
-        </div>
-        <div style="height:10px"></div>
-        <button class="btn" id="stSave">Save as a draft statement</button>
-      </div>`;
-    $("#adjAdd").onclick = () => {
-      const label = $("#adjLabel").value.trim();
-      const amt = Number($("#adjAmt").value);
-      if (!label) return toast("Say what the adjustment is for — it goes on the statement");
-      if (!(amt > 0)) return toast("Enter an amount");
-      // The direction is a separate choice rather than a minus sign in the amount box, because
-      // a typed minus is the easiest thing in this whole screen to get backwards, and getting
-      // it backwards pays a dealer twice instead of taking money back.
-      stAdj.push({ label, cents: Math.round(amt * 100) * Number($("#adjDir").value) });
-      runPreview();
-    };
-    $("#adjLabel").addEventListener("keydown", e => { if (e.key === "Enter") $("#adjAdd").click(); });
-    $("#adjAmt").addEventListener("keydown", e => { if (e.key === "Enter") $("#adjAdd").click(); });
-    out.querySelectorAll("[data-rmadj]").forEach(a => a.onclick = e => {
-      e.preventDefault();
-      stAdj.splice(Number(a.dataset.rmadj), 1);
-      runPreview();
-    });
-    $("#stSave").onclick = async () => {
-      $("#stSave").disabled = true;
-      try { const r = await api("/me/statements", { method: "POST", body }); toast("Statement saved"); return renderStatement(r.statement_id); }
-      catch (e) { $("#stSave").disabled = false; toast(e.message); }
-    };
-  };
-  if (prev) prev.onclick = runPreview;
-}
-
-// One statement, with the two things that make it a document: something to hand over
-// (CSV or print) and a status that only moves one way.
-const NEXT_LABEL = { issued: "Mark as issued", paid: "Mark as paid", void: "Void this statement" };
-async function renderStatement(id) {
-  state.view = "statements"; setChrome();
-  app.innerHTML = `<div class="muted" style="padding:20px;text-align:center">Loading…</div>`;
-  let st;
-  try { st = await api("/me/statements/" + id); }
-  catch (e) { toast(e.message); return renderStatements(); }
-  const next = { draft: ["issued", "void"], issued: ["paid", "void"], paid: [], void: [] }[st.status] || [];
-  app.innerHTML = `<div class="row" style="justify-content:space-between;align-items:baseline;margin-top:6px">
-      <h1 class="h1" style="margin:0">${esc(st.seller_name)}</h1><span class="pill">${esc(st.status)}</span></div>
-    <div class="muted" style="font-size:.82rem;margin:2px 0 10px">${esc(st.period_start)} → ${esc(st.period_end)}${st.booth ? " · booth " + esc(st.booth) : ""}</div>
-    <div class="card">
-      ${st.items.length ? st.items.map(l => `<div class="split"><span>${esc(l.name)}
-          <span class="muted" style="font-size:.78rem">· ${esc(String(l.sold_at || "").slice(0, 10))}</span></span>
-          <span class="amt">${dollars(l.price_cents)}</span></div>`).join("")
-        : `<div class="muted" style="font-size:.82rem;padding:6px 0">No items sold in this period.</div>`}
-    </div>
-    <div class="card" style="margin-top:12px">
-      <div class="split"><span>Sold</span><span class="amt">${dollars(st.gross_cents)}</span></div>
-      <div class="split"><span>Commission ${st.commission_pct}%</span><span class="amt">${dollars(-st.commission_cents)}</span></div>
-      <div class="split"><span>Booth rent</span><span class="amt">${dollars(-st.rent_charged_cents)}</span></div>
-      ${(st.adjustments || []).map(a => `<div class="split"><span>${esc(a.label)}</span><span class="amt">${dollars(a.cents)}</span></div>`).join("")}
-      <div class="split" style="border-top:2px solid var(--ink,#111);margin-top:4px;padding-top:6px">
-        <span style="font-weight:800">${st.net_cents < 0 ? "Owes you" : "Net due"}</span><span class="amt">${netAmt(st.net_cents)}</span></div>
-    </div>
-    ${st.note ? `<div class="muted" style="font-size:.82rem;margin-top:8px">${esc(st.note)}</div>` : ""}
-    <div class="card" style="margin-top:12px">
-      <label>Hand it over</label>
-      <div class="row" style="gap:8px;margin-top:6px">
-        <a class="btn sec" style="flex:1;text-align:center;text-decoration:none" href="/api/me/statements/${encodeURIComponent(st.id)}/print" target="_blank" rel="noopener">Print view</a>
-        <a class="btn sec" style="flex:1;text-align:center;text-decoration:none" href="/api/me/statements/${encodeURIComponent(st.id)}/csv">Download CSV</a>
-      </div>
-    </div>
-    ${next.length ? `<div class="card" style="margin-top:12px">
-      <label>Status</label>
-      <div class="muted" style="font-size:.8rem;margin-top:4px">${st.status === "draft"
-        ? "Still a draft — nothing is protected until you issue it."
-        : "Issued. The sales behind it can no longer be deleted unless you void it."}</div>
-      <div style="height:8px"></div>
-      ${next.map(t => `<button class="btn ${t === "void" ? "rust" : ""}" data-to="${t}" style="margin-top:6px">${NEXT_LABEL[t]}</button>`).join("")}
-    </div>` : `<div class="muted" style="font-size:.82rem;margin-top:12px;text-align:center">${
-      st.status === "paid"
-        // Deliberately final. This dealer has been paid; letting the document be voided would
-        // erase the record of money that actually moved. A correction goes on the next one.
-        ? "Paid, and final — this is the record of a payment that happened. Anything that needs correcting goes on their next statement as an adjustment."
-        : "Voided."}</div>`}
-    <div style="height:14px"></div>
-    <button class="btn sec" id="stBack">← All payouts</button>
-    <div style="height:20px"></div>`;
-  $("#stBack").onclick = renderStatements;
-  app.querySelectorAll("[data-to]").forEach(b => b.onclick = async () => {
-    const to = b.dataset.to;
-    if (to === "void" && !confirm(`Void this statement?\n\nIt stays on record as voided and stops counting. If you already handed ${st.seller_name} a copy, that copy is now wrong — tell them.`)) return;
-    if (to === "issued" && !confirm(`Issue this statement?\n\nAfter this the sales behind it can't be deleted while it stands, which is the point. The figures are already frozen either way.`)) return;
-    b.disabled = true;
-    try { await api("/me/statements/" + st.id + "/status", { method: "POST", body: JSON.stringify({ to }) }); }
-    catch (e) { b.disabled = false; return toast(e.message); }
-    toast(to === "void" ? "Voided" : to === "paid" ? "Marked paid" : "Issued");
-    renderStatement(st.id);
-  });
-}
-
-// tab bar + back
-tabs.querySelectorAll("button").forEach(b => b.onclick = () => { state.tab = b.dataset.tab; state.cart = state.tab === "cashier" ? state.cart : new Set(); renderTab(); });
-backBtn.onclick = renderSales;
-$("#cartGo").onclick = charge;
 
 // PWA
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
-// boot: check session, then show sales or the sign-in screen
+// boot: check session, then show your items or the sign-in screen
 (async function init() {
   try {
     const me = await fetch("/api/auth/me", { credentials: "same-origin" });
-    if (me.ok) { const d = await me.json(); user = d.email; renderSales(); }
+    if (me.ok) { const d = await me.json(); user = d.email; renderHome(); }
     else renderAuth("login");
   } catch { renderAuth("login"); }
 })();
