@@ -2,6 +2,10 @@
   "name": "guestimator",
   "main": "worker.js",
   "compatibility_date": "2026-09-01",
+  // The app lives at app.theguestimator.com; theguestimator.com is the marketing site
+  // (D:\theguestimator-site). workers.dev stays on so older links and builds keep working.
+  "routes": [{ "pattern": "app.theguestimator.com", "custom_domain": true }],
+  "workers_dev": true,
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
@@ -35,7 +39,7 @@
     "NEBIUS_BASE_URL": "https://api.tokenfactory.nebius.com/v1/",
     "TEXT_MODEL": "nvidia/nemotron-3-super-120b-a12b",
     "VISION_MODEL": "google/gemma-3-27b-it",
-    "PUBLIC_ORIGIN": "https://guestimator.dj-b02.workers.dev",
+    "PUBLIC_ORIGIN": "https://app.theguestimator.com",
     "RC_ANDROID_KEY": "goog_bruXXcAjAfxUxeHpcoCYElturCQ",
     "GOOGLE_CLIENT_ID": "751660268260-k999i5tdfr36um4c7uatbu11is4djh9g.apps.googleusercontent.com",
     "RC_WEB_LINK": "https://pay.rev.cat/ukvqowwbpdfmdjjz",
@@ -44,7 +48,7 @@
     // bottletree-app is ever retired, move the webhook here and set RC_WEBHOOK_SECRET first.
     "RC_WEBHOOK_ON": "bottletree-app",
     // Must match the endpoint registered with eBay character for character.
-    "EBAY_DELETION_URL": "https://guestimator.dj-b02.workers.dev/api/ebay/deletion",
+    "EBAY_DELETION_URL": "https://app.theguestimator.com/api/ebay/deletion",
     "EBAY_MARKETPLACE": "EBAY_US",
     // Credits one eBay listing costs: "0" (free) or "1".
     "EBAY_LISTING_CREDITS": "1"

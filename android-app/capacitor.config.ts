@@ -7,7 +7,7 @@ const config: CapacitorConfig = {
   appName: 'Guestimator',
   webDir: 'www',
   server: {
-    url: 'https://guestimator.dj-b02.workers.dev',
+    url: 'https://app.theguestimator.com',
     cleartext: false,
   },
   android: {
