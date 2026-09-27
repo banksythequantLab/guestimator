@@ -19,7 +19,7 @@ every other claim below is true as of Sep 27 and says so where it is only partly
 | Web app | https://app.theguestimator.com |
 | Website | https://theguestimator.com |
 | Video (<=2 min) | **TODO** — the existing video shows Bottle Tree; re-record or re-cut for Guestimator, upload to YouTube, paste link |
-| Repo | **TODO** — https://github.com/banksythequantLab/guestimator is PRIVATE. Make it public, or link bottletree-appraiser |
+| Repo | https://github.com/banksythequantLab/guestimator (public) |
 | Team | Derek Soltis — Banksy AI LLC |
 | Categories | #BuildInPublic · Best Business / Productivity App |
 
@@ -132,7 +132,7 @@ cloudflare-queues · ebay-api · nvidia-nemotron · gemma · nebius · tavily ·
 - [x] New app, built during the Shipaton (Bottle Tree, then Guestimator split out Sep 27)
 - [x] RevenueCat SDK integrated (`@revenuecat/purchases-capacitor`)
 - [x] Live on a store: internal testing track active with build 6; production update awaiting Google review
-- [ ] Public repo (**TODO**, see Repo above)
+- [x] Public repo: https://github.com/banksythequantLab/guestimator
 - [ ] Video under 2 minutes, showing Guestimator, uploaded and linked
 - [ ] Store URL confirmed showing Guestimator
 - [ ] First real Play purchase and first real eBay listing, then update Accomplishments
