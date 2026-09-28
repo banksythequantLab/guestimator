@@ -17,9 +17,14 @@ const month = () => now().slice(0, 7);
 const uid = () => crypto.randomUUID();
 
 // Play subscription product ids reach RevenueCat as "productId:basePlanId"; normalise to our key.
+// RevenueCat Web Billing products were created with their own identifiers, and one differs
+// from the Play id: the web 10-pack is "10estimate". Unmapped, a paid web 10-pack credited
+// nothing (found 2026-09-28 while setting up the judges' discount code).
+export const PRODUCT_ALIASES = { "10estimate": "estimate_10" };
 export function productKey(productId) {
   const base = String(productId || "").split(":")[0];
-  return PRODUCTS[base] ? base : null;
+  const key = PRODUCT_ALIASES[base] || base;
+  return PRODUCTS[key] ? key : null;
 }
 
 // Every new account starts with one free estimate, granted by the column default on

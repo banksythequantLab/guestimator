@@ -29,6 +29,14 @@ eq("a plain product id maps", productKey("estimate_10"), "estimate_10");
 eq("a Play base plan suffix is stripped", productKey("pro_monthly:p1m"), "pro_monthly");
 eq("an unknown product is not invented", productKey("free_stuff"), null);
 eq("and neither is nothing", productKey(undefined), null);
+// The RevenueCat Web Billing 10-pack is "10estimate", not the Play id.
+eq("the web 10-pack id maps to the 10-pack", productKey("10estimate"), "estimate_10");
+{
+  const db = shop();
+  const r = await applyRevenueCatEvent(db, ev({ id: "web10", product_id: "10estimate" }));
+  ok("a web 10-pack purchase is applied", r.applied);
+  eq("and it lands ten credits, not zero", user(db).credits, 10);
+}
 
 {
   const db = shop();
