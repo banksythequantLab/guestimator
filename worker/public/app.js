@@ -719,8 +719,8 @@ async function acceptPhoto(file, what = "photo") {
     if (!isHeic(converted)) { file = converted; }
     else {
       alert(
-        `That photo is in Apple's HEIC format and this browser cannot convert it, so the ` +
-        `appraiser would price the item from your description alone.\n\n` +
+        `That photo is in Apple's HEIC format and this browser cannot convert it, so ` +
+        `Guestimator would price the item from your description alone.\n\n` +
         `On iPhone: Settings > Camera > Formats > Most Compatible. Then take the photo again.`);
       return null;
     }
@@ -730,7 +730,7 @@ async function acceptPhoto(file, what = "photo") {
   if (s >= BLURRY) { toast(`That ${what} is a little soft — a sharper one reads better.`); return file; }
   const again = confirm(
     `That ${what} came out blurry.\n\n` +
-    `The appraiser reads the picture, and a blurry one is where it guesses wrong — ` +
+    `Guestimator reads the picture, and a blurry one is where it guesses wrong — ` +
     `one out-of-focus shot here has been identified five different ways.\n\n` +
     `OK to take it again, or Cancel to use it anyway.`);
   return again ? null : file;
@@ -791,8 +791,8 @@ async function renderItemDetail(id) {
   app.innerHTML = `
     <button class="back" id="toItems" style="padding:8px 0">‹ My items</button>
     <div class="thumbs">${photos.map(p => `<img src="${esc(p.url)}" alt="${esc(p.kind)}" title="${esc(p.kind)}">`).join("")}</div>
-    ${pending ? `<div class="card" style="text-align:center"><div class="big" style="font-size:1.3rem">Appraising…</div><div class="muted">Nemotron is reading ${photos.length} photo${photos.length === 1 ? "" : "s"}. Usually under a minute.</div></div>` : ""}
-    ${appraisal && appraisal.status === "error" ? `<div class="card" style="border-color:var(--rust)"><b>Appraisal failed.</b><div class="muted" style="font-size:.85rem">${esc(appraisal.error)}</div><div style="height:8px"></div><button class="btn sec sm" id="retry">Try again</button></div>` : ""}
+    ${pending ? `<div class="card" style="text-align:center"><div class="big" style="font-size:1.3rem">Guestimating…</div><div class="muted">Nemotron is reading ${photos.length} photo${photos.length === 1 ? "" : "s"}. Usually under a minute.</div></div>` : ""}
+    ${appraisal && appraisal.status === "error" ? `<div class="card" style="border-color:var(--rust)"><b>The guestimate didn't go through.</b><div class="muted" style="font-size:.85rem">${esc(appraisal.error)}</div><div style="height:8px"></div><button class="btn sec sm" id="retry">Try again</button></div>` : ""}
     ${r ? `
     <div class="card">
       <div class="row" style="justify-content:space-between;align-items:flex-start"><h3 style="font-size:1.15rem">${esc(r.identification.name)}</h3><span class="pill" title="confidence">${conf}% sure</span></div>
