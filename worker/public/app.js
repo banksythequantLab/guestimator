@@ -271,9 +271,13 @@ async function renderHome() {
       <button class="btn" id="aiAdd">📷 Guestimate something</button>
     </div>
     <div id="ebayCard"></div>
+    <div class="card"><div class="row" style="justify-content:space-between;align-items:center;gap:10px">
+      <div><b>Garage & estate sales</b><div class="muted" style="font-size:.82rem">Free sale page, price tags, holds, online buying</div></div>
+      <button class="btn sec sm" id="toSales" style="white-space:nowrap">Your sales</button></div></div>
     <div class="row" style="justify-content:space-between;margin:14px 2px 6px"><h3>Your items</h3></div>
     <div id="itemList" class="list"><div class="muted" style="padding:10px">Loading…</div></div>`;
   $("#aiAdd").onclick = () => renderCapture();
+  $("#toSales").onclick = () => renderSales();
   $("#signout").onclick = e => { e.preventDefault(); logout(); };
   if ($("#planPill")) $("#planPill").onclick = e => { e.preventDefault(); BTBilling.open(); };
   if (window.BTBilling && !billingInit) { billingInit = true; BTBilling.init().then(p => { if (p && state.view === "home") renderHome(); }); }
@@ -850,6 +854,7 @@ async function renderItemDetail(id) {
       <div class="muted" style="font-size:.72rem;margin-top:8px">${esc(r.models.text)} + ${esc(r.models.vision)} on Nebius</div>
     </div>` : ""}
     ${ebayPanelHtml(b, !!(r && !nc && appraisal.status === "done"))}
+    ${r && !nc && appraisal.status === "done" ? salePanelHtml() : ""}
     <div class="row" style="gap:8px;margin-bottom:16px;flex-wrap:wrap">
       ${!pending && photos.length ? `<button class="btn sec sm" id="reappraise">↻ Re-run the estimate</button>` : ""}
       <button class="btn sec sm" id="delItem" style="color:var(--rust)">Delete item</button>
@@ -857,6 +862,7 @@ async function renderItemDetail(id) {
 `;
   $("#toItems").onclick = () => { clearTimeout(pollT); renderHome(); };
   if ($("#ebayList")) $("#ebayList").onclick = () => startEbayListing(id);
+  if ($("#toSale")) $("#toSale").onclick = () => { clearTimeout(pollT); addItemToSale(id); };
   $("#delItem").onclick = async () => {
     const onEbay = b.ebay && b.ebay.status === "published";
     const msg = onEbay
@@ -947,7 +953,7 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
       // Back from eBay's sign-in in a browser tab: the callback redirected to /?ebay=connected.
       const fromEbay = new URLSearchParams(location.search).get("ebay") === "connected";
       if (fromEbay) history.replaceState(null, "", "/");
-      await renderHome();
+      if (!(await afterStripeReturn())) await renderHome();
       if (fromEbay) afterEbayReturn(true);
     }
     else renderAuth("login");

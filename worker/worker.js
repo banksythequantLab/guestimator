@@ -7,6 +7,7 @@ import { planFor, consumeEstimate, refundEstimate, applyRevenueCatEvent, redeemP
 const SIGNUP_CREDITS = 0;
 import { appraise } from "./appraiser.js";
 import * as ebay from "./ebay.js";
+import * as garage from "./garage.js";
 // Every Guestimator item lives in one hidden per-user `sales` row (the schema is Bottle Tree's).
 const GUESS_BUCKET = "Guestimator";
 // The Android app's URL scheme (strings.xml custom_url_scheme; AndroidManifest intent-filter).
@@ -166,7 +167,11 @@ export default {
         if (!obj) return new Response("not found", { status: 404 });
         return new Response(obj.body, { headers: { "content-type": obj.httpMetadata?.contentType || "image/jpeg", "cache-control": "public, max-age=31536000, immutable", etag: obj.httpEtag } });
       }
+      // ---------- PUBLIC: garage / estate sale pages ----------
+      if (parts[0] === "sale" && parts[1] && m === "GET")
+        return await garage.salePages(request, env, url, parts, await currentUser(request, db));
       if (!p.startsWith("/api/")) return env.ASSETS.fetch(request);
+      if (parts[1] === "public" && parts[2] === "garage") return await garage.publicApi(request, env, url, parts, ctx);
 
       // ---------- BILLING: RevenueCat webhook (Authorization: Bearer <RC_WEBHOOK_SECRET>, set in the RC dashboard) ----------
       if (parts[1] === "billing" && parts[2] === "revenuecat" && m === "POST") {
@@ -344,6 +349,9 @@ export default {
       if (!userId) return J({ error: "not authenticated" }, 401);
       const ownsSale = async (sid) => !!(await db.prepare("SELECT id FROM sales WHERE id=? AND user_id=?").bind(sid, userId).first());
       const ownsItem = async (iid) => await db.prepare("SELECT i.* FROM items i JOIN sales s ON s.id=i.sale_id WHERE i.id=? AND s.user_id=?").bind(iid, userId).first();
+
+      // ---------- garage / estate sales (free) ----------
+      if (parts[1] === "garage") return await garage.sellerApi(request, env, url, parts, userId);
 
       // ---------- plan / credits (the app shows this on the paywall and the appraisal button) ----------
       if (parts[1] === "me" && parts[2] === "plan" && m === "GET") {
