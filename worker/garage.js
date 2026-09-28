@@ -1,9 +1,11 @@
 // Garage, yard and estate sales: the seller's API, the public sale pages, hold requests, printable
 // tags, and remote buying through Stripe Connect.
 //
-// Money path (Stripe Connect, destination charges): the buyer pays Guestimator's platform account
-// through Stripe Checkout; Stripe moves the price minus the platform fee to the seller's connected
-// Express account. The seller never shares keys with us and we never hold their payout.
+// Money path (Stripe Connect, DIRECT charges): the seller is the merchant. Checkout runs on the
+// seller's own connected Stripe account (Stripe-Account header), their name is on the receipt, and
+// they own refunds and disputes. Guestimator takes an application fee. Accounts are created with
+// Stripe liable for negative balances (losses.payments = stripe), so Guestimator never holds a
+// seller's money and is not on the hook when a seller cannot cover a dispute.
 // Sale pages are free. Estimates still cost credits; nothing here touches the credits ledger.
 
 import { startingPrice } from "./ebay.js";
@@ -106,12 +108,15 @@ export function stripeForm(obj, prefix = "", out = new URLSearchParams()) {
   return out;
 }
 
-export const stripeReady = env => !!(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET);
+// Direct charges happen on the sellers' accounts, so their checkout events arrive on the Connect
+// webhook endpoint; the platform endpoint secret is optional.
+export const stripeReady = env => !!(env.STRIPE_SECRET_KEY && (env.STRIPE_CONNECT_WEBHOOK_SECRET || env.STRIPE_WEBHOOK_SECRET));
 
 // ---------------------------------------------------------------- Stripe (raw REST, no SDK)
 
-async function stripe(env, method, path, params) {
+async function stripe(env, method, path, params, account) {
   const init = { method, headers: { authorization: `Bearer ${env.STRIPE_SECRET_KEY}` } };
+  if (account) init.headers["stripe-account"] = account;
   let url = `https://api.stripe.com${path}`;
   if (params && method === "GET") url += "?" + stripeForm(params);
   else if (params) { init.headers["content-type"] = "application/x-www-form-urlencoded"; init.body = stripeForm(params); }
@@ -141,8 +146,8 @@ export async function verifyStripeSig(secrets, rawBody, header, nowSec = Math.fl
   return false;
 }
 
-/** Whether a connected account can receive transfers, from a v1 Account object. */
-export const accountReady = acct => !!(acct && acct.capabilities?.transfers === "active" && acct.details_submitted);
+/** Whether a connected account can be the merchant on a direct charge, from a v1 Account object. */
+export const accountReady = acct => !!(acct && acct.charges_enabled && acct.details_submitted && acct.capabilities?.card_payments === "active");
 
 // ---------------------------------------------------------------- data access
 
@@ -199,8 +204,8 @@ export async function sellerApi(request, env, url, parts, userId) {
       if (!u?.connect_account_id) {
         const acct = await stripe(env, "POST", "/v1/accounts", {
           country: "US", email: u?.email || undefined,
-          controller: { stripe_dashboard: { type: "express" }, fees: { payer: "application" }, losses: { payments: "application" } },
-          capabilities: { transfers: { requested: true } },
+          controller: { stripe_dashboard: { type: "full" }, fees: { payer: "account" }, losses: { payments: "stripe" } },
+          capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
           business_profile: { product_description: "Garage, yard and estate sale items sold through Guestimator" },
           metadata: { guestimator_user: userId },
         });
@@ -215,8 +220,8 @@ export async function sellerApi(request, env, url, parts, userId) {
     }
     if (parts[3] === "dashboard" && m === "POST") {
       if (!u?.connect_account_id) return J({ error: "Connect Stripe first" }, 409);
-      const l = await stripe(env, "POST", `/v1/accounts/${u.connect_account_id}/login_links`);
-      return J({ url: l.url });
+      // Full-dashboard accounts sign in to Stripe themselves; login links are Express-only.
+      return J({ url: "https://dashboard.stripe.com/" });
     }
     return J({ error: "not found" }, 404);
   }
@@ -454,7 +459,7 @@ export async function publicApi(request, env, url, parts, ctx) {
         line_items: { 0: { quantity: 1, price_data: { currency: "usd", unit_amount: itemC,
           product_data: { name: title.slice(0, 250), images: row.thumb_key ? { 0: `${origin}/p/${row.thumb_key}` } : undefined,
                           description: `${KINDS[sale.kind] || "Sale"}: ${sale.title} (${sale.city}, ${sale.state}) - ${fulfil === "ship" ? "shipped" : "local pickup"}`.slice(0, 500) } } } },
-        payment_intent_data: { application_fee_amount: fee, transfer_data: { destination: seller.connect_account_id },
+        payment_intent_data: { application_fee_amount: fee,
                                metadata: { order_id: orderId, sale: sale.slug, item: row.item_id } },
         metadata: { order_id: orderId, sale: sale.slug, item: row.item_id },
       };
@@ -462,7 +467,7 @@ export async function publicApi(request, env, url, parts, ctx) {
         params.shipping_address_collection = { allowed_countries: { 0: "US" } };
         params.shipping_options = { 0: { shipping_rate_data: { type: "fixed_amount", display_name: "Shipping", fixed_amount: { amount: shipC, currency: "usd" } } } };
       }
-      const sess = await stripe(env, "POST", "/v1/checkout/sessions", params);
+      const sess = await stripe(env, "POST", "/v1/checkout/sessions", params, seller.connect_account_id);
       await db.prepare("INSERT INTO garage_orders (id,sale_id,item_id,seller_account,stripe_session_id,fulfilment,item_cents,ship_cents,fee_cents,total_cents,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,'pending',?,?)")
         .bind(orderId, sale.id, row.item_id, seller.connect_account_id, sess.id, fulfil, itemC, shipC, fee, total, t, t).run();
       return Response.redirect(sess.url, 303);

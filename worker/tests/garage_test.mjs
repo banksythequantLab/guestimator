@@ -34,7 +34,11 @@ ok("stripeForm nests", G.stripeForm({ a: { b: { 0: { c: 1 } } }, d: null, e: "x"
   const d = G.cleanSale({ title: "Big Sale", city: "Montclair", state: "nj", starts_on: "2026-10-03" });
   ok("end defaults to start, state uppercased", d.ok && d.value.ends_on === "2026-10-03" && d.value.state === "NJ");
 }
-ok("accountReady", G.accountReady({ capabilities: { transfers: "active" }, details_submitted: true }) && !G.accountReady({ capabilities: { transfers: "pending" }, details_submitted: true }));
+ok("accountReady needs card payments + charges enabled",
+   G.accountReady({ charges_enabled: true, capabilities: { card_payments: "active" }, details_submitted: true }) &&
+   !G.accountReady({ charges_enabled: false, capabilities: { card_payments: "active" }, details_submitted: true }) &&
+   !G.accountReady({ charges_enabled: true, capabilities: { transfers: "active" }, details_submitted: true }));
+ok("stripeReady with only the Connect webhook secret", G.stripeReady({ STRIPE_SECRET_KEY: "k", STRIPE_CONNECT_WEBHOOK_SECRET: "c" }) && !G.stripeReady({ STRIPE_SECRET_KEY: "k" }));
 {
   const body = '{"x":1}', t = 1790000000;
   const sig = createHmac("sha256", "whsec_a").update(`${t}.${body}`).digest("hex");
@@ -50,11 +54,11 @@ const jr = (o, status = 200) => new Response(JSON.stringify(o), { status, header
 globalThis.fetch = async (u, init = {}) => {
   const url = String(u), method = init.method || "GET";
   const form = init.body instanceof URLSearchParams ? init.body : null;
-  calls.push({ url, method, form });
+  calls.push({ url, method, form, account: (init.headers || {})["stripe-account"] || null });
   if (url.endsWith("/v1/accounts") && method === "POST") return jr({ id: "acct_SELLER" });
   if (url.includes("/v1/accounts/acct_SELLER") && url.endsWith("/login_links")) return jr({ url: "https://connect.stripe.test/express" });
   if (url.includes("/v1/accounts/acct_SELLER") && method === "GET")
-    return jr({ id: "acct_SELLER", details_submitted: acctReady, capabilities: { transfers: acctReady ? "active" : "inactive" }, requirements: { currently_due: acctReady ? [] : ["external_account"] } });
+    return jr({ id: "acct_SELLER", details_submitted: acctReady, charges_enabled: acctReady, capabilities: { card_payments: acctReady ? "active" : "inactive", transfers: acctReady ? "active" : "inactive" }, requirements: { currently_due: acctReady ? [] : ["external_account"] } });
   if (url.endsWith("/v1/account_links")) return jr({ url: "https://connect.stripe.test/onboard" });
   if (url.endsWith("/v1/checkout/sessions")) return jr({ id: "cs_" + calls.length, url: "https://checkout.stripe.test/pay" });
   return jr({ error: { message: "unstubbed " + url } }, 404);
@@ -165,9 +169,9 @@ r = await call("POST", "/api/garage/stripe/connect");
 ok("Bottle Tree's account id left untouched", db.raw.prepare("SELECT stripe_account_id s FROM users WHERE id=?").get(aId).s === "acct_PLATFORM");
 ok("connect returns onboarding link", r.status === 200 && r.json.url === "https://connect.stripe.test/onboard");
 const acctCall = calls.find(c => c.url.endsWith("/v1/accounts"));
-ok("account is Express with platform-paid fees and platform losses",
-   acctCall.form.get("controller[stripe_dashboard][type]") === "express" && acctCall.form.get("controller[fees][payer]") === "application" &&
-   acctCall.form.get("controller[losses][payments]") === "application" && acctCall.form.get("capabilities[transfers][requested]") === "true");
+ok("seller account: full dashboard, seller pays Stripe fees, Stripe liable for losses, card payments",
+   acctCall.form.get("controller[stripe_dashboard][type]") === "full" && acctCall.form.get("controller[fees][payer]") === "account" &&
+   acctCall.form.get("controller[losses][payments]") === "stripe" && acctCall.form.get("capabilities[card_payments][requested]") === "true");
 ok("second connect reuses the account", (await call("POST", "/api/garage/stripe/connect")).status === 200 && calls.filter(c => c.url.endsWith("/v1/accounts")).length === 1);
 r = await call("GET", "/api/garage/stripe/status");
 ok("not ready until onboarding done", r.json.connected && !r.json.ready);
@@ -191,7 +195,9 @@ ok("mug price not reserved on refusal", db.raw.prepare("SELECT status FROM garag
 r = await call("POST", "/api/public/garage/checkout", new URLSearchParams({ sale: slug, item: lamp, fulfilment: "ship" }));
 ok("checkout redirects to Stripe", r.status === 303 && r.location === "https://checkout.stripe.test/pay");
 const cs = calls.filter(c => c.url.endsWith("/v1/checkout/sessions")).pop().form;
-ok("destination charge to the seller", cs.get("payment_intent_data[transfer_data][destination]") === "acct_SELLER");
+const csCall = calls.filter(c => c.url.endsWith("/v1/checkout/sessions")).pop();
+ok("direct charge: session created ON the seller's account", csCall.account === "acct_SELLER");
+ok("no destination transfer (seller is the merchant)", !cs.get("payment_intent_data[transfer_data][destination]"));
 ok("online price charged", cs.get("line_items[0][price_data][unit_amount]") === "5200");
 ok("shipping charged", cs.get("shipping_options[0][shipping_rate_data][fixed_amount][amount]") === "1250");
 ok("3% fee on item + shipping", cs.get("payment_intent_data[application_fee_amount]") === String(Math.round((5200 + 1250) * 0.03)));
@@ -244,7 +250,7 @@ await call("GET", `/sale/${slug}`);
 ok("stale reservation released", db.raw.prepare("SELECT status FROM garage_sale_items WHERE item_id=?").get(crock).status === "available");
 
 // account.updated keeps readiness in sync
-await hook({ type: "account.updated", data: { object: { id: "acct_SELLER", details_submitted: true, capabilities: { transfers: "inactive" } } } }, "whsec_connect");
+await hook({ type: "account.updated", data: { object: { id: "acct_SELLER", details_submitted: true, charges_enabled: false, capabilities: { card_payments: "inactive" } } } }, "whsec_connect");
 ok("account.updated can switch payouts off", db.raw.prepare("SELECT stripe_payouts_ready r FROM users WHERE id=?").get(aId).r === 0);
 r = await call("GET", `/sale/${slug}`);
 ok("buy button gone when payouts are off", !r.text.includes("Buy online"));

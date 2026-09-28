@@ -19,10 +19,10 @@ async function loadStripeStatus() {
 function stripeCardHtml(s) {
   if (!s || s.off) return `<div class="card"><b>Sell online</b><div class="muted" style="font-size:.85rem;margin-top:4px">Online payments aren't switched on yet. Shoppers can still browse and ask you to hold things.</div></div>`;
   if (s.ready) return `<div class="card" style="border-color:var(--green)"><b>Online payments are on ✓</b>
-    <div class="muted" style="font-size:.85rem;margin:4px 0 8px">Buyers pay by card through Stripe; Stripe pays you out. Guestimator keeps a small fee on online sales only.</div>
-    <button class="btn sec sm" id="stripeDash">Open my Stripe payouts</button></div>`;
+    <div class="muted" style="font-size:.85rem;margin:4px 0 8px">Buyers pay you by card through your own Stripe account. Refunds and disputes are handled in your Stripe dashboard. Guestimator keeps a small fee on online sales only.</div>
+    <button class="btn sec sm" id="stripeDash">Open my Stripe dashboard</button></div>`;
   return `<div class="card" style="border-color:var(--cobalt)"><b>Let people buy online</b>
-    <div class="muted" style="font-size:.85rem;margin:4px 0 8px">Connect a free Stripe account (about 5 minutes: name, bank account, last 4 of SSN). Buyers pay by card for pickup or shipping, and Stripe pays you. Guestimator keeps a small fee on online sales only; in-person sales are free.</div>
+    <div class="muted" style="font-size:.85rem;margin:4px 0 8px">Connect a free Stripe account in your name (about 10 minutes: name, address, bank account, SSN for tax reporting). Buyers pay you by card for pickup or shipping, your name is on their receipt, and Stripe pays you out. Guestimator keeps a small fee on online sales only; in-person sales are free.</div>
     <button class="btn" id="stripeGo" style="background:var(--cobalt)">${s.connected ? "Finish Stripe setup" : "Connect Stripe"}</button></div>`;
 }
 function wireStripeCard(after) {
