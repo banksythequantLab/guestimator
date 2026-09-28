@@ -42,7 +42,7 @@
     "PUBLIC_ORIGIN": "https://app.theguestimator.com",
     "RC_ANDROID_KEY": "goog_bruXXcAjAfxUxeHpcoCYElturCQ",
     "GOOGLE_CLIENT_ID": "751660268260-k999i5tdfr36um4c7uatbu11is4djh9g.apps.googleusercontent.com",
-    "RC_WEB_LINK": "https://pay.rev.cat/ukvqowwbpdfmdjjz",
+    "RC_WEB_LINK": "https://pay.rev.cat/yebwnpslzqtmxpuq",
     // The RevenueCat webhook that credits purchases still points at bottletree-app, which writes
     // this same D1. Purchases made in Guestimator are therefore credited - by that worker. If
     // bottletree-app is ever retired, move the webhook here and set RC_WEBHOOK_SECRET first.
