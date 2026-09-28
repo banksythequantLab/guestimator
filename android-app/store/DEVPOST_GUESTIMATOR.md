@@ -55,7 +55,7 @@ your ZIP and shipping, and tap List. Nothing is listed without your approval.
 
 **Metered with RevenueCat.** One credit pays for one estimate or one eBay listing, from the same
 balance: $0.99 for 1 credit, $4.99 for 10, $9.99/month for 300 (split any way between estimates
-and listings), $29.99/month unlimited. Previewing a listing and eBay's fee quote is free; a
+and listings), $29.99/month unlimited. On Android, purchases go through Google Play Billing; on the web, through RevenueCat Web Billing checkout. Both land in the same RevenueCat project and the same credit balance. Previewing a listing and eBay's fee quote is free; a
 listing eBay rejects refunds its credit automatically. One account works on Android and the web.
 
 ## How we built it
@@ -102,8 +102,9 @@ permission. Lesson: every native change means a new versionCode, every time.
 - The estimate on real objects. A cast-iron fluting iron with a worn 1878 patent stamp was
   identified as Shepard Hardware Co. of Buffalo, $120-250. An Intel Optane module was priced
   from four live eBay comparables.
-- Money handling that is tested, not assumed. 649 automated checks, including the full eBay
-  flow (connect, draft, publish, refusal, refund, retry, account deletion) against a real
+- Money handling that is tested, not assumed. 664 automated checks, including the full eBay
+  flow (connect, draft, publish, refusal, refund, retry, account deletion) and promo-code
+  redemption against a real
   database, with eBay stubbed at the network layer. Key rules were checked by breaking them on
   purpose and confirming the tests fail.
 - The RevenueCat loop runs end to end through RevenueCat's test store: paywall, purchase,
@@ -134,8 +135,9 @@ cloudflare-queues · ebay-api · nvidia-nemotron · gemma · nebius · tavily ·
 
 - [x] New app, built during the Shipaton (Bottle Tree, then Guestimator split out Sep 27)
 - [x] RevenueCat SDK integrated (`@revenuecat/purchases-capacitor`)
-- [x] Live on a store: internal testing track active with build 6; production update awaiting Google review
+- [x] Live on a store: production release of build 7 ("1.1.1 Guestimator") set up; goes live after Google review
 - [x] Public repo: https://github.com/banksythequantLab/guestimator
 - [ ] Video under 2 minutes, showing Guestimator, uploaded and linked
 - [ ] Store URL confirmed showing Guestimator
-- [ ] First real Play purchase and first real eBay listing, then update Accomplishments
+- [x] First real eBay listings (Sep 27, two items)
+- [ ] First real Play purchase, then update Accomplishments

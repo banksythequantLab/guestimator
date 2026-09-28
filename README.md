@@ -8,7 +8,8 @@ account** after you've reviewed every field.
 - Web app: **https://app.theguestimator.com**
 - Website: https://theguestimator.com
 - Android: `ai.banksy.bottletree` on Google Play (renamed from Bottle Tree)
-- Built by Banksy AI LLC for the **RevenueCat Shipaton 2026**
+- Built by Banksy AI LLC. Entered in the **Nebius x NVIDIA Global AI Hackathon** (Best Apps and
+  Agents track). The in-app purchases were built for the RevenueCat Shipaton 2026.
 
 Guestimator was split out of [Bottle Tree](https://github.com/banksythequantLab/bottletree-appraiser),
 a POS and inventory app for antique shops, on 2026-09-27. The point-of-sale lives on there; this
@@ -47,6 +48,36 @@ repo is estimates and eBay listing only.
 - **Compliance.** eBay marketplace account-deletion endpoint (challenge plus notice handling, which
   deletes stored eBay data), privacy policy at https://theguestimator.com/privacy.
 
+## NVIDIA Nemotron on Nebius Token Factory
+
+Every estimate runs on **Nebius Token Factory**, called straight from the Cloudflare Worker through
+its OpenAI-compatible endpoint (`https://api.tokenfactory.nebius.com/v1/`, see `worker/appraiser.js`).
+There is no GPU server of our own to keep running.
+
+| Model on Token Factory | Job |
+| --- | --- |
+| `nvidia/nemotron-3-super-120b-a12b` | The reasoning. It identifies the item from one evidence sheet, reads whether it is silver or gold, prices it, re-prices it against the live eBay listings it keeps (and says which it set aside and why), and fills eBay item specifics when the user lists it (`worker/ebay.js`). |
+| `google/gemma-3-27b-it` | Vision: reads each photo on its own, including labels, marks and part numbers. |
+| `Qwen/Qwen2.5-VL-72B-Instruct` | Vision fallback if Gemma fails on a photo. |
+
+How the calls are shaped:
+
+- **One evidence sheet, not a chat.** Each photo is read separately, then Nemotron gets one sheet
+  with the photo reads, the owner's own notes (which outrank the model's guess) and the live eBay
+  listings. It returns JSON: identification, confidence, price, and the listings it rejected.
+- **Nemotron 3 Super is a reasoning model.** Its thinking shares the completion budget with the
+  answer, so every call asks for at least 6,000 tokens (`textJson`). A smaller budget can be used up
+  by the thinking before any answer is written.
+- **JSON mode first, then plain.** Calls use `response_format: json_object`. If that is refused, the
+  same request goes again without it and the JSON is extracted from the text.
+- **Never trust a blank.** One re-price came back as the model's own empty template, all zeros. The
+  Worker now checks that a price is actually usable and warns instead of showing $0.
+- Models are set by environment variable (`TEXT_MODEL`, `VISION_MODEL`), so swapping one is a
+  config change, not a code change.
+
+Built during the hackathon: the first commit in this history (as Bottle Tree's appraiser) is
+2026-09-16. Guestimator was split out, with eBay listing and credits added, on 2026-09-27.
+
 ## Repo layout
 
 | Path | What |
@@ -57,7 +88,7 @@ repo is estimates and eBay listing only.
 | `worker/billing.js` | Credits, plans, RevenueCat event handling |
 | `worker/public/` | The web app (single-page, no framework) and privacy policy |
 | `worker/migrations/` | D1 schema (shared with Bottle Tree; Guestimator adds `ebay_*` tables in `0012`) |
-| `worker/tests/` | 18 test files, 639 checks: `node worker/tests/run.mjs` |
+| `worker/tests/` | 18 test files, 664 checks: `node worker/tests/run.mjs` |
 | `android-app/` | Capacitor 8 shell loading the live web app, with RevenueCat and native Google sign-in |
 
 ## Running it
