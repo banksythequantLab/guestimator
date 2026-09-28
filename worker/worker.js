@@ -1,7 +1,7 @@
 // Guestimator — API worker: accounts, items, photos (R2), AI estimates (Nebius), and listing on the
 // user's own eBay account. Runs first for /api/* and /p/* (photos); everything else is static assets.
 // Split from Bottle Tree (bottletree-appraiser) on 2026-09-27; the POS lives on there.
-import { planFor, consumeEstimate, refundEstimate, applyRevenueCatEvent } from "./billing.js";
+import { planFor, consumeEstimate, refundEstimate, applyRevenueCatEvent, redeemPromo, parsePromoCodes } from "./billing.js";
 // New Guestimator accounts start with nothing: every estimate is bought. Accounts that already
 // exist (including Bottle Tree ones signing in here) keep whatever balance they have.
 const SIGNUP_CREDITS = 0;
@@ -364,6 +364,13 @@ export default {
           play_url: env.PLAY_URL || null,
           ...(await planFor(db, userId)),
         });
+      }
+
+      // ---------- promo codes (free credits, no checkout) ----------
+      if (parts[1] === "me" && parts[2] === "redeem" && m === "POST") {
+        const b = await readJson(request);
+        const r = await redeemPromo(db, userId, b.code, parsePromoCodes(env.PROMO_CODES));
+        return r.ok ? J(r) : J({ error: r.error }, r.status);
       }
 
       // ---------- the user's eBay connection ----------

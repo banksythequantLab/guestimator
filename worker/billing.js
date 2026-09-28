@@ -91,6 +91,45 @@ export async function refundEstimate(db, userId, fundedBy, reason) {
   }
 }
 
+// Promo codes, e.g. free credits for hackathon judges. A RevenueCat 100%-off code still made
+// people type a card into a $0.00 checkout, so codes are redeemed here instead: no card, and it
+// works the same in the Android app and on the web. Codes live in the PROMO_CODES secret as JSON,
+// {"CODE": {"credits": 10, "max": 100}} - never in the public repo.
+// One redemption per account is enforced by the database: the ledger row's event_id is UNIQUE,
+// and the ledger row and the credit grant are written in one transaction, so a second attempt
+// (or two taps at once) fails as a whole and grants nothing.
+export function parsePromoCodes(raw) {
+  try {
+    const o = JSON.parse(raw || "{}");
+    const out = {};
+    for (const [k, v] of Object.entries(o)) {
+      const credits = Math.floor(Number(v && v.credits));
+      if (credits > 0) out[String(k).trim().toUpperCase()] = { credits, max: Math.floor(Number(v.max)) || 0 };
+    }
+    return out;
+  } catch { return {}; }
+}
+export async function redeemPromo(db, userId, rawCode, codes) {
+  const code = String(rawCode || "").trim().toUpperCase();
+  const c = codes[code];
+  if (!code || !c) return { ok: false, status: 404, error: "That code isn't valid." };
+  if (c.max) {
+    const used = (await db.prepare("SELECT COUNT(*) AS n FROM billing_events WHERE source='promo' AND product_id=?").bind(code).first())?.n || 0;
+    if (used >= c.max) return { ok: false, status: 410, error: "That code has been used up." };
+  }
+  try {
+    await db.batch([
+      db.prepare("INSERT INTO billing_events (id,user_id,source,event_id,type,product_id,credits_delta,created_at) VALUES (?,?,'promo',?,'redeem',?,?,?)")
+        .bind(uid(), userId, `promo:${code}:${userId}`, code, c.credits, now()),
+      db.prepare("UPDATE users SET credits=credits+? WHERE id=?").bind(c.credits, userId),
+    ]);
+  } catch (e) {
+    if (/UNIQUE/i.test(String(e && e.message))) return { ok: false, status: 409, error: "You've already used that code." };
+    throw e;
+  }
+  return { ok: true, credits_added: c.credits, plan: await planFor(db, userId) };
+}
+
 // RevenueCat has no REFUND webhook type. Checked against RevenueCat's own
 // event-types-and-fields docs, Sep 2026: the types are INITIAL_PURCHASE, RENEWAL,
 // CANCELLATION, UNCANCELLATION, NON_RENEWING_PURCHASE, SUBSCRIPTION_PAUSED, EXPIRATION,

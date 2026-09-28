@@ -18,7 +18,8 @@ every other claim below is true as of Sep 27 and says so where it is only partly
 | Test link (works now) | https://play.google.com/apps/internaltest/4700209593663356261 |
 | Web app | https://app.theguestimator.com |
 | Website | https://theguestimator.com |
-| Video (<=2 min) | **TODO** — the existing video shows Bottle Tree; re-record or re-cut for Guestimator, upload to YouTube, paste link |
+| Video (<=2 min) | **TODO** — `guestimator_demo_vo.mp4` (Derek's cloned voice-over) is 2:11; trim to under 2:00, upload to YouTube, paste link |
+| Judges: free credits | Sign up at https://app.theguestimator.com (or in the Android app), tap the credits pill at the top, and enter **10FREECREDITS** under "Have a code?". That adds 10 free credits (10 estimates or eBay listings), once per account, no card needed. |
 | Repo | https://github.com/banksythequantLab/guestimator (public) |
 | Team | Derek Soltis — Banksy AI LLC |
 | Categories | #BuildInPublic · Best Business / Productivity App |

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { d1 } from "./d1shim.mjs";
 import { applyRevenueCatEvent, planFor, consumeEstimate, refundEstimate, productKey, PRODUCTS, PRO_MONTHLY_CAP,
-         welcomeGrant, walletDrift, WELCOME_CREDITS, cancelIsRefund } from "../billing.js";
+         welcomeGrant, walletDrift, WELCOME_CREDITS, cancelIsRefund, redeemPromo, parsePromoCodes } from "../billing.js";
 
 const MIG = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
 let passed = 0, failed = 0;
@@ -22,6 +22,29 @@ function shop() {
 const user = db => db.raw.prepare("SELECT * FROM users WHERE id='u1'").get();
 const ledger = db => db.raw.prepare("SELECT * FROM billing_events ORDER BY created_at, id").all();
 const ev = (o = {}) => ({ id: "ev_1", type: "NON_RENEWING_PURCHASE", app_user_id: "u1", product_id: "estimate_10", ...o });
+
+// ---------- promo codes ----------
+{
+  const codes = parsePromoCodes('{"10FreeCredits":{"credits":10,"max":2},"junk":{"credits":0}}');
+  eq("codes are matched case-insensitively", Object.keys(codes).join(","), "10FREECREDITS");
+  eq("a malformed secret yields no codes rather than a crash", Object.keys(parsePromoCodes("{nope")).length, 0);
+  const db = shop();
+  const r = await redeemPromo(db, "u1", " 10freecredits ", codes);
+  ok("a valid code is redeemed", r.ok);
+  eq("and lands ten credits", user(db).credits, 10);
+  eq("with one ledger row saying so", ledger(db).filter(x => x.source === "promo").length, 1);
+  const again = await redeemPromo(db, "u1", "10FREECREDITS", codes);
+  eq("a second redemption by the same account is refused", again.status, 409);
+  eq("and grants nothing", user(db).credits, 10);
+  eq("an unknown code is refused", (await redeemPromo(db, "u1", "NOPE", codes)).status, 404);
+  eq("the wallet reconciles with the ledger", (await walletDrift(db, "u1")).drift, 0);
+  db.raw.exec(`INSERT INTO users (id,email,pw_hash,pw_salt,created_at,credits,plan) VALUES
+               ('u2','b@b.c','x','y','2026-09-01T09:00:00Z',0,'free'), ('u3','c@b.c','x','y','2026-09-01T09:00:00Z',0,'free')`);
+  ok("another account can redeem too", (await redeemPromo(db, "u2", "10FREECREDITS", codes)).ok);
+  const capped = await redeemPromo(db, "u3", "10FREECREDITS", codes);
+  eq("but not past the code's cap", capped.status, 410);
+  eq("and the capped account got nothing", db.raw.prepare("SELECT credits FROM users WHERE id='u3'").get().credits, 0);
+}
 
 // ---------- product ids ----------
 eq("a plain product id maps", productKey("estimate_10"), "estimate_10");

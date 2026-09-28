@@ -87,11 +87,34 @@ window.BTBilling = (() => {
                  ? `<div class="muted" style="font-size:.8rem;margin-top:8px">Checkout opens in a new tab. Your credits land on this same account${plan && plan.play_url ? `, and on <a href="${esc(plan.play_url)}" target="_blank" rel="noopener" style="color:var(--cobalt)">the Android app</a>` : ""}.</div>
                     <div id="pwWait" class="muted" style="font-size:.8rem;margin-top:8px;display:none">Waiting for the purchase to land… <a href="#" id="pwCheck" style="color:var(--cobalt)">check now</a></div>`
                  : `<div class="muted" style="font-size:.8rem;margin-top:8px">Buy credits in the Guestimator Android app${plan && plan.play_url ? ` — <a href="${esc(plan.play_url)}" target="_blank" rel="noopener" style="color:var(--cobalt)">get it on Google Play</a>` : " (Google Play, coming this week)"}. Your items are the same account everywhere.</div>`}
+        <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line,#e2d9c8)">
+          <div class="muted" style="font-size:.8rem;margin-bottom:6px">Have a code?</div>
+          <div class="row" style="gap:8px"><input id="pwCode" placeholder="Enter code" autocapitalize="characters" autocomplete="off" style="flex:1"><button class="btn sm" id="pwRedeem" style="width:auto;padding:10px 16px">Redeem</button></div>
+        </div>
         <div class="muted" style="font-size:.7rem;margin-top:10px">Estimates are AI guesses for pricing help, not formal appraisals. Subscriptions renew monthly; cancel any time in Google Play.</div>
       </div>`;
     document.body.appendChild(sheet);
     const close = () => sheet.remove();
     sheet.querySelector("#pwClose").onclick = close;
+    // Promo codes are redeemed by our own server (no checkout, no card) and land as credits.
+    sheet.querySelector("#pwRedeem").onclick = async () => {
+      const inp = sheet.querySelector("#pwCode"), btn = sheet.querySelector("#pwRedeem");
+      const code = inp.value.trim();
+      if (!code) { inp.focus(); return; }
+      btn.disabled = true; btn.textContent = "…";
+      try {
+        const r = await fetch("/api/me/redeem", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { if (window.toast) window.toast(j.error || "That code didn't work."); btn.disabled = false; btn.textContent = "Redeem"; return; }
+        await refresh();
+        window.dispatchEvent(new CustomEvent("bt:plan", { detail: plan }));
+        if (window.toast) window.toast(`${j.credits_added} free credits added`);
+        close();
+      } catch (e) {
+        if (window.toast) window.toast("Couldn't reach the server. Try again.");
+        btn.disabled = false; btn.textContent = "Redeem";
+      }
+    };
     sheet.addEventListener("click", e => { if (e.target === sheet) close(); });
     // Poll /api/me/plan until the RevenueCat webhook lands the grant. Web checkout happens in another
     // tab, so there is nothing to await — we watch our own ledger instead.
