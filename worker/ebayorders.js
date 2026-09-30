@@ -121,7 +121,9 @@ export async function syncOrders(env, db, userId, { nowMs = Date.now() } = {}) {
             db.prepare("UPDATE items SET listing_status='sold' WHERE id=?").bind(hit.item_id),
             db.prepare("UPDATE garage_sale_items SET status='sold' WHERE item_id=? AND status IN ('available','held')").bind(hit.item_id),
           ]);
-          fresh.push(id);
+          // Alert only for orders still to ship. The first read after connecting also finds
+          // sales the seller already shipped; marking those sold is right, emailing is noise.
+          if (o.status === "NOT_STARTED" || o.status === "IN_PROGRESS") fresh.push(id);
         }
       } else if (had.status !== o.status) {
         await db.prepare("UPDATE ebay_orders SET status=?, ship_to=CASE WHEN ? IN ('FULFILLED','CANCELLED') THEN NULL ELSE ship_to END, updated_at=? WHERE id=?")

@@ -116,11 +116,12 @@ await call("GET", `/api/ebay/callback?code=C2&state=${st2}`); cookie = saved;
 ok("reconnect resets fulfillment_ok", db.raw.prepare("SELECT fulfillment_ok f FROM ebay_accounts WHERE user_id=?").get(me).f === null);
 scopeDenied = false;
 orders = [rawOrder("12-100", skuFor(item)), rawOrder("12-200", "SOMEONE-ELSES-SKU", {}, "555000111"), rawOrder("12-300", skuFor(item), { orderPaymentStatus: "PENDING" }),
-          rawOrder("12-250", "", {}, "198678618562")];
+          rawOrder("12-250", "", {}, "198678618562"), rawOrder("12-050", skuFor(item), { orderFulfillmentStatus: "FULFILLED" })];
 r = await call("GET", "/api/ebay/orders");
 await settle();
 ok("our sales recorded (by SKU, and by listing id when the SKU is missing); foreign and unpaid ignored",
-   r.json.orders.map(o => o.order_id).sort().join() === "12-100,12-250" && r.json.orders.every(o => o.status === "NOT_STARTED"), r.json.orders.map(o => o.order_id));
+   r.json.orders.map(o => o.order_id).sort().join() === "12-050,12-100,12-250", r.json.orders.map(o => o.order_id));
+ok("an already-shipped past sale is recorded as shipped, without its address", (() => { const x = r.json.orders.find(o => o.order_id === "12-050"); return x.status === "FULFILLED" && x.ship_to === null; })());
 const o100 = r.json.orders.find(o => o.order_id === "12-100");
 ok("ship-to comes through for the slip", /Austin/.test(o100.ship_to) && o100.item_title === "Cisco RAM");
 ok("item marked sold", db.raw.prepare("SELECT listing_status s FROM items WHERE id=?").get(item).s === "sold");
@@ -132,7 +133,7 @@ const rowId = o100.id;
 // re-read: no duplicate row, no second email
 db.raw.prepare("UPDATE ebay_accounts SET orders_synced_at=? WHERE user_id=?").run(new Date(Date.now() - 600e3).toISOString(), me);
 r = await call("GET", "/api/ebay/orders"); await settle();
-ok("re-read is idempotent", r.json.orders.length === 2 && mails.length === 0);
+ok("re-read is idempotent", r.json.orders.length === 3 && mails.length === 0);
 { const n = calls.length; await call("GET", "/api/ebay/orders");
   ok("recent read is not repeated within 2 minutes", calls.slice(n).every(c => !c.url.includes("/fulfillment/"))); }
 
