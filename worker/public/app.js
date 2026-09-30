@@ -849,6 +849,12 @@ async function renderItemDetail(id) {
           <b>$${r.lot.unit_retail} each × ${r.lot.count} pieces</b> — $${r.lot.unit_low}–$${r.lot.unit_high} per piece
           <div class="muted" style="margin-top:3px">Counted because ${esc(r.lot.how)}. The totals above are the whole lot; sold one at a time the per-piece price is what matters — check that it looks right.</div>
         </div>` : ""}
+      ${r.sold_market ? `<div style="margin:8px 0;padding:8px 10px;border-left:3px solid var(--green);background:var(--bg);font-size:.82rem">
+          <b>${r.sold_market.count} sold on eBay in the last 90 days</b> — $${r.sold_market.low}–$${r.sold_market.high}, median <b>$${r.sold_market.median}</b>
+          <div class="muted" style="margin-top:3px">What buyers actually paid, before shipping. The best guide to what yours will fetch.</div>
+          ${(r.sold_market.recent || []).length ? `<div style="margin-top:5px">${r.sold_market.recent.map(s =>
+            `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><a href="${esc(epn(s.url, "gs-sold"))}" target="_blank" rel="noopener" style="color:var(--green)">$${Math.round(s.price)}${s.sold_at ? ` · ${esc(String(s.sold_at).slice(0, 10))}` : ""} — ${esc(s.title)}</a></div>`).join("")}</div>` : ""}
+        </div>` : ""}
       ${r.market ? `<div style="margin:8px 0;padding:8px 10px;border-left:3px solid var(--cobalt);background:var(--bg);font-size:.82rem">
           ${r.market.count === 1
             ? `<b>1 comparable listed on eBay right now</b> — <b>$${r.market.low}</b>`
@@ -876,7 +882,7 @@ async function renderItemDetail(id) {
       ${(r.rejected_comparables || []).length ? `<details style="margin-top:8px"><summary class="muted" style="font-size:.8rem;cursor:pointer">Set aside (${r.rejected_comparables.length}) — listings not used for this price</summary>${r.rejected_comparables.map(c => `<div class="muted" style="font-size:.78rem;margin-top:4px">${esc(c.title)}${c.why ? ` — <i>${esc(c.why)}</i>` : ""}</div>`).join("")}</details>` : ""}
       ${r.questions_for_dealer.length ? `<div class="muted" style="font-size:.82rem;margin-top:10px">Would help: ${r.questions_for_dealer.map(esc).join(" · ")}</div>` : ""}
       ${r.warnings.length ? `<div class="muted" style="font-size:.75rem;margin-top:8px">${r.warnings.map(esc).join(" · ")}</div>` : ""}
-      ${(r.comparables.length || (r.live_listings || []).length) ? `<div class="muted" style="font-size:.7rem;margin-top:8px">eBay links are affiliate links: Guestimator may earn a small commission if you buy through them, at no cost to you.</div>` : ""}
+      ${(r.comparables.length || (r.live_listings || []).length || r.sold_market) ? `<div class="muted" style="font-size:.7rem;margin-top:8px">eBay links are affiliate links: Guestimator may earn a small commission if you buy through them, at no cost to you.</div>` : ""}
       <div class="muted" style="font-size:.72rem;margin-top:8px">${esc(r.models.text)} + ${esc(r.models.vision)} on Nebius</div>
     </div>` : ""}
     ${ebayPanelHtml(b, !!(r && !nc && appraisal.status === "done"))}

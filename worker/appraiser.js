@@ -104,7 +104,7 @@ EXAMPLE of a filled answer for a different item (format only):
 // seen, so a bad first guess survived into the final number rather than being corrected by the
 // evidence. The listings are the better evidence; the prior is a memory. So the prior is withheld
 // and the price is formed from the comparables cold.
-export function repricePrompt({ ident, condition, lotInfo, market, hits }) {
+export function repricePrompt({ ident, condition, lotInfo, market, hits, soldMarket = null }) {
   return `Item: ${JSON.stringify(ident)}\nCondition: ${condition || "Unknown"}\n` +
     `\nYou are pricing this from the live listings below and from nothing else. You are NOT being\n` +
     `given an earlier estimate to adjust, because an earlier estimate made before these listings\n` +
@@ -115,6 +115,10 @@ export function repricePrompt({ ident, condition, lotInfo, market, hits }) {
     (market ? `\nLIVE eBay asking prices right now: ${market.count} listed, ` +
       `$${market.low}-$${market.high}, median $${market.median}. These are ASKING prices, not sold ` +
       `prices, so a dealer's retail sits near or above them rather than far below.\n` : "") +
+    (soldMarket ? `\nSOLD on eBay in the last 90 days: ${soldMarket.count} sales, ` +
+      `$${soldMarket.low}-$${soldMarket.high}, median $${soldMarket.median}. These are what buyers actually ` +
+      `PAID - the strongest evidence here. Comparables marked "sold": true are completed sales; weigh ` +
+      `them above asking prices, and keep sold ones among your comparables when they match.\n` : "") +
     `\nComparables:\n${JSON.stringify(hits, null, 1)}`;
 }
 
@@ -912,7 +916,7 @@ export function splitByPrice(listings, minRatio = 2.5) {
 
 // A handful of asking prices, summarised the way a dealer would say it out loud:
 // "three listed right now, $150 to $189". The median is the honest middle; the count is the caveat.
-function summarise(listings) {
+export function summarise(listings, source = "eBay active listings") {
   const ps = listings.map(l => l.price).filter(p => p > 0).sort((a, b) => a - b);
   if (!ps.length) return null;
   const mid = ps.length % 2 ? ps[(ps.length - 1) / 2] : (ps[ps.length / 2 - 1] + ps[ps.length / 2]) / 2;
@@ -922,9 +926,59 @@ function summarise(listings) {
     high: Math.round(ps[ps.length - 1]),
     median: Math.round(mid),
     currency: listings[0].currency || "USD",
-    source: "eBay active listings",
+    source,
     as_of: new Date().toISOString(),
   };
+}
+
+// ---------- SOLD prices (SoldComps: eBay completed sales, last 90 days) ----------
+// Asking prices run high; what buyers actually paid is the better evidence. eBay's own sold-data
+// API (Marketplace Insights) is closed to new apps, so this comes from SoldComps, which collects
+// eBay's sold listings. It is optional: no key, a quota hit or an outage just means the estimate
+// is made from asking prices as before, with a note saying so.
+let _soldFail = null;
+export const soldFailure = () => _soldFail;
+export function mapSold(items, query) {
+  return dedupeOffers((Array.isArray(items) ? items : []).map(i => ({
+    title: String(i.title || "").slice(0, 160),
+    url: String(i.url || "").replace(/\?nordt=true$/, ""),
+    source: "ebay.com (sold)",
+    price: Number(i.soldPrice) || null,
+    shipping: Number(i.shippingPrice) || 0,
+    currency: i.soldCurrency || "USD",
+    condition: i.condition || "",
+    sold_at: i.endedAt || null,
+    note: `SOLD on eBay${i.endedAt ? ` ${i.endedAt}` : ""}${i.bestOfferAccepted ? " (best offer accepted)" : ""}${i.condition ? ` — ${i.condition}` : ""}`,
+    sold: true,
+  })).filter(x => x.price > 0 && (!x.currency || x.currency === "USD")
+    && !contradictsGeneration(query, x.title) && !contradictsSpec(query, x.title)));
+}
+export async function ebaySold(env, query, limit = 30) {
+  _soldFail = null;
+  if (!env.SOLDCOMPS_API_KEY) { _soldFail = "sold prices are not switched on"; return null; }
+  const kw = cleanForEbay(query) || String(query);
+  const since = new Date(Date.now() - 90 * 86400e3).toISOString().slice(0, 10);
+  const u = new URL("https://api.sold-comps.com/v1/scrape");
+  u.searchParams.set("keyword", kw);
+  u.searchParams.set("count", String(limit));
+  u.searchParams.set("soldAfter", since);
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 20000);
+  try {
+    const r = await fetch(u, { headers: { authorization: `Bearer ${env.SOLDCOMPS_API_KEY}` }, signal: ac.signal });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      _soldFail = r.status === 429 && /quota/i.test(JSON.stringify(j)) ? "the sold-price lookup allowance for this month is used up"
+        : `the sold-price lookup returned ${r.status}`;
+      console.log("soldcomps failed", r.status, JSON.stringify(j).slice(0, 300));
+      return null;
+    }
+    const j = await r.json();
+    return mapSold(j.items, query).slice(0, limit);
+  } catch (e) {
+    _soldFail = e.name === "AbortError" ? "the sold-price lookup timed out" : `the sold-price lookup failed (${e.message})`;
+    return null;
+  } finally { clearTimeout(t); }
 }
 
 // Antique marketplaces first, because that is the common case and they carry sold prices.
@@ -1722,11 +1776,17 @@ export async function appraise(env, req) {
   const q = compsQuery({ ...ident, name: searchName });
   // eBay first: it is the only live, free, permitted price feed we have. Tavily backfills the
   // categories eBay is thin on, and covers us entirely when no eBay keys are configured.
-  const live = await ebayActive(env, q);
-  const hits = [...(live || []), ...(live && live.length >= 3 ? [] : await searchComps(env, q))];
+  const [live, sold] = await Promise.all([ebayActive(env, q), ebaySold(env, q)]);
+  // Sold first: what buyers paid is the strongest evidence, and the repricer reads top-down.
+  const soldHits = (sold || []).slice(0, 8);
+  const hits = [...soldHits, ...(live || []),
+                ...((live && live.length >= 3) || soldHits.length >= 3 ? [] : await searchComps(env, q))];
   // Only the Browse API produces a market range. See the note above searchComps for why search
   // hits do not get one.
   const market = (live && live.length) ? summarise(live) : null;
+  const soldMarket = (sold && sold.length) ? summarise(sold, "eBay sold, last 90 days") : null;
+  if (!soldMarket && env.SOLDCOMPS_API_KEY && soldFailure())
+    warnings.push(`sold prices unavailable — ${soldFailure()}; priced from asking prices, which run high.`);
   // What the dealer is shown. Narrowed to the listings the model judged comparable once it has
   // said which those are; until then it is the whole pool.
   let marketShown = market;
@@ -1742,7 +1802,7 @@ export async function appraise(env, req) {
     warnings.push(`no eBay listing matched the full description, so these prices are for ` +
       `"${broadenedTo}" — comparable items rather than this exact one.`);
   if (hits.length) {
-    const repriceUser = repricePrompt({ ident, condition: listing.condition_grade, lotInfo, market, hits });
+    const repriceUser = repricePrompt({ ident, condition: listing.condition_grade, lotInfo, market, hits, soldMarket });
     try {
       const second = await textJson(c, REPRICE_SYSTEM, repriceUser, 1000);
       // The whole promise of this second pass is that the price gets re-set against real listings.
@@ -1775,6 +1835,8 @@ export async function appraise(env, req) {
         // with no prior in it either.
         const cold = `Item: ${ident.name}\nCondition: ${listing.condition_grade || "Good"}\n` +
           `Currency: ${currency}\n` +
+          (soldMarket ? `Sold on eBay, last 90 days: ${soldMarket.count} sales, $${soldMarket.low}-$${soldMarket.high}, ` +
+            `median $${soldMarket.median}. What buyers paid.\n` : "") +
           (market ? `Live asking prices right now: ${market.count} listed, $${market.low}-$${market.high}, ` +
             `median $${market.median}. Asking, not sold.\n` : "") +
           `\nComparables:\n${JSON.stringify(hits.slice(0, 8), null, 1)}\n\n` +
@@ -2035,6 +2097,8 @@ export async function appraise(env, req) {
     // thrown away, so nothing is hidden from a dealer who wants to see everything eBay returned.
     market: marketShown,
     market_all: market && marketShown && market.count !== marketShown.count ? market : null,
+    // What actually sold (SoldComps), newest first, with a few of the sales to show.
+    sold_market: soldMarket ? { ...soldMarket, recent: (sold || []).slice(0, 6).map(s => pick(s, ["title", "url", "price", "sold_at", "condition"])) } : null,
     // What the model set aside and why. A dealer who disagrees with a price should be able to see
     // which listings were kept out of it — including the ones it was wrong to exclude.
     rejected_comparables: rejected.slice(0, 8),
