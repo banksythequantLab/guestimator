@@ -7,12 +7,17 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createHmac } from "node:crypto";
 import * as G from "../garage.js";
+import { trackingLink } from "../notify.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 let pass = 0, fail = 0;
 const ok = (n, c) => { c ? pass++ : (fail++, console.log(`FAIL ${n}`)); };
 
 // ---------- pure helpers ----------
+ok("UPS tracking link", /ups\.com.*1Z999AA10123456784/.test(trackingLink("1z999aa1 0123456784")));
+ok("USPS tracking link", /usps\.com.*9400111899223456789012/.test(trackingLink("9400 1118 9922 3456 7890 12")));
+ok("FedEx tracking link", /fedex\.com.*123456789012/.test(trackingLink("123456789012")));
+ok("unknown tracking shape -> no link", trackingLink("ABC-123") === null && trackingLink("") === null);
 ok("localDate in zone", G.localDate(new Date("2026-10-03T03:30:00Z"), "America/New_York") === "2026-10-02");
 ok("localDate bad zone falls back", G.localDate(new Date("2026-10-03T12:00:00Z"), "Not/AZone") === "2026-10-03");
 const s0 = { starts_on: "2026-10-03", ends_on: "2026-10-04", tz: "America/New_York", street: "12 Elm St" };
@@ -258,8 +263,19 @@ await settle();
 ok("replay is harmless", (await hook(done)).status === 200 && db.raw.prepare("SELECT status FROM garage_orders WHERE id=?").get(order.id).status === "paid");
 await settle();
 ok("replay sends no second email", mails.filter(x => /Sold online/.test(x.subject)).length === 1);
+{
+  const b = mails.filter(x => x.to === "rb@example.com" && /You bought/.test(x.subject));
+  ok("buyer gets one order confirmation", b.length === 1, b.map(x => x.subject));
+  ok("buyer email: what, paid, ships to, replies go to seller",
+     b[0] && b[0].text.includes("$64.50") && b[0].text.includes("Austin TX 78701") && /tracking number/.test(b[0].text) && b[0].replyTo === "a@example.com");
+}
 who = "a";
-ok("mark shipped with tracking", (await call("PATCH", `/api/garage/orders/${order.id}`, { status: "fulfilled", tracking: "1Z999" })).status === 200);
+ok("mark shipped with tracking", (await call("PATCH", `/api/garage/orders/${order.id}`, { status: "fulfilled", tracking: "1Z999AA10123456784" })).status === 200);
+await settle();
+{
+  const s = mails.filter(x => x.to === "rb@example.com" && /On its way/.test(x.subject));
+  ok("buyer told it shipped, with tracking and a UPS link", s.length === 1 && s[0].text.includes("1Z999AA10123456784") && s[0].html.includes("ups.com/track"), s.map(x => x.subject));
+}
 
 // expired checkout releases the item
 who = "a"; await call("PATCH", `/api/garage/holds/${hold.id}`, { status: "done" });
@@ -286,6 +302,23 @@ who = "anon"; await call("POST", "/api/public/garage/checkout", new URLSearchPar
 db.raw.prepare("UPDATE garage_orders SET created_at=? WHERE item_id=? AND status='pending'").run(new Date(Date.now() - 40 * 60000).toISOString(), crock);
 await call("GET", `/sale/${slug}`);
 ok("stale reservation released", db.raw.prepare("SELECT status FROM garage_sale_items WHERE item_id=?").get(crock).status === "available");
+
+// A paid PICKUP order: the buyer gets the full street address and when to come.
+{
+  who = "anon"; await call("POST", "/api/public/garage/checkout", new URLSearchParams({ sale: slug, item: crock, fulfilment: "pickup" }));
+  const op = db.raw.prepare("SELECT * FROM garage_orders WHERE item_id=? AND status='pending'").get(crock);
+  const n0 = mails.length;
+  await hook({ type: "checkout.session.completed", data: { object: { id: op.stripe_session_id, payment_status: "paid", payment_intent: "pi_p",
+    customer_details: { name: "Local Buyer", email: "lb@example.com", phone: "+15555550111" } } } });
+  await settle();
+  const pm = mails.slice(n0).find(x => x.to === "lb@example.com");
+  ok("pickup buyer gets the street address and the dates", pm && pm.text.includes("12 Elm St") && /Pick up at/.test(pm.text) && /When:/.test(pm.text), pm && pm.text);
+  ok("pickup buyer told to show the email", pm && /Show this email/.test(pm.text));
+  who = "a";
+  const n1 = mails.length;
+  await call("PATCH", `/api/garage/orders/${op.id}`, { status: "fulfilled" }); await settle();
+  ok("marking a pickup done sends the buyer nothing", mails.length === n1);
+}
 
 // account.updated keeps readiness in sync
 await hook({ type: "account.updated", data: { object: { id: "acct_SELLER", details_submitted: true, charges_enabled: false, capabilities: { card_payments: "inactive" } } } }, "whsec_connect");

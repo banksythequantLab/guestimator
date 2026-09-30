@@ -9,7 +9,7 @@
 // Sale pages are free. Estimates still cost credits; nothing here touches the credits ledger.
 
 import { startingPrice } from "./ebay.js";
-import { holdAlert, orderAlert } from "./notify.js";
+import { holdAlert, orderAlert, buyerOrderEmail, buyerShippedEmail } from "./notify.js";
 
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
@@ -185,7 +185,7 @@ function buyable(env, sale, seller) {
 
 // ---------------------------------------------------------------- seller API (/api/garage/*)
 
-export async function sellerApi(request, env, url, parts, userId) {
+export async function sellerApi(request, env, url, parts, userId, ctx) {
   const db = env.DB, m = request.method;
   const origin = env.PUBLIC_ORIGIN || url.origin;
   const own = async sid => db.prepare("SELECT * FROM garage_sales WHERE id=? AND user_id=?").bind(sid, userId).first();
@@ -249,6 +249,10 @@ export async function sellerApi(request, env, url, parts, userId) {
     if (b.status === "fulfilled") {
       if (o.status !== "paid") return J({ error: o.status === "refund_needed" ? "Refund this buyer in Stripe instead." : "Only a paid order can be marked done." }, 409);
       await db.prepare("UPDATE garage_orders SET status='fulfilled', tracking=?, updated_at=? WHERE id=?").bind(String(b.tracking || "").trim().slice(0, 80) || null, now(), o.id).run();
+      // A shipped order tells the buyer it's on the way. A pickup marked done needs no email:
+      // the buyer was standing there.
+      if (o.fulfilment === "ship" && ctx && ctx.waitUntil)
+        ctx.waitUntil(buyerShippedEmail(db, env, o.id, env.PUBLIC_ORIGIN || url.origin).catch(e => console.log("buyerShippedEmail", e)));
       return J({ ok: true });
     }
     return J({ error: "bad status" }, 400);
@@ -489,7 +493,10 @@ export async function publicApi(request, env, url, parts, ctx) {
     // Only on the transition to paid: a replayed event returns "dup" and sends nothing twice.
     if ((outcome === "paid" || outcome === "refund_needed") && ctx && ctx.waitUntil) {
       const o = await db.prepare("SELECT id FROM garage_orders WHERE stripe_session_id=?").bind(ev.data?.object?.id || "").first();
-      if (o) ctx.waitUntil(orderAlert(db, env, o.id, origin).catch(e => console.log("orderAlert", e)));
+      if (o) {
+        ctx.waitUntil(orderAlert(db, env, o.id, origin).catch(e => console.log("orderAlert", e)));
+        if (outcome === "paid") ctx.waitUntil(buyerOrderEmail(db, env, o.id, origin).catch(e => console.log("buyerOrderEmail", e)));
+      }
     }
     return J({ received: true });
   }

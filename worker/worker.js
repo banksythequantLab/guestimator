@@ -352,7 +352,7 @@ export default {
       const ownsItem = async (iid) => await db.prepare("SELECT i.* FROM items i JOIN sales s ON s.id=i.sale_id WHERE i.id=? AND s.user_id=?").bind(iid, userId).first();
 
       // ---------- garage / estate sales (free) ----------
-      if (parts[1] === "garage") return await garage.sellerApi(request, env, url, parts, userId);
+      if (parts[1] === "garage") return await garage.sellerApi(request, env, url, parts, userId, ctx);
 
       // ---------- plan / credits (the app shows this on the paywall and the appraisal button) ----------
       if (parts[1] === "me" && parts[2] === "plan" && m === "GET") {
