@@ -41,7 +41,8 @@ async function renderEbayOrders() {
             <input data-trk="${esc(o.id)}" placeholder="Tracking #" style="flex:1;min-width:140px">
             <select data-car="${esc(o.id)}" style="width:auto"><option value="">Carrier</option><option>USPS</option><option>UPS</option><option>FedEx</option></select>
             <button class="btn sm" data-ship="${esc(o.id)}">Mark shipped</button></div>
-          <a class="btn sec sm" href="/api/ebay/orders/${encodeURIComponent(o.id)}/slip" target="_blank" rel="noopener" style="text-decoration:none;margin-top:6px;display:inline-block">🖨 Packing slip</a>`
+          <a class="btn sec sm" href="/api/ebay/orders/${encodeURIComponent(o.id)}/slip" target="_blank" rel="noopener" style="text-decoration:none;margin-top:6px;display:inline-block">🖨 Packing slip</a>
+          ${labelBtnHtml("ebay", o.id)}`
         : `<div style="margin-top:4px"><span class="pill">${o.status === "CANCELLED" ? "cancelled" : "shipped"}</span>${o.tracking ? ` <span class="muted" style="font-size:.8rem">${esc(o.tracking)}</span>` : ""}</div>`}
       </div></div>`;
   app.innerHTML = `
@@ -53,6 +54,7 @@ async function renderEbayOrders() {
     <div class="list">${open.map(card).join("") || `<div class="empty"><div class="em">📭</div>Nothing waiting. When something you listed sells, it shows up here and you get an email.</div>`}</div>
     ${done.length ? `<h3 style="margin:14px 2px 6px">Last 30 days</h3><div class="list">${done.map(card).join("")}</div>` : ""}`;
   if ($("#reEbay")) $("#reEbay").onclick = () => connectEbay();
+  wireLabels(app, renderEbayOrders);
   app.querySelectorAll("[data-trk]").forEach(inp => inp.oninput = () => {
     const sel = app.querySelector(`[data-car="${CSS.escape(inp.dataset.trk)}"]`), g = guessCarrier(inp.value);
     if (g && sel) sel.value = g;
@@ -66,4 +68,109 @@ async function renderEbayOrders() {
     try { await api(`/ebay/orders/${encodeURIComponent(id)}/ship`, { method: "POST", body: JSON.stringify({ tracking, carrier }) }); toast("Marked shipped on eBay ✓"); renderEbayOrders(); }
     catch (e) { toast(e.message); b.disabled = false; }
   });
+}
+
+// ---------- shipping labels (garage-sale and eBay orders) ----------
+// Shown only when buying labels is switched on for this account. Flow: return address (once) ->
+// real rates to the buyer for the box (editable: weigh it) -> pick one -> buy -> print. Buying
+// marks the order shipped with the label's tracking number.
+let labelCfg = null;
+async function labelSettings() {
+  if (labelCfg) return labelCfg;
+  try { labelCfg = await api("/labels/settings"); } catch { labelCfg = { enabled: false }; }
+  return labelCfg;
+}
+const labelBtnHtml = (kind, id) => `<button class="btn sec sm" data-label-kind="${kind}" data-label-id="${esc(id)}" style="margin-top:6px">🏷️ Buy shipping label</button><div data-label-box="${esc(id)}"></div>`;
+
+// Wire every label button on the screen; `after` redraws the screen once a label is bought.
+async function wireLabels(root, after) {
+  const btns = root.querySelectorAll("[data-label-kind]");
+  if (!btns.length) return;
+  const cfg = await labelSettings();
+  btns.forEach(async b => {
+    if (!cfg.enabled) { b.remove(); return; }
+    const kind = b.dataset.labelKind, id = b.dataset.labelId;
+    const box = root.querySelector(`[data-label-box="${CSS.escape(id)}"]`);
+    try {   // already bought? offer the print link instead
+      const { label } = await api(`/labels/for?kind=${kind}&order=${encodeURIComponent(id)}`);
+      if (label) { b.remove(); box.innerHTML = labelDone(label); return; }
+    } catch {}
+    b.onclick = () => { b.remove(); labelPanel(kind, id, box, after); };
+  });
+}
+const labelDone = l => `<div style="margin-top:6px;font-size:.82rem"><a class="btn sm" href="${esc(l.label_url)}" target="_blank" rel="noopener" style="text-decoration:none">🖨 Print label</a>
+  <span class="muted">${esc(l.service || l.carrier || "")} · ${money(l.amount_cents)}${l.tracking ? ` · ${esc(l.tracking)}` : ""}</span></div>`;
+
+function fromForm(f) {
+  f = f || {};
+  const i = (k, ph, w = 1, extra = "") => `<div style="flex:${w}"><input data-from="${k}" value="${esc(f[k] || "")}" placeholder="${ph}" ${extra}></div>`;
+  return `<div class="card" style="margin:8px 0;padding:10px"><b style="font-size:.9rem">Your return address</b>
+    <div class="muted" style="font-size:.78rem;margin-bottom:6px">Printed on the label as the sender. Saved for next time.</div>
+    <div class="row" style="gap:6px">${i("name", "Your name")}${i("phone", "Phone (optional)", 1, 'type="tel"')}</div>
+    <div class="row" style="gap:6px;margin-top:6px">${i("street1", "Street", 2)}${i("street2", "Apt (optional)")}</div>
+    <div class="row" style="gap:6px;margin-top:6px">${i("city", "City", 2)}${i("state", "NJ", .6, 'maxlength="2" style="text-transform:uppercase"')}${i("zip", "ZIP", 1, 'inputmode="numeric" maxlength="5"')}</div>
+    <button class="btn sm" data-from-save style="margin-top:8px">Save address</button></div>`;
+}
+
+async function labelPanel(kind, id, box, after, over) {
+  const cfg = await labelSettings();
+  if (!cfg.ship_from) {
+    box.innerHTML = fromForm(null);
+    box.querySelector("[data-from-save]").onclick = async ev => {
+      const body = {}; box.querySelectorAll("[data-from]").forEach(x => body[x.dataset.from] = x.value);
+      ev.target.disabled = true;
+      try { const r = await api("/labels/settings", { method: "PUT", body: JSON.stringify(body) }); labelCfg.ship_from = r.ship_from; labelPanel(kind, id, box, after, over); }
+      catch (e) { toast(e.message); ev.target.disabled = false; }
+    };
+    return;
+  }
+  box.innerHTML = `<div class="muted" style="font-size:.82rem;margin-top:6px">Getting rates to the buyer…</div>`;
+  let q;
+  try { q = await api("/labels/rates", { method: "POST", body: JSON.stringify({ kind, order_id: id, ...(over || {}) }) }); }
+  catch (e) {
+    if (e.needs_parcel || /box size/i.test(e.message)) { box.innerHTML = parcelInputs(null); wireParcel(); return; }
+    box.innerHTML = `<div style="color:var(--rust);font-size:.82rem;margin-top:6px">${esc(e.message)}</div>`; return;
+  }
+  const p = q.parcel;
+  box.innerHTML = `<div class="card" style="margin:8px 0;padding:10px">
+    ${parcelInputs(p)}
+    ${q.rates.length ? `<div style="margin-top:8px">${q.rates.map((r, n) => `<label class="row" style="gap:8px;font-weight:400;font-size:.88rem;margin:4px 0">
+        <input type="radio" name="rate-${esc(id)}" value="${esc(r.rate_id)}" data-cents="${Math.round(r.amount * 100)}" ${n === 0 ? "checked" : ""} style="width:auto">
+        <span style="flex:1">${esc(r.service)}${r.days ? ` <span class="muted">· ${r.days} day${r.days === 1 ? "" : "s"}</span>` : ""}</span><b>$${r.amount.toFixed(2)}</b></label>`).join("")}</div>
+      <div class="row" style="gap:6px;margin-top:6px;align-items:center"><select data-paper style="width:auto"><option value="PDF">Letter paper</option><option value="PDF_4x6">4×6 label printer</option></select>
+        <button class="btn sm" data-buy style="flex:1">Buy label</button></div>
+      <div class="muted" style="font-size:.72rem;margin-top:4px">Charged to the Shippo account on file. Buying marks the order shipped and sends the tracking number${kind === "ebay" ? " to eBay" : " to the buyer"}.</div>`
+    : `<div class="muted" style="font-size:.82rem;margin-top:6px">${esc(q.note || "No rates.")}</div>`}</div>`;
+  wireParcel();
+  const buy = box.querySelector("[data-buy]");
+  if (buy) {
+    const sel = () => box.querySelector(`input[name="rate-${CSS.escape(id)}"]:checked`);
+    const label = () => { const s = sel(); buy.textContent = s ? `Buy label · $${(s.dataset.cents / 100).toFixed(2)}` : "Buy label"; };
+    box.querySelectorAll(`input[name="rate-${CSS.escape(id)}"]`).forEach(x => x.onchange = label); label();
+    buy.onclick = async () => {
+      const s = sel(); if (!s) return;
+      if (!confirm(`Buy this label for $${(s.dataset.cents / 100).toFixed(2)}? It's charged right away.`)) return;
+      buy.disabled = true; buy.textContent = "Buying…";
+      try {
+        const r = await api("/labels/buy", { method: "POST", body: JSON.stringify({ kind, order_id: id, rate_id: s.value, amount_cents: Number(s.dataset.cents), file_type: box.querySelector("[data-paper]").value }) });
+        box.innerHTML = labelDone(r.label) + (r.shipped ? "" : `<div style="color:var(--rust);font-size:.8rem">Label bought, but not marked shipped: ${esc(r.shipped_error || "")}. Mark it shipped with the tracking number above.</div>`);
+        window.open(r.label.label_url, "_blank", "noopener");
+        toast("Label bought ✓"); if (after) setTimeout(after, 1500);
+      } catch (e) { toast(e.message); buy.disabled = false; label(); }
+    };
+  }
+  function wireParcel() {
+    const re = box.querySelector("[data-reprice]");
+    if (re) re.onclick = () => {
+      const v = k => Number(box.querySelector(`[data-p="${k}"]`).value);
+      labelPanel(kind, id, box, after, { box_in: [v("l"), v("w"), v("h")], weight_lb: v("lb") });
+    };
+  }
+}
+function parcelInputs(p) {
+  const v = (x, d) => esc(p ? String(x) : d);
+  const n = (k, val, ph) => `<input data-p="${k}" value="${val}" placeholder="${ph}" inputmode="decimal" style="width:56px">`;
+  return `<div class="row" style="gap:4px;align-items:center;flex-wrap:wrap;font-size:.82rem">Box ${n("l", v(p && p.length, ""), "L")}×${n("w", v(p && p.width, ""), "W")}×${n("h", v(p && p.height, ""), "H")} in,
+    ${n("lb", v(p && p.weight, ""), "lb")} lb <button class="btn sec sm" data-reprice>${p ? "Re-price" : "Get rates"}</button></div>
+    ${p ? `<div class="muted" style="font-size:.72rem">Our estimate. Weigh and measure the packed box and re-price if it's different: the carrier charges extra if it's off.</div>` : ""}`;
 }

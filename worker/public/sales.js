@@ -147,6 +147,7 @@ async function renderSale(id) {
         ${o.status === "refund_needed" ? `<div style="color:var(--rust);font-size:.82rem;margin-top:4px">${esc(o.note || "Refund this buyer in Stripe.")}</div>`
           : `<div class="row" style="gap:6px;margin-top:6px">${o.fulfilment === "ship" ? `<input data-track="${o.id}" placeholder="Tracking # (optional)" style="flex:1;min-width:120px">` : ""}<button class="btn sm" data-done="${o.id}">${o.fulfilment === "ship" ? "Mark shipped" : "Picked up"}</button></div>`}
         <a class="btn sec sm" href="/sale/${esc(s.slug)}/slip/${esc(o.id)}" target="_blank" rel="noopener" style="text-decoration:none;margin-top:6px;display:inline-block">🖨 ${o.fulfilment === "ship" ? "Packing slip" : "Pickup receipt"}</a>
+        ${o.fulfilment === "ship" && o.status === "paid" ? labelBtnHtml("garage", o.id) : ""}
         </div></div>`).join("")}</div>` : ""}
     <div class="row" style="justify-content:space-between;margin:14px 2px 6px"><h3>Items (${items.length})</h3><button class="btn sm" id="addItems">＋ Add items</button></div>
     <div class="list">${items.map(i => `<div class="li" style="align-items:flex-start;${i.status === "sold" ? "opacity:.55" : ""}">
@@ -172,6 +173,7 @@ async function renderSale(id) {
     try { if (navigator.share) await navigator.share({ title: s.title, text, url: s.url }); else { await navigator.clipboard.writeText(s.url); toast("Link copied"); } } catch {}
   };
   wireStripeCard(() => renderSale(id));
+  wireLabels(app, () => renderSale(id));
   $("#delSale").onclick = async () => {
     if (!confirm("Delete this sale page? Your items stay in Guestimator.")) return;
     try { await api("/garage/sales/" + id, { method: "DELETE" }); toast("Sale deleted"); renderSales(); } catch (e) { toast(e.message); }

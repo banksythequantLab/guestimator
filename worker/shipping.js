@@ -31,7 +31,8 @@ export function pickRates(rates) {
     const tok = r && r.servicelevel && r.servicelevel.token;
     const amt = Number(r && r.amount);
     if (!WANT[tok] || !(amt > 0) || (r.currency && r.currency !== "USD")) continue;
-    if (!best[tok] || amt < best[tok].amount) best[tok] = { service: WANT[tok], token: tok, amount: Math.round(amt * 100) / 100, days: r.estimated_days ?? null };
+    if (!best[tok] || amt < best[tok].amount) best[tok] = { service: WANT[tok], token: tok, amount: Math.round(amt * 100) / 100, days: r.estimated_days ?? null,
+                                                            rate_id: r.object_id || null, provider: r.provider || null };
   }
   return best;
 }

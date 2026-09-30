@@ -42,6 +42,9 @@
   "send_email": [{ "name": "EMAIL" }],
   "vars": {
     "ALERT_FROM": "alerts@theguestimator.com",
+    // Accounts allowed to BUY shipping labels. Labels are charged to the Shippo account behind
+    // SHIPPO_API_TOKEN (Derek's), so this stays his alone until sellers pay for their own.
+    "LABEL_USERS": "dj@soltis.info",
     "NEBIUS_BASE_URL": "https://api.tokenfactory.nebius.com/v1/",
     "TEXT_MODEL": "nvidia/nemotron-3-super-120b-a12b",
     "VISION_MODEL": "google/gemma-3-27b-it",

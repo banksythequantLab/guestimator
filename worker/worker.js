@@ -10,7 +10,8 @@ import * as ebay from "./ebay.js";
 import * as garage from "./garage.js";
 import { quoteShipping } from "./shipping.js";
 import * as ebayOrders from "./ebayorders.js";
-import { ebaySoldAlert } from "./notify.js";
+import { ebaySoldAlert, buyerShippedEmail } from "./notify.js";
+import * as labels from "./labels.js";
 // Every Guestimator item lives in one hidden per-user `sales` row (the schema is Bottle Tree's).
 const GUESS_BUCKET = "Guestimator";
 // The Android app's URL scheme (strings.xml custom_url_scheme; AndroidManifest intent-filter).
@@ -416,6 +417,49 @@ export default {
           if (!r.meta?.changes) return J({ error: "Connect your eBay account first" }, 409);
           return J({ postal_code: zip.slice(0, 5) });
         }
+      }
+
+      // ---------- shipping labels (Shippo; switched on per account, see labels.js) ----------
+      if (parts[1] === "labels") {
+        const me = await db.prepare("SELECT email FROM users WHERE id=?").bind(userId).first();
+        const on = labels.labelsOn(env, me?.email);
+        const set = await db.prepare("SELECT ship_from FROM seller_settings WHERE user_id=?").bind(userId).first();
+        let from = null; try { from = set?.ship_from ? JSON.parse(set.ship_from) : null; } catch {}
+        if (parts[2] === "settings" && m === "GET") return J({ enabled: on, ship_from: from });
+        if (!on) return J({ error: "Buying labels isn't switched on for your account yet." }, 403);
+        if (parts[2] === "settings" && m === "PUT") {
+          const c = labels.cleanFrom(await readJson(request));
+          if (c.error) return J({ error: c.error }, 400);
+          await db.prepare("INSERT INTO seller_settings (user_id,ship_from,updated_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET ship_from=excluded.ship_from, updated_at=excluded.updated_at")
+            .bind(userId, JSON.stringify(c.value), now()).run();
+          return J({ ship_from: c.value });
+        }
+        const b = m === "POST" ? await readJson(request) : {};
+        if (parts[2] === "rates" && m === "POST") {
+          if (!from) return J({ error: "Add your return address first.", needs_from: true }, 409);
+          const t = await labels.orderFor(db, userId, b.kind, String(b.order_id || ""));
+          if (t.error) return J({ error: t.error }, t.status);
+          if (!t.to) return J({ error: "This order has no full shipping address." }, 409);
+          const ap = await db.prepare("SELECT result_json FROM appraisals WHERE item_id=? AND status='done' ORDER BY created_at DESC LIMIT 1").bind(t.itemId).first();
+          let est = null; try { est = ap?.result_json ? JSON.parse(ap.result_json).shipping : null; } catch {}
+          const parcel = labels.parcelFor(est, b);
+          if (!parcel) return J({ error: "Enter the box size and weight.", needs_parcel: true }, 409);
+          try { return J({ ...(await labels.labelRates(env, from, t.to, parcel)), parcel }); }
+          catch (e) { return J({ error: String(e.message || e) }, e.status || 502); }
+        }
+        if (parts[2] === "buy" && m === "POST") {
+          try {
+            const r = await labels.buyLabel(env, db, userId, b.kind, String(b.order_id || ""), b.rate_id, b.amount_cents, b.file_type,
+                                            env.PUBLIC_ORIGIN || url.origin, ctx, buyerShippedEmail);
+            return J(r.error ? { error: r.error, label: r.label || null } : r, r.status);
+          } catch (e) { return J({ error: String(e.message || e) }, e.status || 502); }
+        }
+        if (parts[2] === "for" && m === "GET") {
+          const l = await db.prepare("SELECT kind, order_id, carrier, service, amount_cents, tracking, label_url, created_at FROM shipping_labels WHERE user_id=? AND kind=? AND order_id=?")
+            .bind(userId, url.searchParams.get("kind") || "", url.searchParams.get("order") || "").first();
+          return J({ label: l || null });
+        }
+        return J({ error: "not found" }, 404);
       }
 
       // ---------- eBay sales of Guestimator listings ----------
