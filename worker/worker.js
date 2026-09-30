@@ -8,6 +8,7 @@ const SIGNUP_CREDITS = 0;
 import { appraise } from "./appraiser.js";
 import * as ebay from "./ebay.js";
 import * as garage from "./garage.js";
+import { quoteShipping } from "./shipping.js";
 // Every Guestimator item lives in one hidden per-user `sales` row (the schema is Bottle Tree's).
 const GUESS_BUCKET = "Guestimator";
 // The Android app's URL scheme (strings.xml custom_url_scheme; AndroidManifest intent-filter).
@@ -679,6 +680,14 @@ export default {
           } catch (e) {
             return await fail(String(e && e.message || e), "setup");
           }
+        }
+
+        // Live shipping quote (Shippo) for the box and weight the last estimate worked out.
+        if (parts[3] === "shipping-quote" && m === "GET") {
+          const ap = await db.prepare("SELECT result_json FROM appraisals WHERE item_id=? AND status='done' ORDER BY created_at DESC LIMIT 1").bind(iid).first();
+          let est = null; try { est = ap?.result_json ? JSON.parse(ap.result_json).shipping : null; } catch {}
+          try { return J(await quoteShipping(env, url.searchParams.get("from"), est)); }
+          catch (e) { return J({ error: String(e.message || e) }, e.status || 502); }
         }
 
         if (parts[3] === "photos" && m === "POST") {

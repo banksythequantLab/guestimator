@@ -410,13 +410,15 @@ function renderEbayDraft(id, d) {
         <div style="flex:1"><div class="muted" style="font-size:.75rem">Buyer pays</div><input id="eShip" inputmode="decimal" value="${esc(val.shipping_cost)}" placeholder="e.g. 12.00 (0 = free)"></div>
         <div style="flex:.7"><div class="muted" style="font-size:.75rem">Ships within</div><select id="eDays">${["1", "2", "3", "5"].map(n => `<option value="${n}"${n === val.handling_days ? " selected" : ""}>${n} day${n === "1" ? "" : "s"}</option>`).join("")}</select></div>
       </div>
-      ${d.shipping ? `<div style="font-size:.8rem;margin-top:8px">${shipLine(d.shipping)}</div>` : ""}
+      ${d.shipping ? `<div style="font-size:.8rem;margin-top:8px">${shipLine(d.shipping)}</div>
+      <button class="btn sec sm" id="eQuote" style="margin-top:8px">💲 Get real shipping prices</button><div id="eQuoteOut"></div>` : ""}
       <div class="muted" style="font-size:.75rem;margin-top:6px">USPS Priority, flat rate. 30-day returns, buyer pays return shipping. Change these any time in eBay Seller Hub.</div>
     </div>
     <button class="btn" id="eGo" style="background:var(--cobalt)">Preview listing &amp; eBay fees</button>
     <div class="muted" style="font-size:.75rem;text-align:center;margin:8px 0 20px">Nothing goes live yet. Next you'll see the listing and eBay's exact fees, then decide.</div>`;
   const tc = () => $("#tCount").textContent = `(${$("#eTitle").value.length}/80)`;
   $("#eTitle").oninput = tc; tc();
+  if ($("#eQuote")) $("#eQuote").onclick = () => getShipQuote(id, $("#eZip").value, $("#eQuote"), $("#eQuoteOut"), $("#eShip"));
   // Everything on the form, as the seller left it. category_id is the category these aspects and
   // this condition were chosen for, so a later category switch knows not to carry them over.
   const readForm = () => {
@@ -961,6 +963,30 @@ function shipLine(s) {
     ? ` UPS/FedEx will bill it as <b>${s.dim_weight_lb} lb</b> because the box is big for its weight.` : "";
   return `<b>📦 Shipping estimate:</b> about <b>${lb(s.packed_weight_lb)}</b> packed, in a <b>${esc(box)} in</b> box${s.fragile ? " — <b>fragile</b>, pack with 3 in of padding" : ""}.${dim}
     <div class="muted" style="margin-top:3px">Item alone ~${lb(s.item_weight_lb)}${s.basis ? ` (${esc(String(s.basis).replace(/[.\s]+$/, ""))})` : ""}. Guessed from the photos: weigh it before you buy a label.</div>`;
+}
+
+// Live rates for the estimated box, from the seller's ZIP to near / mid / far buyers. Fills the
+// price box with the suggestion only if the seller hasn't typed one; either way they can edit it.
+async function getShipQuote(itemId, fromZip, btn, out, priceInput) {
+  const zip = String(fromZip || "").trim();
+  if (!/^\d{5}$/.test(zip)) { toast("Enter the 5-digit ZIP you ship from first."); return; }
+  const was = btn.textContent; btn.disabled = true; btn.textContent = "Checking USPS, UPS, FedEx…";
+  try {
+    const q = await api(`/items/${itemId}/shipping-quote?from=${zip}`);
+    const svc = ["usps_ground_advantage", "usps_priority", "ups_ground", "fedex_ground", "fedex_home_delivery"]
+      .filter(t => q.zones.some(z => z.rates[t]));
+    const name = t => (q.zones.map(z => z.rates[t]).find(Boolean) || {}).service || t;
+    const cell = (z, t) => z.rates[t] ? `$${z.rates[t].amount.toFixed(2)}` : "—";
+    out.innerHTML = svc.length ? `<div style="overflow-x:auto;margin-top:8px"><table style="width:100%;font-size:.78rem;border-collapse:collapse">
+        <tr><th style="text-align:left;padding:3px 6px 3px 0">Service</th>${q.zones.map(z => `<th style="text-align:right;padding:3px 0 3px 6px;white-space:nowrap">${esc(z.label)}<div class="muted" style="font-weight:400">${esc(z.zip)}</div></th>`).join("")}</tr>
+        ${svc.map(t => `<tr style="border-top:1px solid var(--line)"><td style="padding:3px 6px 3px 0">${esc(name(t))}</td>${q.zones.map(z => `<td style="text-align:right;padding:3px 0 3px 6px">${cell(z, t)}</td>`).join("")}</tr>`).join("")}
+      </table></div>
+      ${q.suggested != null ? `<div style="font-size:.8rem;margin-top:6px"><b>Suggested: $${q.suggested}</b> — ${esc(q.basis)}.</div>` : ""}
+      <div class="muted" style="font-size:.72rem;margin-top:3px">Live retail rates for a ${esc(q.parcel.box_in.join(" × "))} in box at ${q.parcel.weight_lb} lb, which is our estimate. Weigh it to be sure.</div>`
+      : `<div class="muted" style="font-size:.8rem;margin-top:6px">No carrier returned a rate for that box. Check the ZIP, or weigh and measure it and enter a price yourself.</div>`;
+    if (priceInput && q.suggested != null && !String(priceInput.value).trim()) priceInput.value = String(q.suggested);
+  } catch (e) { toast(e.message); }
+  btn.disabled = false; btn.textContent = was;
 }
 
 // ---------- Refine & re-run: back to photos + details, with what the last estimate found ----------

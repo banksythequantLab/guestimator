@@ -202,7 +202,11 @@ function renderPriceEditor(saleId, i, s) {
     <div class="muted" style="font-size:.8rem">Many sellers charge a little more online to cover card fees and packing. Show buyers the real price; a "was" price that was never charged isn't allowed.</div>
     <label>Shipping ($, optional)</label><input id="pShip" inputmode="decimal" value="${dollars(i.ship_cents)}" placeholder="Blank = pickup only · 0 = free shipping">
     ${!s.ship_ok ? `<div class="muted" style="font-size:.8rem">Shipping is off for this sale. Turn it on in Edit details.</div>` : ""}
+    <div class="row" style="gap:8px;margin-top:6px;align-items:center"><input id="pZip" inputmode="numeric" maxlength="5" value="${esc(s.zip || "")}" placeholder="Ship-from ZIP" style="max-width:130px">
+      <button class="btn sec sm" id="pQuote" type="button">💲 Get real shipping prices</button></div>
+    <div id="pQuoteOut"></div>
     <div style="height:10px"></div><button class="btn" id="pSave">Save prices</button></div>`;
+  $("#pQuote").onclick = () => getShipQuote(i.item_id, $("#pZip").value, $("#pQuote"), $("#pQuoteOut"), $("#pShip"));
   $("#pSave").onclick = async () => {
     try {
       await api(`/garage/sales/${saleId}/items/${i.item_id}`, { method: "PATCH", body: JSON.stringify({ price: $("#pTag").value, online_price: $("#pOnline").value, ship: $("#pShip").value }) });
