@@ -12,6 +12,7 @@ import { quoteShipping } from "./shipping.js";
 import * as ebayOrders from "./ebayorders.js";
 import { ebaySoldAlert, buyerShippedEmail } from "./notify.js";
 import * as labels from "./labels.js";
+import * as nudges from "./nudges.js";
 // Every Guestimator item lives in one hidden per-user `sales` row (the schema is Bottle Tree's).
 const GUESS_BUCKET = "Guestimator";
 // The Android app's URL scheme (strings.xml custom_url_scheme; AndroidManifest intent-filter).
@@ -462,6 +463,22 @@ export default {
         return J({ error: "not found" }, 404);
       }
 
+      // ---------- price-drop nudges for slow eBay listings ----------
+      if (parts[1] === "ebay" && parts[2] === "slow") {
+        if (parts.length === 3 && m === "GET")
+          return J({ listings: (await nudges.slowListings(db, userId)).map(({ user_id, offer_id, sku, ...x }) => x) });
+        if (parts[4] === "lower" && m === "POST") {
+          const b = await readJson(request);
+          try { const r = await nudges.lowerPrice(env, db, userId, parts[3], b.price_cents); return J(r.ok ? r : { error: r.error }, r.status); }
+          catch (e) { return J({ error: String(e.message || e) }, 502); }
+        }
+        if (parts[4] === "keep" && m === "POST") {
+          const r = await db.prepare("UPDATE ebay_listings SET nudge_dismissed_at=? WHERE id=? AND user_id=?").bind(now(), parts[3], userId).run();
+          return r.meta?.changes ? J({ ok: true }) : J({ error: "not found" }, 404);
+        }
+        return J({ error: "not found" }, 404);
+      }
+
       // ---------- eBay sales of Guestimator listings ----------
       if (parts[1] === "ebay" && parts[2] === "orders") {
         // List (reading eBay first if the last read is more than two minutes old).
@@ -889,6 +906,8 @@ export default {
         for (const id of r.new || []) await ebaySoldAlert(db, env, id, origin).catch(e => console.log("ebaySoldAlert", e));
       } catch (e) { console.log("ebay order sync failed", user_id, String(e && e.message || e)); }
     }
+    // Price-drop nudges, after the order read so a listing that just sold is not nudged.
+    try { await nudges.emailNudges(env, db, origin); } catch (e) { console.log("price nudges failed", String(e && e.message || e)); }
   },
 
   // An appraisal takes ~2 minutes of waiting on Token Factory. ctx.waitUntil() only buys 30s after the

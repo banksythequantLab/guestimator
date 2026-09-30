@@ -1,0 +1,104 @@
+// Price-drop nudges: an eBay listing that has sat unsold for two weeks gets a suggested lower
+// price, shown in the app and emailed (at most every two weeks per listing), and one tap lowers
+// it on eBay. The suggestion never goes below the low end of the item's estimate.
+
+import * as ebay from "./ebay.js";
+import { sendAlert } from "./notify.js";
+
+export const SLOW_DAYS = 14;
+const DAY = 86400e3;
+
+// 10% off, rounded down to a price people expect ($1 steps from $20, 50c steps below), and never
+// under the estimate's low end. null = not worth a nudge (the drop would be under a dollar, or the
+// price is already at the floor).
+export function suggestLower(priceCents, lowDollars, pct = 0.10) {
+  const p = Number(priceCents);
+  if (!(p > 0)) return null;
+  let t = p * (1 - pct);
+  t = t >= 2000 ? Math.floor(t / 100) * 100 : Math.floor(t / 50) * 50;
+  const floor = Number(lowDollars) > 0 ? Math.round(Number(lowDollars) * 100) : 0;
+  if (t < floor) t = floor;
+  if (p - t < 100 || t <= 0) return null;
+  return t;
+}
+
+// Listings that are live, ours, and have not moved in SLOW_DAYS. `forEmail` also skips ones
+// emailed in the last SLOW_DAYS; the app view skips ones the seller chose to keep.
+export async function slowListings(db, userId, { nowMs = Date.now(), forEmail = false } = {}) {
+  const cut = new Date(nowMs - SLOW_DAYS * DAY).toISOString();
+  const q = `SELECT l.id, l.item_id, l.user_id, l.offer_id, l.sku, l.listing_url, l.price_cents, l.updated_at,
+                    COALESCE(i.ai_title, i.name) AS title,
+                    (SELECT result_json FROM appraisals a WHERE a.item_id=l.item_id AND a.status='done' ORDER BY a.created_at DESC LIMIT 1) AS result_json
+               FROM ebay_listings l JOIN items i ON i.id=l.item_id
+              WHERE l.status='published' AND i.listing_status='live' AND l.updated_at < ? AND l.offer_id IS NOT NULL
+                AND (? = '' OR l.user_id = ?)
+                -- only where we can see sales: never nudge something that may have sold already
+                AND EXISTS (SELECT 1 FROM ebay_accounts a WHERE a.user_id=l.user_id AND COALESCE(a.fulfillment_ok,1)<>0 AND a.orders_synced_at IS NOT NULL)
+                AND ${forEmail ? "(l.nudge_emailed_at IS NULL OR l.nudge_emailed_at < ?)" : "(l.nudge_dismissed_at IS NULL OR l.nudge_dismissed_at < ?)"}
+                AND l.created_at = (SELECT MAX(created_at) FROM ebay_listings x WHERE x.item_id=l.item_id)
+              ORDER BY l.updated_at LIMIT 100`;
+  const rows = (await db.prepare(q).bind(cut, userId || "", userId || "", cut).all()).results;
+  return rows.map(r => {
+    let low = null; try { low = JSON.parse(r.result_json || "null")?.price_range?.low ?? null; } catch {}
+    const suggested = suggestLower(r.price_cents, low);
+    return { id: r.id, item_id: r.item_id, user_id: r.user_id, offer_id: r.offer_id, sku: r.sku, title: r.title, listing_url: r.listing_url,
+             price_cents: r.price_cents, low_cents: low != null ? Math.round(low * 100) : null, suggested_cents: suggested,
+             days: Math.floor((nowMs - Date.parse(r.updated_at)) / DAY) };
+  }).filter(r => r.suggested_cents);
+}
+
+/** Change the price on eBay (Inventory API bulk price update), then here. Restarts the clock. */
+export async function lowerPrice(env, db, userId, listingRowId, newCents) {
+  const l = await db.prepare("SELECT l.*, i.listing_status FROM ebay_listings l JOIN items i ON i.id=l.item_id WHERE l.id=? AND l.user_id=?").bind(listingRowId, userId).first();
+  if (!l) return { status: 404, error: "not found" };
+  if (l.status !== "published" || l.listing_status !== "live" || !l.offer_id) return { status: 409, error: "This listing isn't live any more." };
+  const cents = Math.round(Number(newCents));
+  if (!(cents >= 99) || cents >= l.price_cents) return { status: 400, error: "The new price has to be lower than the current one." };
+  const t = await ebay.userToken(env, db, userId);
+  if (!t) return { status: 409, error: "Connect eBay again first." };
+  const body = { requests: [{ sku: l.sku, offers: [{ offerId: l.offer_id, availableQuantity: 1, price: { value: (cents / 100).toFixed(2), currency: "USD" } }] }] };
+  const r = await ebay.call(env, t.token, "POST", "/sell/inventory/v1/bulk_update_price_quantity", body);
+  const res = (r.json?.responses || [])[0];
+  if (!r.ok || (res && res.statusCode && res.statusCode >= 400)) {
+    const errs = (res?.errors || r.json?.errors || []).map(e => e.longMessage || e.message).filter(Boolean).join(" ");
+    return { status: 502, error: errs || ebay.ebayErrorText(r.json, r.status) };
+  }
+  const ts = new Date().toISOString();
+  await db.batch([
+    db.prepare("UPDATE ebay_listings SET price_cents=?, updated_at=?, nudge_dismissed_at=NULL WHERE id=?").bind(cents, ts, l.id),
+    db.prepare("UPDATE items SET price_cents=? WHERE id=?").bind(cents, l.item_id),
+  ]);
+  return { status: 200, ok: true, price_cents: cents };
+}
+
+const money = c => "$" + (Number(c || 0) / 100).toFixed(2);
+
+/** One digest email per seller for listings that have gone slow since the last one. */
+export async function emailNudges(env, db, origin, { nowMs = Date.now(), maxSellers = 25 } = {}) {
+  const due = await slowListings(db, null, { nowMs, forEmail: true });
+  const bySeller = new Map();
+  for (const d of due) (bySeller.get(d.user_id) || bySeller.set(d.user_id, []).get(d.user_id)).push(d);
+  let sent = 0;
+  for (const [userId, list] of [...bySeller].slice(0, maxSellers)) {
+    const u = await db.prepare("SELECT email FROM users WHERE id=?").bind(userId).first();
+    if (!u?.email) continue;
+    const lines = list.slice(0, 10).map(d => `${d.title}: ${money(d.price_cents)} for ${d.days} days. Try ${money(d.suggested_cents)}.`);
+    const link = `${origin}/#ebay-orders`;
+    const title = list.length === 1 ? `Still listed: ${list[0].title}` : `${list.length} eBay listings haven't sold yet`;
+    const html = `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#f4ecdc;margin:0;padding:24px;color:#241b10">
+<div style="max-width:520px;margin:0 auto;background:#fbf6ea;border:1px solid #e0d2b4;border-radius:14px;padding:20px">
+<div style="font-weight:800;font-size:18px;margin-bottom:10px">${title.replace(/[<>&]/g, "")}</div>
+<p style="font-size:14px">A small price drop is often all a slow listing needs. Each suggestion stays at or above the low end of our estimate.</p>
+<ul style="font-size:14px;padding-left:18px">${lines.map(x => `<li style="margin:4px 0">${x.replace(/[<>&]/g, "")}</li>`).join("")}</ul>
+<a href="${link}" style="display:inline-block;background:#241b10;color:#f4ecdc;text-decoration:none;font-weight:700;padding:10px 16px;border-radius:10px">Review prices</a>
+<div style="margin-top:14px;font-size:12px;color:#6a5b44">One tap lowers it on eBay, or keep the price and we won't ask again for two weeks.</div></div></body></html>`;
+    const r = await sendAlert(env, { to: u.email, subject: title, html,
+      text: [title, "", ...lines, "", `Review prices: ${link}`, "", "One tap lowers it on eBay, or keep the price and we won't ask again for two weeks."].join("\n") });
+    if (r.sent) {
+      sent++;
+      const ts = new Date(nowMs).toISOString();
+      await db.batch(list.map(d => db.prepare("UPDATE ebay_listings SET nudge_emailed_at=? WHERE id=?").bind(ts, d.id)));
+    }
+  }
+  return { sellers: bySeller.size, sent };
+}

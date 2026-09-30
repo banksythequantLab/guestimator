@@ -52,7 +52,9 @@ async function renderEbayOrders() {
     ${d.error ? `<div class="card muted" style="font-size:.85rem">eBay didn't answer just now: ${esc(d.error)}</div>` : ""}
     <h3 style="margin:14px 2px 6px">To ship (${open.length})</h3>
     <div class="list">${open.map(card).join("") || `<div class="empty"><div class="em">📭</div>Nothing waiting. When something you listed sells, it shows up here and you get an email.</div>`}</div>
-    ${done.length ? `<h3 style="margin:14px 2px 6px">Last 30 days</h3><div class="list">${done.map(card).join("")}</div>` : ""}`;
+    ${done.length ? `<h3 style="margin:14px 2px 6px">Last 30 days</h3><div class="list">${done.map(card).join("")}</div>` : ""}
+    <div id="slowBox"></div>`;
+  slowSellers($("#slowBox"));
   if ($("#reEbay")) $("#reEbay").onclick = () => connectEbay();
   wireLabels(app, renderEbayOrders);
   app.querySelectorAll("[data-trk]").forEach(inp => inp.oninput = () => {
@@ -173,4 +175,32 @@ function parcelInputs(p) {
   return `<div class="row" style="gap:4px;align-items:center;flex-wrap:wrap;font-size:.82rem">Box ${n("l", v(p && p.length, ""), "L")}×${n("w", v(p && p.width, ""), "W")}×${n("h", v(p && p.height, ""), "H")} in,
     ${n("lb", v(p && p.weight, ""), "lb")} lb <button class="btn sec sm" data-reprice>${p ? "Re-price" : "Get rates"}</button></div>
     ${p ? `<div class="muted" style="font-size:.72rem">Our estimate. Weigh and measure the packed box and re-price if it's different: the carrier charges extra if it's off.</div>` : ""}`;
+}
+
+// ---------- slow sellers: eBay listings unsold for two weeks, with a suggested lower price ----------
+async function slowSellers(box) {
+  if (!box) return;
+  let d; try { d = await api("/ebay/slow"); } catch { return; }
+  if (!d.listings.length) { box.innerHTML = ""; return; }
+  box.innerHTML = `<h3 style="margin:14px 2px 6px">Not selling yet (${d.listings.length})</h3>
+    <div class="muted" style="font-size:.8rem;margin:0 2px 6px">Listed two weeks or more without a sale. A small drop often does it; suggestions never go below the low end of your estimate.</div>
+    <div class="list">${d.listings.map(l => `<div class="li" style="align-items:flex-start" data-slow-row="${esc(l.id)}">
+      <div style="min-width:0;flex:1"><div class="nm"><a href="${esc(l.listing_url || "#")}" target="_blank" rel="noopener" style="color:inherit">${esc(l.title)}</a></div>
+        <div class="muted" style="font-size:.8rem">${money(l.price_cents)} for ${l.days} days${l.low_cents ? ` · estimate low ${money(l.low_cents)}` : ""}</div>
+        <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center">
+          <input data-slow-price="${esc(l.id)}" value="${(l.suggested_cents / 100).toFixed(2)}" inputmode="decimal" style="width:90px">
+          <button class="btn sm" data-slow-lower="${esc(l.id)}">Lower on eBay</button>
+          <button class="btn sec sm" data-slow-keep="${esc(l.id)}">Keep price</button></div></div></div>`).join("")}</div>`;
+  box.querySelectorAll("[data-slow-lower]").forEach(b => b.onclick = async () => {
+    const id = b.dataset.slowLower, v = Number(box.querySelector(`[data-slow-price="${CSS.escape(id)}"]`).value);
+    if (!(v > 0)) return toast("Enter a price");
+    if (!confirm(`Change the eBay price to $${v.toFixed(2)}?`)) return;
+    b.disabled = true;
+    try { await api(`/ebay/slow/${encodeURIComponent(id)}/lower`, { method: "POST", body: JSON.stringify({ price_cents: Math.round(v * 100) }) }); toast("Price lowered on eBay ✓"); slowSellers(box); }
+    catch (e) { toast(e.message); b.disabled = false; }
+  });
+  box.querySelectorAll("[data-slow-keep]").forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { await api(`/ebay/slow/${encodeURIComponent(b.dataset.slowKeep)}/keep`, { method: "POST" }); slowSellers(box); } catch (e) { toast(e.message); b.disabled = false; }
+  });
 }
