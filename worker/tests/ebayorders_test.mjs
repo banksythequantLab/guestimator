@@ -34,7 +34,7 @@ ok("carrier by shape", O.carrierFor("9400 1118 9922 3456 7890 12") === "USPS" &&
 
 // ---------- eBay, stubbed ----------
 const calls = [];
-let orders = [], scopeDenied = false;
+let orders = [], scopeDenied = false, withdrawFails = false;
 const jr = (o, status = 200) => new Response(o === null ? null : JSON.stringify(o), { status, headers: { "content-type": "application/json" } });
 globalThis.fetch = async (u, init = {}) => {
   const url = String(u), method = init.method || "GET";
@@ -51,6 +51,9 @@ globalThis.fetch = async (u, init = {}) => {
     ? jr({ errors: [{ errorId: 1100, message: "Access denied", longMessage: "Insufficient permissions to fulfill the request." }] }, 403)
     : jr({ orders, total: orders.length });
   if (/\/sell\/fulfillment\/v1\/order\/[^/]+\/shipping_fulfillment$/.test(url) && method === "POST") return jr(null, 201);
+  if (/\/sell\/inventory\/v1\/offer\/[^/]+\/withdraw$/.test(url) && method === "POST") return withdrawFails
+    ? jr({ errors: [{ errorId: 25002, message: "Internal error", longMessage: "A user error has occurred." }] }, 500)
+    : jr({ listingId: "L-withdrawn" });
   return jr({ errors: [{ message: "unstubbed " + url }] }, 404);
 };
 
@@ -165,6 +168,40 @@ ok("other user: 404 on slip and ship", (await call("GET", `/api/ebay/orders/${en
    (await call("POST", `/api/ebay/orders/${encodeURIComponent(rowId)}/ship`, {})).status === 404);
 cookie = mine;
 ok("unrelated item untouched", db.raw.prepare("SELECT listing_status s FROM items WHERE id=?").get(other).s !== "sold");
+
+// sold at the garage sale -> taken off eBay
+{
+  const mk = async (name, offer) => {
+    const id = (await call("POST", "/api/items", { name, description: name })).json.id;
+    db.raw.prepare("UPDATE items SET listing_status='live' WHERE id=?").run(id);
+    db.raw.prepare("INSERT INTO ebay_listings (id,item_id,user_id,sku,status,offer_id,listing_id,listing_url,created_at,updated_at) VALUES (?,?,?,?,'published',?,?,?,?,?)")
+      .run(crypto.randomUUID(), id, me, skuFor(id), offer, "L-" + offer, "https://www.ebay.com/itm/9" + offer.length, new Date().toISOString(), new Date().toISOString());
+    await call("POST", `/api/garage/sales/${sale}/items`, { item_id: id, price: "20" });
+    return id;
+  };
+  const lamp = await mk("Lamp", "OFF-LAMP");
+  r = await call("PATCH", `/api/garage/sales/${sale}/items/${lamp}`, { status: "sold" });
+  const wd = calls.find(c => c.url.endsWith("/offer/OFF-LAMP/withdraw"));
+  ok("sold at the sale -> eBay offer withdrawn, reported", r.status === 200 && r.json.ebay && r.json.ebay.ended === true && wd && wd.method === "POST", r.json);
+  ok("listing ended and item marked sold", db.raw.prepare("SELECT status FROM ebay_listings WHERE item_id=?").get(lamp).status === "ended" &&
+     db.raw.prepare("SELECT listing_status s FROM items WHERE id=?").get(lamp).s === "sold");
+  const n = calls.length;
+  r = await call("PATCH", `/api/garage/sales/${sale}/items/${lamp}`, { status: "sold" });
+  ok("marking sold again does not call eBay again", calls.slice(n).every(c => !c.url.includes("/withdraw")));
+
+  withdrawFails = true;
+  const vase = await mk("Vase", "OFF-VASE");
+  r = await call("PATCH", `/api/garage/sales/${sale}/items/${vase}`, { status: "sold" });
+  ok("eBay refusal: still sold here, seller told it's still on eBay", r.status === 200 && r.json.ebay && r.json.ebay.ended === false && /error/i.test(r.json.ebay.why) &&
+     db.raw.prepare("SELECT status FROM garage_sale_items WHERE item_id=?").get(vase).status === "sold" &&
+     db.raw.prepare("SELECT status FROM ebay_listings WHERE item_id=?").get(vase).status === "published", r.json);
+  withdrawFails = false;
+
+  const mug = (await call("POST", "/api/items", { name: "Mug", description: "mug" })).json.id;
+  await call("POST", `/api/garage/sales/${sale}/items`, { item_id: mug, price: "2" });
+  r = await call("PATCH", `/api/garage/sales/${sale}/items/${mug}`, { status: "sold" });
+  ok("item not on eBay: no eBay note", r.status === 200 && r.json.ebay === null);
+}
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

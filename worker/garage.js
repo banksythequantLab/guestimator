@@ -10,6 +10,7 @@
 
 import { startingPrice } from "./ebay.js";
 import { holdAlert, orderAlert, buyerOrderEmail, buyerShippedEmail } from "./notify.js";
+import { endEbayListing } from "./ebayorders.js";
 
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
@@ -369,6 +370,11 @@ export async function sellerApi(request, env, url, parts, userId, ctx) {
         const keys = Object.keys(set);
         if (keys.length) await db.prepare(`UPDATE garage_sale_items SET ${keys.map(k => `${k}=?`).join(",")} WHERE sale_id=? AND item_id=?`)
           .bind(...keys.map(k => set[k]), sid, row.item_id).run();
+        // Sold at the sale: take it off eBay too, and say whether that worked.
+        if (set.status === "sold" && row.status !== "sold") {
+          const e = await endEbayListing(env, db, row.item_id, "sold at the garage sale");
+          return J({ ok: true, ebay: e.why === "not on eBay" ? null : e });
+        }
         return J({ ok: true });
       }
       if (m === "DELETE") {
@@ -495,7 +501,11 @@ export async function publicApi(request, env, url, parts, ctx) {
       const o = await db.prepare("SELECT id FROM garage_orders WHERE stripe_session_id=?").bind(ev.data?.object?.id || "").first();
       if (o) {
         ctx.waitUntil(orderAlert(db, env, o.id, origin).catch(e => console.log("orderAlert", e)));
-        if (outcome === "paid") ctx.waitUntil(buyerOrderEmail(db, env, o.id, origin).catch(e => console.log("buyerOrderEmail", e)));
+        if (outcome === "paid") {
+          ctx.waitUntil(buyerOrderEmail(db, env, o.id, origin).catch(e => console.log("buyerOrderEmail", e)));
+          const it = await db.prepare("SELECT item_id FROM garage_orders WHERE id=?").bind(o.id).first();
+          if (it) ctx.waitUntil(endEbayListing(env, db, it.item_id, "bought online from the sale page"));
+        }
       }
     }
     return J({ received: true });

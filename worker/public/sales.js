@@ -187,7 +187,11 @@ async function renderSale(id) {
     try { await api("/garage/orders/" + b.dataset.done, { method: "PATCH", body: JSON.stringify({ status: "fulfilled", tracking: t ? t.value : "" }) }); toast("Done"); renderSale(id); } catch (e) { toast(e.message); }
   });
   app.querySelectorAll("[data-st2]").forEach(b => b.onclick = async () => {
-    try { await api(`/garage/sales/${id}/items/${b.dataset.st2}`, { method: "PATCH", body: JSON.stringify({ status: b.dataset.v }) }); renderSale(id); } catch (e) { toast(e.message); }
+    try {
+      const r = await api(`/garage/sales/${id}/items/${b.dataset.st2}`, { method: "PATCH", body: JSON.stringify({ status: b.dataset.v }) });
+      if (r.ebay) toast(r.ebay.ended ? "Sold, and taken off eBay ✓" : `Sold here, but it's still on eBay: ${r.ebay.why}. End it in eBay so it can't sell twice.`);
+      renderSale(id);
+    } catch (e) { toast(e.message); }
   });
   app.querySelectorAll("[data-rm]").forEach(b => b.onclick = async () => {
     if (!confirm("Take this item out of the sale? It stays in your items.")) return;

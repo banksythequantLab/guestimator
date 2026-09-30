@@ -153,3 +153,35 @@ export async function markShipped(env, db, userId, rowId, tracking, carrierIn) {
     .bind(num || null, new Date().toISOString(), row.id).run();
   return { status: 200, ok: true, carrier: num ? carrier : null };
 }
+
+/**
+ * The item sold somewhere else (at the garage sale, or online through Stripe): take it off eBay
+ * so it cannot sell twice. Withdraws the live offer (Inventory API) and marks our listing ended.
+ * Never throws: returns { ended, why } so the caller can report it.
+ */
+export async function endEbayListing(env, db, itemId, reason = "sold elsewhere") {
+  const l = await db.prepare("SELECT * FROM ebay_listings WHERE item_id=? AND status='published' AND offer_id IS NOT NULL ORDER BY created_at DESC LIMIT 1").bind(itemId).first();
+  if (!l) return { ended: false, why: "not on eBay" };
+  // Already sold on eBay itself (our order read saw it): nothing to end.
+  const soldThere = await db.prepare("SELECT 1 FROM ebay_orders WHERE item_id=? AND status<>'CANCELLED' LIMIT 1").bind(itemId).first();
+  if (soldThere) return { ended: false, why: "sold on eBay" };
+  try {
+    const t = await ebay.userToken(env, db, l.user_id);
+    if (!t) throw new Error("eBay is not connected");
+    const r = await ebay.call(env, t.token, "POST", `/sell/inventory/v1/offer/${encodeURIComponent(l.offer_id)}/withdraw`);
+    // 25713-ish "offer not published / already ended" means it is off eBay already: that is the goal.
+    const gone = !r.ok && (r.json?.errors || []).some(e => /not (published|active)|already ended|ended|withdrawn/i.test(`${e.message} ${e.longMessage}`));
+    if (!r.ok && !gone) throw new Error(ebay.ebayErrorText(r.json, r.status));
+    const ts = new Date().toISOString();
+    await db.batch([
+      db.prepare("UPDATE ebay_listings SET status='ended', error=?, updated_at=? WHERE id=?").bind(`ended: ${reason}`.slice(0, 200), ts, l.id),
+      db.prepare("UPDATE items SET listing_status='sold' WHERE id=?").bind(itemId),
+    ]);
+    return { ended: true, listing_url: l.listing_url };
+  } catch (e) {
+    const msg = String(e && e.message || e).slice(0, 300);
+    await db.prepare("UPDATE ebay_listings SET error=?, updated_at=? WHERE id=?").bind(`could not end on eBay: ${msg}`, new Date().toISOString(), l.id).run();
+    console.log("endEbayListing failed", itemId, msg);
+    return { ended: false, why: msg, listing_url: l.listing_url };
+  }
+}
