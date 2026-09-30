@@ -9,6 +9,7 @@
 // Sale pages are free. Estimates still cost credits; nothing here touches the credits ledger.
 
 import { startingPrice } from "./ebay.js";
+import { holdAlert, orderAlert } from "./notify.js";
 
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
@@ -422,9 +423,11 @@ export async function publicApi(request, env, url, parts, ctx) {
     const since = new Date(Date.now() - 3600e3).toISOString();
     const recent = await db.prepare("SELECT COUNT(*) AS n FROM garage_holds WHERE ip_hash=? AND created_at>?").bind(ih, since).first();
     if (recent.n >= HOLD_LIMIT_PER_HOUR) return J({ error: "That's a lot of holds for one hour. Please call the seller." }, 429);
-    const t = now();
+    const t = now(), holdId = uid();
     await db.prepare("INSERT INTO garage_holds (id,sale_id,item_id,name,phone,note,status,ip_hash,created_at,updated_at) VALUES (?,?,?,?,?,?,'new',?,?,?)")
-      .bind(uid(), sale.id, row.item_id, name, phone, String(b.note || "").trim().slice(0, 300) || null, ih, t, t).run();
+      .bind(holdId, sale.id, row.item_id, name, phone, String(b.note || "").trim().slice(0, 300) || null, ih, t, t).run();
+    // Tell the seller now, after the response - an email hiccup must never lose the hold.
+    if (ctx && ctx.waitUntil) ctx.waitUntil(holdAlert(db, env, holdId, origin).catch(e => console.log("holdAlert", e)));
     return J({ ok: true });
   }
 
@@ -482,7 +485,12 @@ export async function publicApi(request, env, url, parts, ctx) {
     if (!(await verifyStripeSig([env.STRIPE_WEBHOOK_SECRET, env.STRIPE_CONNECT_WEBHOOK_SECRET], raw, request.headers.get("stripe-signature"))))
       return J({ error: "bad signature" }, 400);
     const ev = JSON.parse(raw);
-    await applyStripeEvent(db, ev);
+    const outcome = await applyStripeEvent(db, ev);
+    // Only on the transition to paid: a replayed event returns "dup" and sends nothing twice.
+    if ((outcome === "paid" || outcome === "refund_needed") && ctx && ctx.waitUntil) {
+      const o = await db.prepare("SELECT id FROM garage_orders WHERE stripe_session_id=?").bind(ev.data?.object?.id || "").first();
+      if (o) ctx.waitUntil(orderAlert(db, env, o.id, origin).catch(e => console.log("orderAlert", e)));
+    }
     return J({ received: true });
   }
   return J({ error: "not found" }, 404, cors);

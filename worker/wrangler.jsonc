@@ -35,7 +35,11 @@
       "dead_letter_queue": "guestimator-appraisals-dlq"
     }]
   },
+  // Seller alerts (hold requests, sold online) via Cloudflare Email Service. theguestimator.com
+  // has to be set up for sending in the dashboard; until then sends fail and are only logged.
+  "send_email": [{ "name": "EMAIL" }],
   "vars": {
+    "ALERT_FROM": "alerts@theguestimator.com",
     "NEBIUS_BASE_URL": "https://api.tokenfactory.nebius.com/v1/",
     "TEXT_MODEL": "nvidia/nemotron-3-super-120b-a12b",
     "VISION_MODEL": "google/gemma-3-27b-it",

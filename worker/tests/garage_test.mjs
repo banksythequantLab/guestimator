@@ -71,7 +71,10 @@ const env = {
   PHOTOS: { put: async () => {}, get: async () => null, delete: async () => {} },
   PUBLIC_ORIGIN: "https://g.test", GARAGE_FEE_BPS: "300",
   STRIPE_SECRET_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_platform", STRIPE_CONNECT_WEBHOOK_SECRET: "whsec_connect",
+  EMAIL: { send: async m => { mails.push(m); return { messageId: "m" + mails.length }; } },
 };
+const mails = [], pending = [];
+const settle = async () => { while (pending.length) await pending.shift(); };
 const jar = { a: "", b: "", anon: "" };
 let who = "a";
 const call = async (method, path, body, extraHeaders = {}) => {
@@ -79,7 +82,7 @@ const call = async (method, path, body, extraHeaders = {}) => {
   const r = await worker.fetch(new Request("https://g.test" + path, {
     method, redirect: "manual",
     headers: { ...(isForm ? { "content-type": "application/x-www-form-urlencoded" } : { "content-type": "application/json" }), cookie: jar[who], "cf-connecting-ip": "203.0.113.9", ...extraHeaders },
-    body: body === undefined ? undefined : isForm ? body : typeof body === "string" ? body : JSON.stringify(body) }), env, { waitUntil() {} });
+    body: body === undefined ? undefined : isForm ? body : typeof body === "string" ? body : JSON.stringify(body) }), env, { waitUntil(p) { pending.push(p); } });
   const sc = r.headers.get("set-cookie"); if (sc && who !== "anon") jar[who] = sc.split(";")[0];
   const text = await r.text(); let json = null; try { json = JSON.parse(text); } catch {}
   return { status: r.status, json, text, location: r.headers.get("location") };
@@ -150,6 +153,31 @@ ok("tags render for owner with QR target", r.status === 200 && r.text.includes(`
 who = "anon";
 r = await call("POST", "/api/public/garage/hold", { sale: slug, item: crock, name: "Pat", phone: "973-555-0101", note: "Saturday 9am" });
 ok("hold request", r.status === 200);
+await settle();
+{
+  const m = mails.find(x => /Hold request/.test(x.subject));
+  ok("seller emailed about the hold", !!m && m.to === "a@example.com" && m.from.email === "alerts@theguestimator.com");
+  ok("hold email has name, phone, note and a link", m && m.text.includes("Pat") && m.text.includes("973-555-0101") && m.text.includes("Saturday 9am") && m.text.includes("https://g.test/#sales"));
+  ok("hold email html escapes shopper text", m && !m.html.includes("<script"));
+}
+{
+  const n0 = mails.length;
+  await call("POST", "/api/public/garage/hold", { sale: slug, item: crock, name: "<script>x</script>", phone: "973-555-0199" }); await settle();
+  ok("shopper-supplied HTML is escaped in the email", mails.length === n0 + 1 && !mails[n0].html.includes("<script>") && mails[n0].html.includes("&lt;script&gt;"));
+  db.raw.prepare("DELETE FROM garage_holds WHERE phone='973-555-0199'").run();
+}
+{
+  // No EMAIL binding (domain not set up yet): the hold still goes through.
+  const keep = env.EMAIL; delete env.EMAIL;
+  const n0 = mails.length;
+  const rr = await call("POST", "/api/public/garage/hold", { sale: slug, item: crock, name: "NoMail", phone: "973-555-0177" }); await settle();
+  ok("hold works with email off", rr.status === 200 && mails.length === n0);
+  env.EMAIL = { send: async () => { throw new Error("domain not verified"); } };
+  const rr2 = await call("POST", "/api/public/garage/hold", { sale: slug, item: crock, name: "Fails", phone: "973-555-0166" }); await settle();
+  ok("hold works when the email service errors", rr2.status === 200);
+  env.EMAIL = keep;
+  db.raw.prepare("DELETE FROM garage_holds WHERE phone IN ('973-555-0177','973-555-0166')").run();
+}
 ok("hold needs a phone", (await call("POST", "/api/public/garage/hold", { sale: slug, item: crock, name: "Pat", phone: "12" })).status === 400);
 for (let i = 0; i < 4; i++) await call("POST", "/api/public/garage/hold", { sale: slug, item: lamp, name: "Spam", phone: "5555555555" });
 ok("holds rate-limited per IP", (await call("POST", "/api/public/garage/hold", { sale: slug, item: lamp, name: "Spam", phone: "5555555555" })).status === 429);
@@ -219,7 +247,17 @@ ok("paid webhook", (await hook(done)).status === 200);
 let o2 = db.raw.prepare("SELECT * FROM garage_orders WHERE id=?").get(order.id);
 ok("order paid with buyer + address", o2.status === "paid" && o2.buyer_email === "rb@example.com" && JSON.parse(o2.ship_address).address.city === "Austin");
 ok("item sold", db.raw.prepare("SELECT status FROM garage_sale_items WHERE item_id=?").get(lamp).status === "sold");
+await settle();
+{
+  const sold = mails.filter(x => /Sold online/.test(x.subject));
+  const m = sold[0];
+  ok("seller emailed once about the sale", sold.length === 1 && m.to === "a@example.com");
+  ok("sold email: amount, buyer, ship-to", m && m.subject.includes("$64.50") && m.text.includes("Remote Buyer") && m.text.includes("rb@example.com") && m.text.includes("Austin TX 78701") && m.text.includes("Ship it"));
+  ok("reply goes to the buyer", m && m.replyTo === "rb@example.com");
+}
 ok("replay is harmless", (await hook(done)).status === 200 && db.raw.prepare("SELECT status FROM garage_orders WHERE id=?").get(order.id).status === "paid");
+await settle();
+ok("replay sends no second email", mails.filter(x => /Sold online/.test(x.subject)).length === 1);
 who = "a";
 ok("mark shipped with tracking", (await call("PATCH", `/api/garage/orders/${order.id}`, { status: "fulfilled", tracking: "1Z999" })).status === 200);
 

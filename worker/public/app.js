@@ -273,7 +273,7 @@ async function renderHome() {
     <div id="ebayCard"></div>
     <div class="card"><div class="row" style="justify-content:space-between;align-items:center;gap:10px">
       <div><b>Garage & estate sales</b><div class="muted" style="font-size:.82rem">Free sale page, price tags, holds, online buying</div></div>
-      <button class="btn sec sm" id="toSales" style="white-space:nowrap">Your sales</button></div></div>
+      <button class="btn sec sm" id="toSales" style="white-space:nowrap">Your sales <span id="salesBadge"></span></button></div></div>
     <div class="row" style="justify-content:space-between;margin:14px 2px 6px"><h3>Your items</h3></div>
     <div id="itemList" class="list"><div class="muted" style="padding:10px">Loading…</div></div>`;
   $("#aiAdd").onclick = () => renderCapture();
@@ -282,6 +282,12 @@ async function renderHome() {
   if ($("#planPill")) $("#planPill").onclick = e => { e.preventDefault(); BTBilling.open(); };
   if (window.BTBilling && !billingInit) { billingInit = true; BTBilling.init().then(p => { if (p && state.view === "home") renderHome(); }); }
   loadEbayStatus().then(s => { const c = $("#ebayCard"); if (c && state.view === "home") { c.innerHTML = ebayCardHtml(s); wireEbayCard(renderHome); } });
+  // Hold requests and paid orders waiting on the seller, so they're seen without opening Sales.
+  api("/garage/sales").then(ss => {
+    const n = (ss || []).reduce((t, s) => t + (s.new_holds || 0) + (s.open_orders || 0), 0);
+    const b = $("#salesBadge");
+    if (b && n) { b.textContent = n; b.title = `${n} waiting on you`; b.style.cssText = "display:inline-block;min-width:20px;padding:0 6px;margin-left:4px;border-radius:10px;background:var(--rust);color:#fff;font-size:.75rem;line-height:20px;text-align:center"; }
+  }).catch(() => {});
   let list = [];
   try { list = await api("/items"); } catch (e) { $("#itemList").innerHTML = `<div class="muted">${esc(e.message)}</div>`; return; }
   const el = $("#itemList");

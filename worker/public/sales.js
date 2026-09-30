@@ -258,6 +258,8 @@ async function addItemToSale(itemId) {
 // Back from Stripe's hosted onboarding (#stripe-return) or an expired link (#stripe-refresh).
 async function afterStripeReturn() {
   const h = location.hash;
+  // "Open my sale" in a hold / sold-online email lands here.
+  if (h === "#sales") { history.replaceState(null, "", "/"); await renderSales(); return true; }
   if (h !== "#stripe-return" && h !== "#stripe-refresh") return false;
   history.replaceState(null, "", "/");
   await renderSales();
