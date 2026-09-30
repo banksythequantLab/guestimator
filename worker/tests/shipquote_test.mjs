@@ -51,7 +51,7 @@ ok("no token -> 503 with a plain message", e && e.status === 503);
 e = await err(() => quoteShipping(env, "7086", est));
 ok("bad ZIP -> 400", e && e.status === 400);
 e = await err(() => quoteShipping(env, "07086", null));
-ok("no size estimate -> 409 asking for a re-run", e && e.status === 409 && /Re-run/.test(e.message));
+ok("no size estimate -> 409 pointing at the free sizing", e && e.status === 409 && /free/.test(e.message));
 globalThis.fetch = async () => new Response(JSON.stringify({ detail: "Invalid token" }), { status: 401 });
 e = await err(() => quoteShipping(env, "07086", est));
 ok("Shippo error surfaces its message", e && /Invalid token/.test(e.message));

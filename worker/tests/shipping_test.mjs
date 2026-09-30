@@ -1,6 +1,6 @@
 // Run:  node worker/tests/shipping_test.mjs
 // Weight and box size for shipping, from the model's estimate of the bare item.
-import { shippingEstimate } from "../appraiser.js";
+import { shippingEstimate, sizeOnly, sizePrompt } from "../appraiser.js";
 
 let pass = 0, fail = 0;
 const ok = (n, c, got) => { c ? pass++ : (fail++, console.log(`FAIL ${n}${got !== undefined ? "\n     got " + JSON.stringify(got) : ""}`)); };
@@ -40,6 +40,23 @@ ok("strings are read as numbers", shippingEstimate({ item_weight_lb: "3", item_i
 s = shippingEstimate({ item_weight_lb: 9999, item_in: [500, 20, 20] });
 ok("weight clamped to 150 lb", s.item_weight_lb === 150, s);
 ok("length clamped to 108 in (+padding)", s.box_in[0] === 112, s);
+
+// ---- credit-free sizing for items estimated before shipping existed (model stubbed) ----
+const ident = { name: "Stoneware crock", maker: "Red Wing", category: "", material: "salt-glazed stoneware" };
+const pr = sizePrompt(ident, "5 gallon, small chip", "");
+ok("prompt carries identification + dealer words, skips empties", /name: Stoneware crock/.test(pr) && /maker: Red Wing/.test(pr) && !/category:/.test(pr) && /5 gallon/.test(pr), pr);
+let seen = null;
+const ask = async (c, sys, user, max) => { seen = { sys, user, max }; return { item_weight_lb: 25, item_in: [14, 12, 12], fragile: true, basis: "5-gal crock" }; };
+s = await sizeOnly({}, { identification: ident, description: "5 gallon, small chip" }, ask);
+ok("sizeOnly returns a full estimate", s.item_weight_lb === 25 && s.fragile && JSON.stringify(s.box_in) === "[20,18,18]", s);
+ok("sizeOnly asks for JSON weight/size only, small budget", /item_weight_lb/.test(seen.sys) && seen.max === 400);
+s = await sizeOnly({}, { identification: { name: "Pint jar" }, description: "lot of 6 pint jars" }, async () => ({ item_weight_lb: 0.5, item_in: [7, 3, 3], fragile: true }));
+ok("lots are sized as the whole lot", s.item_weight_lb === 3, s);
+const err = async fn => { try { await fn(); return null; } catch (e) { return e; } };
+let e = await err(() => sizeOnly({}, { identification: {}, description: "" }, ask));
+ok("nothing to go on -> 409, model not called", e && e.status === 409);
+e = await err(() => sizeOnly({}, { identification: ident }, async () => ({ item_weight_lb: 0 })));
+ok("unusable model answer -> 502", e && e.status === 502);
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

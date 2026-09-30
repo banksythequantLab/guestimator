@@ -62,7 +62,7 @@ export async function quoteShipping(env, fromZipRaw, est, service = "ground") {
   const from = zip5(fromZipRaw);
   if (!from) throw Object.assign(new Error("Enter the 5-digit ZIP you ship from."), { status: 400 });
   if (!est || !Array.isArray(est.box_in) || !(est.packed_weight_lb > 0))
-    throw Object.assign(new Error("This item has no size and weight estimate yet. Re-run the estimate first."), { status: 409 });
+    throw Object.assign(new Error("This item has no size and weight estimate yet. Tap 'Estimate weight & box size (free)' first."), { status: 409 });
   const [L, W, H] = est.box_in;
   const parcel = { length: String(L), width: String(W), height: String(H), distance_unit: "in",
                    weight: String(Math.max(0.1, est.packed_weight_lb)), mass_unit: "lb" };

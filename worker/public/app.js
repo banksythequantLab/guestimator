@@ -414,15 +414,17 @@ function renderEbayDraft(id, d) {
       <div style="margin-top:8px"><div class="muted" style="font-size:.75rem">Ship by</div>
         <select id="eSvc"><option value="ground"${val.shipping_service === "ground" ? " selected" : ""}>USPS Ground Advantage — cheaper, 2–5 days</option>
           <option value="priority"${val.shipping_service === "priority" ? " selected" : ""}>USPS Priority Mail — faster, 1–3 days</option></select></div>
-      ${d.shipping ? `<div style="font-size:.8rem;margin-top:8px">${shipLine(d.shipping)}</div>
-      <button class="btn sec sm" id="eQuote" style="margin-top:8px">💲 Get real shipping prices</button><div id="eQuoteOut"></div>` : ""}
+      <div id="eShipEst">${d.shipping ? eShipEst(d.shipping) : `<div style="margin-top:8px">${sizeBtnHtml("ebay")}</div>`}</div>
       <div class="muted" style="font-size:.75rem;margin-top:6px">One flat price by the USPS service above. 30-day returns, buyer pays return shipping. Change these any time in eBay Seller Hub.</div>
     </div>
     <button class="btn" id="eGo" style="background:var(--cobalt)">Preview listing &amp; eBay fees</button>
     <div class="muted" style="font-size:.75rem;text-align:center;margin:8px 0 20px">Nothing goes live yet. Next you'll see the listing and eBay's exact fees, then decide.</div>`;
   const tc = () => $("#tCount").textContent = `(${$("#eTitle").value.length}/80)`;
   $("#eTitle").oninput = tc; tc();
-  if ($("#eQuote")) $("#eQuote").onclick = () => getShipQuote(id, $("#eZip").value, $("#eQuote"), $("#eQuoteOut"), $("#eShip"), $("#eSvc").value);
+  const bindQuote = () => { if ($("#eQuote")) $("#eQuote").onclick = () => getShipQuote(id, $("#eZip").value, $("#eQuote"), $("#eQuoteOut"), $("#eShip"), $("#eSvc").value); };
+  bindQuote();
+  const eSize = app.querySelector('[data-size="ebay"]');
+  if (eSize) eSize.onclick = async () => { const s = await sizeIt(id, eSize); if (s) { $("#eShipEst").innerHTML = eShipEst(s); bindQuote(); } };
   // Everything on the form, as the seller left it. category_id is the category these aspects and
   // this condition were chosen for, so a later category switch knows not to carry them over.
   const readForm = () => {
@@ -854,7 +856,7 @@ async function renderItemDetail(id) {
           ${(r.live_listings || []).length ? `<div style="margin-top:5px">${r.live_listings.map(l =>
             `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><a href="${esc(l.url)}" target="_blank" rel="noopener" style="color:var(--cobalt)">$${Math.round(l.price)}${l.condition ? ` · ${esc(l.condition)}` : ""} — ${esc(l.title)}</a></div>`).join("")}</div>` : ""}
         </div>` : ""}
-      ${r.shipping && !nc ? `<div style="margin:8px 0;padding:8px 10px;border-left:3px solid var(--sub);background:var(--bg);font-size:.82rem">${shipLine(r.shipping)}</div>` : ""}
+      ${nc ? "" : `<div id="shipEst" style="margin:8px 0;padding:8px 10px;border-left:3px solid var(--sub);background:var(--bg);font-size:.82rem">${r.shipping ? shipLine(r.shipping) : sizeBtnHtml("card")}</div>`}
       ${r.melt ? `<div style="margin:8px 0;padding:8px 10px;border-left:3px solid var(--green);background:var(--bg);font-size:.82rem">
           <b>Metal content:</b> ${r.melt.fine_troy_oz} ozt ${esc(r.melt.metal)} × $${r.melt.price_per_oz.toFixed(2)}/ozt = <b>$${r.melt.value} melt</b>
           <div class="muted" style="margin-top:3px">${esc(r.melt.basis)}</div>
@@ -913,6 +915,8 @@ async function renderItemDetail(id) {
   // has seen what it was taken for and which listings it was compared with, and that is exactly
   // when they know what to add — a sharper marks photo, "it's the cobalt one", a size.
   if ($("#reappraise")) $("#reappraise").onclick = () => { clearTimeout(pollT); renderRefine(id, b); };
+  const cSize = app.querySelector('[data-size="card"]');
+  if (cSize) cSize.onclick = async () => { const s = await sizeIt(id, cSize); if (s) { r.shipping = s; $("#shipEst").innerHTML = shipLine(s); } };
   // The answer is appended to the DEALER's stored description — item.description — not to the
   // listing box on this form, which holds the model's prose. Appending to that box would feed
   // the model's own words back as the dealer's.
@@ -969,6 +973,18 @@ function shipLine(s) {
     ? ` UPS/FedEx will bill it as <b>${s.dim_weight_lb} lb</b> because the box is big for its weight.` : "";
   return `<b>📦 Shipping estimate:</b> about <b>${lb(s.packed_weight_lb)}</b> packed, in a <b>${esc(box)} in</b> box${s.fragile ? " — <b>fragile</b>, pack with 3 in of padding" : ""}.${dim}
     <div class="muted" style="margin-top:3px">Item alone ~${lb(s.item_weight_lb)}${s.basis ? ` (${esc(String(s.basis).replace(/[.\s]+$/, ""))})` : ""}. Guessed from the photos: weigh it before you buy a label.</div>`;
+}
+
+const eShipEst = s => `<div style="font-size:.8rem;margin-top:8px">${shipLine(s)}</div>
+      <button class="btn sec sm" id="eQuote" style="margin-top:8px">💲 Get real shipping prices</button><div id="eQuoteOut"></div>`;
+
+// Items estimated before weight and box size existed: fill the gap without spending a credit.
+// The server only ever adds shipping to the last estimate; it never re-prices anything.
+const sizeBtnHtml = key => `<button class="btn sec sm" data-size="${key}">📦 Estimate weight &amp; box size (free)</button>`;
+async function sizeIt(itemId, btn) {
+  const was = btn.textContent; btn.disabled = true; btn.textContent = "Sizing it up…";
+  try { const r = await api(`/items/${itemId}/shipping-estimate`, { method: "POST" }); return r.shipping; }
+  catch (e) { toast(e.message); btn.disabled = false; btn.textContent = was; return null; }
 }
 
 // Live rates for the estimated box, from the seller's ZIP to near / mid / far buyers. Fills the

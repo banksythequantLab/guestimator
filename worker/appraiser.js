@@ -811,6 +811,35 @@ export function shippingEstimate(raw, lot) {
   };
 }
 
+// Items estimated before weight and box size existed have no `shipping`. Re-running the whole
+// appraisal to get it would spend an estimate; this is one small text call over what the last
+// run already identified, and costs the dealer nothing.
+export function sizePrompt(ident, description, markings) {
+  const id = ident && typeof ident === "object" ? ident : {};
+  const lines = ["name", "maker", "category", "material", "period", "origin", "style"]
+    .filter(k => String(id[k] || "").trim()).map(k => `${k}: ${String(id[k]).trim().slice(0, 200)}`);
+  if (String(description || "").trim()) lines.push(`dealer's description: ${String(description).trim().slice(0, 1200)}`);
+  if (String(markings || "").trim()) lines.push(`markings: ${String(markings).trim().slice(0, 400)}`);
+  return lines.join("\n");
+}
+
+const SIZE_SYSTEM = `You estimate the size and weight of an object someone is about to ship.
+Reply with JSON only: {"item_weight_lb": number, "item_in": [length, width, height], "fragile": boolean, "basis": "a few words"}
+- The item ITSELF, unpacked, and ONE piece even if the description mentions several.
+- item_weight_lb in pounds (decimals ok: 0.3 for a teacup, 4 for a 12x18 framed oil, 25 for a 5-gallon crock).
+- item_in in inches, largest first. If the description states a size or weight, use it exactly.
+- fragile = true for glass, ceramic, porcelain, framed art under glass, anything that breaks.
+- Never leave anything at zero.`;
+
+export async function sizeOnly(env, { identification, description = "", markings = "" }, ask = textJson) {
+  const user = sizePrompt(identification, description, markings);
+  if (!user.trim()) throw Object.assign(new Error("nothing to size: no identification or description"), { status: 409 });
+  const raw = await ask(cfg(env), SIZE_SYSTEM, user, 400);
+  const est = shippingEstimate(raw, detectLot(description, markings));
+  if (!est) throw Object.assign(new Error("the model did not return a usable weight and size"), { status: 502 });
+  return est;
+}
+
 export function dealerQuestions(first) {
   const raw = Array.isArray(first && first.dealer_questions) ? first.dealer_questions : [];
   const asked = raw

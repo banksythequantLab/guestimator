@@ -591,6 +591,45 @@ function statusTag(r) {
   return "";
 }
 
+// Buyer's address as Stripe Checkout collected it: {name, phone, address:{line1,...}}.
+export function shipToLines(json) {
+  let a = null; try { a = JSON.parse(json || "null"); } catch {}
+  if (!a) return [];
+  const x = a.address || {};
+  return [a.name, x.line1, x.line2, [x.city, [x.state, x.postal_code].filter(Boolean).join(" ")].filter(Boolean).join(", "),
+          x.country && x.country !== "US" ? x.country : "", a.phone ? `Phone ${a.phone}` : ""].map(s => String(s || "").trim()).filter(Boolean);
+}
+
+// One printable page per online order: a packing slip to drop in the box, or a receipt to hand
+// over (and have signed) at pickup. Money shown is what the buyer paid; the platform fee is the
+// seller's business and stays off a page the buyer sees.
+export function slipHtml(sale, o, title, ship) {
+  const isShip = o.fulfilment === "ship";
+  const to = shipToLines(o.ship_address);
+  const from = [sale.title, sale.street, [sale.city, [sale.state, sale.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")].filter(Boolean);
+  const day = String(o.updated_at || o.created_at || "").slice(0, 10);
+  const ref = String(o.id).slice(0, 8).toUpperCase();
+  const row = (k, v) => `<tr><td>${esc(k)}</td><td class="r">${esc(v)}</td></tr>`;
+  const box = isShip && ship && Array.isArray(ship.box_in)
+    // In the on-screen bar only (hidden when printed): it's a note for the seller, not the buyer.
+    ? `<div style="font-size:.85rem;margin-top:4px;opacity:.9">Estimated ${esc(ship.box_in.join(" × "))} in box, about ${esc(String(ship.packed_weight_lb))} lb packed${ship.fragile ? ", fragile" : ""}. Weigh it before buying a label.</div>` : "";
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${isShip ? "Packing slip" : "Pickup receipt"} ${esc(ref)}</title>
+<style>@page{size:letter;margin:.6in}body{font-family:system-ui,sans-serif;color:#1d2521;margin:0}.bar{padding:12px;background:#0f6b59;color:#fff}.bar button{font:600 1rem system-ui;padding:8px 14px;border-radius:8px;border:0;margin-left:8px}
+.pg{max-width:7in;margin:0 auto;padding:.3in}h1{font:700 1.6rem Georgia,serif;margin:0}.cols{display:flex;gap:.4in;margin:.25in 0}.cols div{flex:1}.lb{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#6b7772}
+.addr{font-size:1.05rem;line-height:1.4}table{width:100%;border-collapse:collapse;margin:.15in 0}td{padding:6px 0;border-bottom:1px solid #ddd}.r{text-align:right}.tot td{font-weight:700;border-bottom:2px solid #1d2521}
+.m{color:#6b7772;font-size:.85rem}.sig{margin-top:.5in;display:flex;gap:.4in}.sig div{flex:1;border-top:1px solid #1d2521;padding-top:4px;font-size:.8rem;color:#6b7772}@media print{.bar{display:none}}</style></head>
+<body><div class="bar">${isShip ? "Packing slip — put it in the box." : "Pickup receipt — hand it over when they collect."}<button onclick="print()">Print</button>${box}</div><div class="pg">
+<h1>${isShip ? "Packing slip" : "Pickup receipt"}</h1><div class="m">Order ${esc(ref)} · paid online ${esc(day)}${o.status === "refund_needed" ? " · <b>REFUND DUE: do not send</b>" : ""}</div>
+<div class="cols"><div><div class="lb">From</div><div class="addr">${from.map(esc).join("<br>")}</div></div>
+<div><div class="lb">${isShip ? "Ship to" : "Buyer"}</div><div class="addr">${(isShip ? to : [o.buyer_name, o.buyer_email].filter(Boolean)).map(esc).join("<br>") || "—"}</div></div></div>
+<table>${row(title, money(o.item_cents))}${isShip ? row("Shipping", o.ship_cents ? money(o.ship_cents) : "Free") : ""}<tr class="tot"><td>Paid</td><td class="r">${esc(money(o.total_cents))}</td></tr></table>
+${o.tracking ? `<p><b>Tracking:</b> ${esc(o.tracking)}</p>` : ""}
+${isShip ? `<p class="m">Questions about this order? Reply to your order email and it reaches the seller.</p>`
+  : `<p class="m">Paid in full online. Pickup at ${esc(from.slice(1).join(", ") || sale.city)} · ${esc(whenText(sale))}.</p><div class="sig"><div>Picked up by (signature)</div><div>Date</div></div>`}
+</div></body></html>`;
+}
+
 export async function salePages(request, env, url, parts, viewer) {
   const db = env.DB, origin = env.PUBLIC_ORIGIN || url.origin;
   const sale = await db.prepare("SELECT * FROM garage_sales WHERE slug=?").bind(parts[1] || "").first();
@@ -617,6 +656,18 @@ export async function salePages(request, env, url, parts, viewer) {
 .q svg,.q img{width:1.1in;height:1.1in}.tp{font:800 26px Georgia,serif}.tt{font-size:11px;line-height:1.25;margin-top:4px;max-height:4em;overflow:hidden}@media print{.bar{display:none}}</style></head>
 <body><div class="bar">${rows.length} tags for ${esc(sale.title)}. Each QR opens that item's page. <button onclick="print()">Print</button></div><div class="sheet">${tags}</div>
 <script>document.querySelectorAll('.q').forEach(function(el){var q=qrcode(0,'M');q.addData(el.dataset.u);q.make();el.innerHTML=q.createSvgTag({cellSize:3,margin:0});});</script></body></html>`);
+  }
+
+  // ----- packing slip / pickup receipt for one online order (owner only)
+  if (parts[2] === "slip" && parts[3]) {
+    if (viewer !== sale.user_id) return H(msgPage("Sign in first", "Open this from the Guestimator app to print a slip."), 403);
+    const o = await db.prepare("SELECT * FROM garage_orders WHERE id=? AND sale_id=?").bind(parts[3], sale.id).first();
+    if (!o || !["paid", "fulfilled", "refund_needed"].includes(o.status)) return H(msgPage("Order not found", "Only paid online orders have a slip."), 404);
+    const r = rows.find(x => x.item_id === o.item_id);
+    const it = r || await db.prepare("SELECT name, ai_title FROM items WHERE id=?").bind(o.item_id).first();
+    const ap = await db.prepare("SELECT result_json FROM appraisals WHERE item_id=? AND status='done' ORDER BY created_at DESC LIMIT 1").bind(o.item_id).first();
+    let ship = null; try { ship = ap?.result_json ? JSON.parse(ap.result_json).shipping : null; } catch {}
+    return H(slipHtml(sale, o, (it && (it.ai_title || it.name)) || "Item", ship));
   }
 
   // ----- one item

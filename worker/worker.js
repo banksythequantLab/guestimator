@@ -5,7 +5,7 @@ import { planFor, consumeEstimate, refundEstimate, applyRevenueCatEvent, redeemP
 // New Guestimator accounts start with nothing: every estimate is bought. Accounts that already
 // exist (including Bottle Tree ones signing in here) keep whatever balance they have.
 const SIGNUP_CREDITS = 0;
-import { appraise } from "./appraiser.js";
+import { appraise, sizeOnly } from "./appraiser.js";
 import * as ebay from "./ebay.js";
 import * as garage from "./garage.js";
 import { quoteShipping } from "./shipping.js";
@@ -688,6 +688,23 @@ export default {
           let est = null; try { est = ap?.result_json ? JSON.parse(ap.result_json).shipping : null; } catch {}
           try { return J(await quoteShipping(env, url.searchParams.get("from"), est, url.searchParams.get("service") === "priority" ? "priority" : "ground")); }
           catch (e) { return J({ error: String(e.message || e) }, e.status || 502); }
+        }
+
+        // Weight and box size for an item estimated before those existed. Free: one text call over
+        // the stored identification, never a new appraisal. Only fills a gap — an estimate that
+        // already has shipping returns it untouched, so repeated taps cost nothing.
+        if (parts[3] === "shipping-estimate" && m === "POST") {
+          const ap = await db.prepare("SELECT id, result_json FROM appraisals WHERE item_id=? AND status='done' ORDER BY created_at DESC LIMIT 1").bind(iid).first();
+          let res = null; try { res = ap?.result_json ? JSON.parse(ap.result_json) : null; } catch {}
+          if (!res) return J({ error: "estimate this item first" }, 409);
+          if (res.shipping) return J({ shipping: res.shipping, cached: true });
+          const it = await db.prepare("SELECT description, markings FROM items WHERE id=?").bind(iid).first();
+          try {
+            const shipping = await sizeOnly(env, { identification: res.identification, description: it?.description || "", markings: it?.markings || "" });
+            res.shipping = shipping;
+            await db.prepare("UPDATE appraisals SET result_json=? WHERE id=?").bind(JSON.stringify(res), ap.id).run();
+            return J({ shipping, cached: false });
+          } catch (e) { return J({ error: String(e.message || e) }, e.status || 502); }
         }
 
         if (parts[3] === "photos" && m === "POST") {

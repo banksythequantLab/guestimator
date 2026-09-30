@@ -52,6 +52,17 @@ ok("stripeReady with only the Connect webhook secret", G.stripeReady({ STRIPE_SE
   ok("sig rejects tamper", !(await G.verifyStripeSig(["whsec_a"], '{"x":2}', `t=${t},v1=${sig}`, t + 10)));
 }
 
+{
+  const sale = { title: "Elm St Sale", street: "12 Elm St", city: "Montclair", state: "NJ", zip: "07042", starts_on: "2026-10-03", ends_on: "2026-10-03", hours: "8-2" };
+  const p = G.slipHtml(sale, { id: "abcdef123456", fulfilment: "pickup", status: "paid", item_cents: 2500, ship_cents: 0, total_cents: 2500, buyer_name: "Pat <b>", buyer_email: "p@x.com", created_at: "2026-10-01T10:00:00Z" }, "Crock", null);
+  ok("pickup receipt: title, signature line, escaped buyer, no shipping row",
+     p.includes("Pickup receipt") && p.includes("Picked up by") && p.includes("Pat &lt;b&gt;") && !p.includes(">Shipping<") && p.includes("ABCDEF12"));
+  const s = G.slipHtml(sale, { id: "x1", fulfilment: "ship", status: "refund_needed", item_cents: 2500, ship_cents: 0, total_cents: 2500, ship_address: "{}" }, "Crock", { box_in: [10, 8, 6], packed_weight_lb: 2.1 });
+  ok("refund-due slip warns, free shipping shown, box note in the screen bar", s.includes("REFUND DUE") && s.includes(">Free<") && /class="bar"[^]*10 × 8 × 6[^]*<\/div><div class="pg">/.test(s));
+  ok("shipToLines", G.shipToLines('{"name":"R B","phone":"555","address":{"line1":"1 A St","city":"Austin","state":"TX","postal_code":"78701","country":"US"}}').join("|") === "R B|1 A St|Austin, TX 78701|Phone 555"
+     && G.shipToLines("bad").length === 0);
+}
+
 // ---------- Stripe, stubbed ----------
 const calls = [];
 let acctReady = false;
@@ -277,6 +288,17 @@ await settle();
   ok("buyer told it shipped, with tracking and a UPS link", s.length === 1 && s[0].text.includes("1Z999AA10123456784") && s[0].html.includes("ups.com/track"), s.map(x => x.subject));
 }
 
+// packing slip: owner only, shows ship-to, what the buyer paid, tracking - never our fee
+{
+  who = "anon";
+  ok("slip needs the owner", (await call("GET", `/sale/${slug}/slip/${order.id}`)).status === 403);
+  who = "a";
+  const sl = await call("GET", `/sale/${slug}/slip/${order.id}`);
+  ok("packing slip renders", sl.status === 200 && sl.text.includes("Packing slip") && sl.text.includes("Austin") && sl.text.includes("1Z999AA10123456784"));
+  ok("slip shows total paid, not the platform fee", sl.text.includes("$64.50") && !sl.text.includes("$1.94"));
+  ok("slip for unknown order 404s", (await call("GET", `/sale/${slug}/slip/nope`)).status === 404);
+}
+
 // expired checkout releases the item
 who = "a"; await call("PATCH", `/api/garage/holds/${hold.id}`, { status: "done" });
 ok("hold done frees the item", db.raw.prepare("SELECT status FROM garage_sale_items WHERE item_id=?").get(crock).status === "available");
@@ -333,6 +355,30 @@ r = await call("POST", "/api/garage/sales", { title: "Scratch", city: "Newark", 
 ok("empty sale deletes", (await call("DELETE", `/api/garage/sales/${r.json.id}`)).status === 200);
 r = await call("GET", "/api/garage/sales");
 ok("sale list", r.status === 200 && r.json.length === 1 && r.json[0].url === `https://g.test/sale/${slug}`);
+
+// ---------- free weight/size backfill for an old estimate (model stubbed at fetch) ----------
+{
+  const prev = globalThis.fetch; let modelCalls = 0;
+  globalThis.fetch = async (u, init) => {
+    if (String(u).endsWith("chat/completions")) { modelCalls++;
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"item_weight_lb":22,"item_in":[13,11,11],"fragile":true,"basis":"5-gal crock"}' } }] })); }
+    return prev(u, init);
+  };
+  const credits = () => { const u = db.raw.prepare("SELECT credits FROM users WHERE id=?").get(aId);
+    return `${u.credits}/${db.raw.prepare("SELECT COUNT(*) AS n FROM billing_events WHERE user_id=?").get(aId).n}`; };
+  const before = credits();
+  who = "a";
+  r = await call("POST", `/api/items/${crock}/shipping-estimate`);
+  ok("backfill sizes an old estimate", r.status === 200 && r.json.cached === false && r.json.shipping.box_in.join() === "19,17,17" && r.json.shipping.fragile, r.json);
+  const stored = JSON.parse(db.raw.prepare("SELECT result_json FROM appraisals WHERE item_id=?").get(crock).result_json);
+  ok("stored on the estimate, price untouched", stored.shipping && stored.shipping.item_weight_lb === 22 && stored.price_range.suggested_retail === 135);
+  r = await call("POST", `/api/items/${crock}/shipping-estimate`);
+  ok("second tap returns the stored one, no model call", r.status === 200 && r.json.cached === true && modelCalls === 1);
+  ok("no credit spent, no billing event", before === credits(), [before, credits()]);
+  ok("item with no estimate -> 409", (await call("POST", `/api/items/${cheap}/shipping-estimate`)).status === 409);
+  who = "b"; ok("someone else's item -> 404", (await call("POST", `/api/items/${crock}/shipping-estimate`)).status === 404); who = "a";
+  globalThis.fetch = prev;
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
