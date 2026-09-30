@@ -139,7 +139,7 @@ export async function verifyStripeSig(secrets, rawBody, header, nowSec = Math.fl
   const t = (kv.find(([k]) => k === "t") || [])[1];
   const sigs = kv.filter(([k]) => k === "v1").map(([, v]) => v);
   if (!t || !sigs.length || Math.abs(nowSec - Number(t)) > 300) return false;
-  for (const s of secrets.filter(Boolean)) {
+  for (const s of secrets.filter(Boolean).map(x => String(x).trim())) {
     const expected = await hmacHex(s, `${t}.${rawBody}`);
     if (sigs.some(v => timingEq(v, expected))) return true;
   }
