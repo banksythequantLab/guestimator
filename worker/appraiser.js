@@ -1172,7 +1172,13 @@ const CONTAINER = "lots?|sets?|boxes|packs?|rolls?|groups?|cases|trays?|bags|sle
 const COUNT_RE = new RegExp(
   `(?:\\b(?:lot|set|box|pack|roll|group|case|tray|bag)\\s+of\\s+(\\d{1,3})\\b)` +
   `|(?:\\b(?:qty|quantity)\\s*[:#]?\\s*(\\d{1,3})\\b)` +
-  `|(?:\\b(\\d{1,3})\\s*(?:x|×|pcs?|pieces?|sticks?|modules?|units?|count|ct)\\b)` +
+  // "8x" is a count, but "12 x 18" is a SIZE: a number after the x makes it a dimension. A 12x18
+  // Harold Hayden oil was priced as twelve paintings ($4,188-$7,200 against comps of $349-$600)
+  // because "12 x" matched here. A second number carrying a capacity or weight unit is what
+  // follows a count ("8x 32gb sticks", "4x 1oz rounds"); a bare second number is the other side
+  // of a size ("12 x 18", "8.5 x 11", "16x20"). [\d.] after the number stops the regex backing
+  // off "32gb" to "3" and calling that bare.
+  `|(?:\\b(\\d{1,3})\\s*(?:(?:x|×)(?!\\s*\\d+(?:\\.\\d+)?(?![\\d.])(?!\\s*(?:[kmgt]b|ozt?|g|kg|lbs?|ct|pcs?|pieces?)\\b))|pcs?|pieces?|sticks?|modules?|units?|count|ct)\\b)` +
   `|(?:\\b(\\d{1,3})\\s*(${CONTAINER})\\b)` +
   // One adjective between the number and the piece word. "4 candle sticks" is a lot of four and
   // was not being read as one, because "candle" sits between the digit and "sticks" - found on

@@ -27,6 +27,17 @@ eq("dozen", n("dozen ball canning jars", ""), 12);
 eq("half dozen", n("half-dozen etched wine glasses", ""), 6);
 eq("explicit count beats capacity", n("lot of 4, 256 gb total", "64gb"), 4);
 
+// A size is not a count. "12 x 18 painting" was read as twelve paintings (2026-09-30).
+eq("dimensions are not a count", n("12 x 18 painting by Harold Hayden 2x154", "Harold Hayden 2x154"), null);
+eq("dimensions no spaces", n("16x20 oil on canvas", ""), null);
+eq("decimal dimensions", n("8.5 x 11 print", ""), null);
+eq("three dimensions", n("24 x 12 x 10 oak box", ""), null);
+eq("times sign dimensions", n("30 × 40 cm watercolour", ""), null);
+eq("count still read before a word", n("4x silver eagles", ""), 4);
+eq("count before a weight", n("4x 1oz silver rounds", ""), 4);
+eq("count before a capacity, spaced", n("6 x 16gb ddr4", ""), 6);
+eq("count with size elsewhere", n("lot of 3 prints, each 8 x 10", ""), 3);
+
 // "Lot 14" on an estate-sale tag is a lot NUMBER. Multiplying a price by it is the worst
 // thing this code can do, so "of" is mandatory after lot/box/set.
 eq("bare lot number is not a quantity", n("lot 14", ""), null);
