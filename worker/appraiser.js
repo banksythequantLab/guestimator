@@ -73,6 +73,9 @@ FIELD GUIDE (do not copy these sentences into the JSON):
   "Does a magnet stick to it?" ["Yes","No"]. Options must be mutually exclusive, under 24
   characters, and phrased as the dealer's answer. Include "Can't tell" whenever it is a real
   possibility. Ask nothing you could answer yourself from the photographs.
+- Never ask again what the dealer's description already answers. It often holds earlier questions
+  with their answers as "question: answer" - "No" and "None" are answers, not gaps. Ask about
+  something new, or ask nothing.
 
 EXAMPLE of a filled answer for a different item (format only):
 {"identification":{"name":"Red Wing 3-gallon stoneware crock","category":"Stoneware","maker":"Red Wing Union Stoneware Co.","origin":"Red Wing, Minnesota, USA","period":"c. 1915-1930","style":"Utilitarian salt-glaze"},"confidence":0.85,"evidence":["Red Wing oval stamp on face - factory-marked, post-1906 union period","Cobalt '3' capacity mark matches 3-gallon body size"],"transcribed_text":["RED WING UNION STONEWARE CO.","3"],"price_range":{"low":90,"high":160,"suggested_retail":135,"floor":90,"currency":"USD","basis":"Common marked Red Wing size; hairline would drop it to the low end."},"listing":{"title":"Red Wing 3-Gallon Stoneware Crock, Union Stoneware Co., c. 1920","description":"A classic Red Wing 3-gallon crock with the oval Union Stoneware stamp and a cobalt 3. Sturdy salt-glazed body with the warm patina these pieces earn in a century of farmhouse use.\\n\\nRim and base are sound. A handsome piece for a kitchen counter, utensil storage or a farmhouse display.","tags":["red wing","stoneware","crock","farmhouse"],"condition_grade":"Very good"},"questions_for_dealer":["Any hairlines or chips on the rim or base?"]}`;
@@ -728,6 +731,40 @@ export function cleanQuestion(s) {
   if (mark >= 0) return q.slice(0, mark + 1).trim();
   // No question mark: drop a trailing "- a,b,c" or "— a,b,c" option list if one is stuck on.
   return q.replace(/\s*[-–—:]\s*[^-–—:]*,[^-–—:]*$/, "").trim();
+}
+
+// The dealer's answers to earlier questions live in their description as "question: answer"
+// (that is how both the clarify card and the re-run screen write them back). A model told not to
+// re-ask still does - production, 2026-09-30: a painting's owner answered "Are there any labels,
+// stamps, or markings on the reverse of the canvas or frame: No", and the next run asked "Is there
+// any date, label, or marking on the back of the canvas or stretcher?". So the answered topics are
+// matched here too, on content words, and a question that is mostly the same words is dropped.
+const Q_STOP = new Set("a an and any are as at be been by can could did do does for from has have how in into is it its of on or that the there this to was were what when where which who will with would you your yours".split(" "));
+const qWords = s => new Set(String(s || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/)
+  .filter(w => w.length > 2 && !Q_STOP.has(w)).map(w => w.replace(/(ies)$/, "y").replace(/(?<!s)s$/, "")));
+export function answeredTopics(description) {
+  return String(description || "").split(/(?<=[.?!])\s+|\n+/)
+    .map(seg => seg.match(/^(.{12,160}?)\s*[:?]\s*(.+)$/))
+    .filter(m => m && m[2].trim() && qWords(m[1]).size >= 2)
+    .map(m => qWords(m[1]));
+}
+export function isAnswered(question, topics) {
+  const q = qWords(question);
+  if (q.size < 2) return false;
+  return topics.some(t => {
+    let hit = 0; for (const w of q) if (t.has(w)) hit++;
+    return hit >= 2 && hit / Math.min(q.size, t.size) >= 0.5;
+  });
+}
+/** Drops questions the dealer has already answered, from both question fields, in place. */
+export function forgetAnswered(first, description) {
+  const topics = answeredTopics(description);
+  if (!topics.length || !first) return first;
+  if (Array.isArray(first.questions_for_dealer))
+    first.questions_for_dealer = first.questions_for_dealer.filter(q => !isAnswered(q, topics));
+  if (Array.isArray(first.dealer_questions))
+    first.dealer_questions = first.dealer_questions.filter(x => !(x && isAnswered(x.q, topics)));
+  return first;
 }
 
 export function dealerQuestions(first) {
@@ -1520,6 +1557,7 @@ export async function appraise(env, req) {
       if (!incomplete(second) || score(second) > score(first)) first = second;
     } catch (e) { warnings.push(`retry failed: ${e.message}`); }
   }
+  forgetAnswered(first, req.description);
 
   const ident = { name: "", category: "", maker: "", origin: "", period: "", style: "",
                   ...pick(first.identification || {}, IDENT_KEYS) };

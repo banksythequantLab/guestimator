@@ -1,7 +1,7 @@
 // Run:  node worker/tests/questions_test.mjs
 // Turning what the model asks into something a dealer can answer with a tap, and degrading to a
 // text box when the model ignores the new field — which is a routine event, not an emergency.
-import { dealerQuestions, cleanQuestion } from "../appraiser.js";
+import { dealerQuestions, cleanQuestion, forgetAnswered, answeredTopics, isAnswered } from "../appraiser.js";
 
 let pass = 0, fail = 0;
 const eq = (n, got, want) => {
@@ -83,6 +83,27 @@ eq("dealerQuestions cleans the q it returns",
   dealerQuestions({ dealer_questions: [{ q: "Solid brass or plated? - Solid,Plated,Can't tell",
                                          options: ["Solid", "Plated", "Can't tell"] }] }),
   [{ q: "Solid brass or plated?", options: ["Solid", "Plated", "Can't tell"] }]);
+
+// ---- forgetAnswered: never ask what the dealer already answered ----
+{
+  // The real painting description, 2026-09-30, and the question the model asked anyway.
+  const desc = "12 x 18 painting by Harold Hayden 2x154. Is there a visible signature or date on the front or back of the painting: Yes. Are there any labels, stamps, or markings on the reverse of the canvas or frame: No";
+  const first = {
+    questions_for_dealer: ["Is there any date, label, or marking on the back of the canvas or stretcher?", "What are the exact dimensions of the frame?"],
+    dealer_questions: [{ q: "Any labels or stamps on the reverse of the canvas?", options: ["Yes", "No"] },
+                       { q: "Is the paint cracked anywhere?", options: ["Yes", "No", "Can't tell"] }],
+  };
+  forgetAnswered(first, desc);
+  eq("answered 'No' question dropped, new one kept", first.questions_for_dealer, ["What are the exact dimensions of the frame?"]);
+  eq("answered chip question dropped too", first.dealer_questions.map(x => x.q), ["Is the paint cracked anywhere?"]);
+  eq("a plain description answers nothing", answeredTopics("A brass candlestick, about 10 inches tall, from my grandmother"), []);
+  const f2 = { questions_for_dealer: ["Is there a maker's mark on the base?"] };
+  forgetAnswered(f2, "Brass candlestick. Is it solid or plated: Solid");
+  eq("unrelated answered topic doesn't drop a new question", f2.questions_for_dealer, ["Is there a maker's mark on the base?"]);
+  eq("no description, nothing dropped", forgetAnswered({ questions_for_dealer: ["Any chips?"] }, "").questions_for_dealer, ["Any chips?"]);
+  eq("re-run screen format ('?' kept off, colon) is recognised",
+     isAnswered("Is there any date visible on the painting?", answeredTopics("Is there any date visible on the front or back of the painting: No date")), true);
+}
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
