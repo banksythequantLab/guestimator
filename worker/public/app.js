@@ -960,7 +960,7 @@ function shipLine(s) {
   const dim = s.dim_weight_lb > Math.ceil(s.packed_weight_lb)
     ? ` UPS/FedEx will bill it as <b>${s.dim_weight_lb} lb</b> because the box is big for its weight.` : "";
   return `<b>📦 Shipping estimate:</b> about <b>${lb(s.packed_weight_lb)}</b> packed, in a <b>${esc(box)} in</b> box${s.fragile ? " — <b>fragile</b>, pack with 3 in of padding" : ""}.${dim}
-    <div class="muted" style="margin-top:3px">Item alone ~${lb(s.item_weight_lb)}${s.basis ? ` (${esc(s.basis)})` : ""}. Guessed from the photos: weigh it before you buy a label.</div>`;
+    <div class="muted" style="margin-top:3px">Item alone ~${lb(s.item_weight_lb)}${s.basis ? ` (${esc(String(s.basis).replace(/[.\s]+$/, ""))})` : ""}. Guessed from the photos: weigh it before you buy a label.</div>`;
 }
 
 // ---------- Refine & re-run: back to photos + details, with what the last estimate found ----------
