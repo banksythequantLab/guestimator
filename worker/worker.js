@@ -13,6 +13,7 @@ import * as ebayOrders from "./ebayorders.js";
 import { ebaySoldAlert, buyerShippedEmail } from "./notify.js";
 import * as labels from "./labels.js";
 import * as nudges from "./nudges.js";
+import * as profit from "./profit.js";
 // Every Guestimator item lives in one hidden per-user `sales` row (the schema is Bottle Tree's).
 const GUESS_BUCKET = "Guestimator";
 // The Android app's URL scheme (strings.xml custom_url_scheme; AndroidManifest intent-filter).
@@ -155,7 +156,8 @@ async function itemBundle(db, itemId) {
   if (ap) appraisal = { id: ap.id, status: ap.status, error: ap.error, created_at: ap.created_at, completed_at: ap.completed_at,
                         result: ap.result_json ? JSON.parse(ap.result_json) : null };
   const el = await db.prepare("SELECT status, listing_url, listing_id, error, updated_at FROM ebay_listings WHERE item_id=? ORDER BY created_at DESC LIMIT 1").bind(itemId).first();
-  return { item, photos: photos.map(p => ({ ...p, url: `/p/${p.r2_key}` })), appraisal, ebay: el || null };
+  const fin = await db.prepare("SELECT cost_cents, note FROM item_finance WHERE item_id=?").bind(itemId).first();
+  return { item, photos: photos.map(p => ({ ...p, url: `/p/${p.r2_key}` })), appraisal, ebay: el || null, finance: fin || null };
 }
 
 export default {
@@ -461,6 +463,16 @@ export default {
           return J({ label: l || null });
         }
         return J({ error: "not found" }, 404);
+      }
+
+      // ---------- profit report ----------
+      if (parts[1] === "profit" && m === "GET") {
+        const range = { from: String(url.searchParams.get("from") || "").slice(0, 10), to: String(url.searchParams.get("to") || "").slice(0, 10) };
+        const rep = await profit.profitRows(db, userId, range);
+        if (parts[2] === "csv")
+          return new Response(profit.profitCsv(rep), { headers: { "content-type": "text/csv; charset=utf-8", "cache-control": "no-store",
+            "content-disposition": `attachment; filename="guestimator-profit-${range.from || "all"}-${range.to || now().slice(0, 10)}.csv"` } });
+        return J({ ...rep, inventory: await profit.inventorySummary(db, userId) });
       }
 
       // ---------- price-drop nudges for slow eBay listings ----------
@@ -789,6 +801,18 @@ export default {
           let est = null; try { est = ap?.result_json ? JSON.parse(ap.result_json).shipping : null; } catch {}
           try { return J(await quoteShipping(env, url.searchParams.get("from"), est, url.searchParams.get("service") === "priority" ? "priority" : "ground")); }
           catch (e) { return J({ error: String(e.message || e) }, e.status || 502); }
+        }
+
+        // What the seller paid for it (for the profit report). Blank clears it.
+        if (parts[3] === "cost" && m === "PUT") {
+          const b = await readJson(request);
+          const raw = String(b.cost ?? "").replace(/[$,\s]/g, "");
+          const c = raw === "" ? null : Math.round(Number(raw) * 100);
+          if (c !== null && !(c >= 0 && c < 1e9)) return J({ error: "Enter what you paid, like 5 or 12.50" }, 400);
+          await db.prepare("INSERT INTO item_finance (item_id,user_id,cost_cents,note,updated_at) VALUES (?,?,?,?,?) " +
+                           "ON CONFLICT(item_id) DO UPDATE SET cost_cents=excluded.cost_cents, note=excluded.note, updated_at=excluded.updated_at")
+            .bind(iid, userId, c, String(b.note || "").trim().slice(0, 120) || null, now()).run();
+          return J({ cost_cents: c });
         }
 
         // Weight and box size for an item estimated before those existed. Free: one text call over

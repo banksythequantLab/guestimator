@@ -23,6 +23,8 @@ export function parseOrder(o) {
     paid: !o.orderPaymentStatus || /PAID/i.test(o.orderPaymentStatus),
     buyer: o.buyer?.username || null,
     totalCents: cents(o.pricingSummary?.total?.value),
+    feeCents: cents(o.totalMarketplaceFee?.value),
+    shipPaidCents: cents(o.pricingSummary?.deliveryCost?.value),
     shipService: step.shippingServiceCode || null,
     shipTo: to.fullName || a.addressLine1 ? {
       name: to.fullName || "", phone: to.primaryPhone?.phoneNumber || "",
@@ -110,10 +112,10 @@ export async function syncOrders(env, db, userId, { nowMs = Date.now() } = {}) {
       const had = await db.prepare("SELECT status FROM ebay_orders WHERE id=?").bind(id).first();
       const shipTo = o.status === "FULFILLED" || o.status === "CANCELLED" ? null : (o.shipTo ? JSON.stringify(o.shipTo) : null);
       if (!had) {
-        await db.prepare(`INSERT INTO ebay_orders (id,order_id,line_item_id,user_id,item_id,listing_id,title,quantity,buyer,total_cents,ship_to,ship_service,ship_by,status,ordered_at,created_at,updated_at)
-                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+        await db.prepare(`INSERT INTO ebay_orders (id,order_id,line_item_id,user_id,item_id,listing_id,title,quantity,buyer,total_cents,ship_to,ship_service,ship_by,status,ordered_at,created_at,updated_at,fee_cents,ship_paid_cents)
+                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
           .bind(id, o.orderId, l.lineItemId, userId, hit.item_id, l.legacyItemId || hit.listing_id || null, l.title, l.quantity, o.buyer,
-                o.totalCents, shipTo, o.shipService, l.shipBy, o.status, o.orderedAt || ts, ts, ts).run();
+                o.totalCents, shipTo, o.shipService, l.shipBy, o.status, o.orderedAt || ts, ts, ts, o.feeCents, o.shipPaidCents).run();
         if (o.status !== "CANCELLED") {
           // Sold on eBay: it is not for sale anywhere else. A garage-sale copy still marked
           // available would otherwise sell a second time to a buyer at the sale or online.
@@ -125,9 +127,11 @@ export async function syncOrders(env, db, userId, { nowMs = Date.now() } = {}) {
           // sales the seller already shipped; marking those sold is right, emailing is noise.
           if (o.status === "NOT_STARTED" || o.status === "IN_PROGRESS") fresh.push(id);
         }
-      } else if (had.status !== o.status) {
-        await db.prepare("UPDATE ebay_orders SET status=?, ship_to=CASE WHEN ? IN ('FULFILLED','CANCELLED') THEN NULL ELSE ship_to END, updated_at=? WHERE id=?")
-          .bind(o.status, o.status, ts, id).run();
+      } else {
+        // eBay settles its fee after the sale, so keep the latest figures as well as the status.
+        await db.prepare("UPDATE ebay_orders SET status=?, ship_to=CASE WHEN ? IN ('FULFILLED','CANCELLED') THEN NULL ELSE ship_to END, " +
+                         "fee_cents=COALESCE(?, fee_cents), ship_paid_cents=COALESCE(?, ship_paid_cents), updated_at=? WHERE id=?")
+          .bind(o.status, o.status, o.feeCents, o.shipPaidCents, ts, id).run();
       }
     }
   }

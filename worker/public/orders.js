@@ -204,3 +204,42 @@ async function slowSellers(box) {
     try { await api(`/ebay/slow/${encodeURIComponent(b.dataset.slowKeep)}/keep`, { method: "POST" }); slowSellers(box); } catch (e) { toast(e.message); b.disabled = false; }
   });
 }
+
+// ---------- profit & inventory report ----------
+async function renderProfit(range) {
+  state.view = "profit"; setChrome(); backTo(renderHome);
+  ctx.textContent = "Profit";
+  const y = new Date().getFullYear(), mo = new Date().toISOString().slice(0, 7);
+  const RANGES = { month: [mo + "-01", ""], year: [y + "-01-01", ""], last: [(y - 1) + "-01-01", (y - 1) + "-12-31"], all: ["", ""] };
+  range = range || "year";
+  const [from, to] = RANGES[range];
+  const qs = `from=${from}&to=${to}`;
+  app.innerHTML = `<div class="muted" style="padding:14px">Adding it up…</div>`;
+  let d; try { d = await api(`/profit?${qs}`); } catch (e) { app.innerHTML = `<div class="muted" style="padding:14px">${esc(e.message)}</div>`; return; }
+  const t = d.totals, inv = d.inventory;
+  const m = c => (c == null ? "—" : money(c));
+  const tile = (k, v, sub) => `<div style="flex:1;min-width:120px;padding:8px 10px;border:1px solid var(--line);border-radius:10px"><div class="muted" style="font-size:.72rem">${k}</div><div style="font:700 1.2rem Georgia,serif">${v}</div>${sub ? `<div class="muted" style="font-size:.7rem">${sub}</div>` : ""}</div>`;
+  app.innerHTML = `
+    <div class="card">
+      <div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:10px">${[["month", "This month"], ["year", "This year"], ["last", "Last year"], ["all", "All time"]]
+        .map(([k, l]) => `<button class="btn ${k === range ? "" : "sec "}sm" data-range="${k}">${l}</button>`).join("")}</div>
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        ${tile("Profit", m(t.profit_cents), `${t.sales} sale${t.sales === 1 ? "" : "s"}`)}
+        ${tile("Sales", m(t.sale_cents), t.ship_paid_cents ? `+ ${m(t.ship_paid_cents)} shipping paid` : "")}
+        ${tile("Fees + labels", m(t.fee_cents + t.label_cents), "")}
+        ${tile("Your cost", m(t.cost_cents), t.missing_cost ? `${t.missing_cost} without a cost` : "")}
+      </div>
+      ${t.missing_cost ? `<div class="muted" style="font-size:.75rem;margin-top:6px">Profit counts items with no cost as free. Add "What you paid" on those items to make it exact.</div>` : ""}
+      <a class="btn sec sm" href="/api/profit/csv?${qs}" style="text-decoration:none;margin-top:10px;display:inline-block">⬇ Download CSV</a>
+    </div>
+    <div class="card"><b>Still on the shelf</b>
+      <div class="muted" style="font-size:.85rem;margin-top:4px">${inv.items} item${inv.items === 1 ? "" : "s"} not sold · ${inv.priced} priced at about <b>${money(inv.estimate_cents)}</b> in all${inv.cost_cents ? ` · cost you ${money(inv.cost_cents)}` : ""}</div></div>
+    <h3 style="margin:14px 2px 6px">Sales</h3>
+    <div class="list">${d.rows.map(r => `<div class="li tap" data-item="${esc(r.item_id)}" style="align-items:flex-start">
+      <div style="min-width:0;flex:1"><div class="nm" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.title || "Item")}</div>
+        <div class="muted" style="font-size:.78rem">${esc(String(r.at).slice(0, 10))} · ${esc(r.channel)} · sold ${m(r.sale_cents)}${r.ship_paid_cents ? ` + ${m(r.ship_paid_cents)} ship` : ""} · fees ${m(r.fee_cents)}${r.label_cents ? ` · label ${m(r.label_cents)}` : ""} · cost ${r.missing_cost ? "not entered" : m(r.cost_cents)}</div></div>
+      <span class="pr" style="${r.profit_cents != null && r.profit_cents < 0 ? "color:var(--rust)" : ""}">${m(r.profit_cents)}</span></div>`).join("")
+      || `<div class="empty"><div class="em">🧾</div>No sales in this period yet.</div>`}</div>`;
+  app.querySelectorAll("[data-range]").forEach(b => b.onclick = () => renderProfit(b.dataset.range));
+  app.querySelectorAll("[data-item]").forEach(li => li.onclick = () => renderItemDetail(li.dataset.item));
+}
