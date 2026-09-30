@@ -951,34 +951,57 @@ export function mapSold(items, query) {
     note: `SOLD on eBay${i.endedAt ? ` ${i.endedAt}` : ""}${i.bestOfferAccepted ? " (best offer accepted)" : ""}${i.condition ? ` — ${i.condition}` : ""}`,
     sold: true,
   })).filter(x => x.price > 0 && (!x.currency || x.currency === "USD")
-    && !contradictsGeneration(query, x.title) && !contradictsSpec(query, x.title)));
+    && !contradictsGeneration(query, x.title) && !contradictsSpec(query, x.title)
+    // A 4-stick kit that sold for $650 is not what one stick is worth. Unless the item itself
+    // is a set, sales of several at once are left out (measured: SK Hynix 32GB, 3 of 13 kept
+    // sales were 2x, 4x and 8x kits, which dragged the "sold" range to $999).
+    && !(packOf(x.title) > 1 && packOf(query) === 1)));
 }
-export async function ebaySold(env, query, limit = 30) {
+export function packOf(title) {
+  const t = String(title || "");
+  const m = t.match(/\b\d+\s*(?:gb|tb|mb)\s*x\s*(\d{1,2})\b/i);   // "(32GBx2)"
+  const lot = detectLot(t, "");
+  return Math.max(m ? Number(m[1]) : 1, lot && lot.count > 1 ? lot.count : 1);
+}
+export async function ebaySold(env, query, limit = 30, maxLookups = 3) {
   _soldFail = null;
   if (!env.SOLDCOMPS_API_KEY) { _soldFail = "sold prices are not switched on"; return null; }
-  const kw = cleanForEbay(query) || String(query);
+  const base = cleanForEbay(query) || String(query);
   const since = new Date(Date.now() - 90 * 86400e3).toISOString().slice(0, 10);
-  const u = new URL("https://api.sold-comps.com/v1/scrape");
-  u.searchParams.set("keyword", kw);
-  u.searchParams.set("count", String(limit));
-  u.searchParams.set("soldAfter", since);
-  const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), 20000);
-  try {
-    const r = await fetch(u, { headers: { authorization: `Bearer ${env.SOLDCOMPS_API_KEY}` }, signal: ac.signal });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      _soldFail = r.status === 429 && /quota/i.test(JSON.stringify(j)) ? "the sold-price lookup allowance for this month is used up"
-        : `the sold-price lookup returned ${r.status}`;
-      console.log("soldcomps failed", r.status, JSON.stringify(j).slice(0, 300));
+  // Same ladder as the live search: the full description first, then shorter versions of it.
+  // eBay's search wants every word, so "... Server Memory 2017" can find nothing while
+  // "SK Hynix 32GB DDR4 2400 RDIMM" finds 28 sales. Each rung is one SoldComps request.
+  const ladder = [base, ...broaden(base)].filter((q, i, a) => q && a.indexOf(q) === i).slice(0, maxLookups);
+  let returned = 0;
+  for (const kw of ladder) {
+    const u = new URL("https://api.sold-comps.com/v1/scrape");
+    u.searchParams.set("keyword", kw);
+    u.searchParams.set("count", String(limit));
+    u.searchParams.set("soldAfter", since);
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), 20000);
+    try {
+      const r = await fetch(u, { headers: { authorization: `Bearer ${env.SOLDCOMPS_API_KEY}` }, signal: ac.signal });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        _soldFail = r.status === 429 && /quota/i.test(JSON.stringify(j)) ? "the sold-price lookup allowance for this month is used up"
+          : `the sold-price lookup returned ${r.status}`;
+        console.log("soldcomps failed", r.status, JSON.stringify(j).slice(0, 300));
+        return null;
+      }
+      const j = await r.json();
+      returned += (j.items || []).length;
+      const kept = mapSold(j.items, query).slice(0, limit);
+      // Kept vs returned: a gap here is our filters at work (wrong generation/spec), not an outage.
+      console.log("soldcomps", JSON.stringify({ kw, returned: (j.items || []).length, kept: kept.length }));
+      if (kept.length) { _soldFail = null; return kept; }
+    } catch (e) {
+      _soldFail = e.name === "AbortError" ? "the sold-price lookup timed out" : `the sold-price lookup failed (${e.message})`;
       return null;
-    }
-    const j = await r.json();
-    return mapSold(j.items, query).slice(0, limit);
-  } catch (e) {
-    _soldFail = e.name === "AbortError" ? "the sold-price lookup timed out" : `the sold-price lookup failed (${e.message})`;
-    return null;
-  } finally { clearTimeout(t); }
+    } finally { clearTimeout(t); }
+  }
+  _soldFail = returned ? "no sold listing matched this exact item" : "no sales of this in the last 90 days";
+  return [];
 }
 
 // Antique marketplaces first, because that is the common case and they carry sold prices.
@@ -1433,7 +1456,7 @@ export function detectLot(description, markings) {
 // first, a wartime-nickel query broadened to "United States Mint These" and found postage
 // stamps: three steps of broadening had thrown away every word that named the object and kept
 // only the mint. A maker is context for an identification, never a substitute for one.
-function compsQuery(ident) {
+export function compsQuery(ident) {
   const out = [], seen = new Set();
   for (const chunk of [ident.name, ident.maker, ident.period]) {
     for (const w of String(chunk || "").replace(/,/g, " ").split(/\s+/)) {
@@ -1785,6 +1808,7 @@ export async function appraise(env, req) {
   // hits do not get one.
   const market = (live && live.length) ? summarise(live) : null;
   const soldMarket = (sold && sold.length) ? summarise(sold, "eBay sold, last 90 days") : null;
+  let soldShown = soldMarket ? { ...soldMarket, recent: sold } : null;
   if (!soldMarket && env.SOLDCOMPS_API_KEY && soldFailure())
     warnings.push(`sold prices unavailable — ${soldFailure()}; priced from asking prices, which run high.`);
   // What the dealer is shown. Narrowed to the listings the model judged comparable once it has
@@ -1884,6 +1908,10 @@ export async function appraise(env, req) {
     const kept = keptLive(live, comparables);
     if (kept.length) marketShown = summarise(kept);
     else if (!comparables.length && rejected.length) marketShown = null;
+    // Same for sales: once the model has said which sold listings are this item, the sold line
+    // is built from those, so an LRDIMM or a 2133 that slipped past the filters drops out of it.
+    const keptSold = keptLive(sold || [], comparables);
+    if (keptSold.length >= 2) soldShown = { ...summarise(keptSold, "eBay sold, last 90 days"), recent: keptSold };
 
     // Two markets under one set of search terms. The dealer owns one of them, and which one
     // changes the price several-fold, so neither a single range nor a quiet trim is honest.
@@ -2098,7 +2126,7 @@ export async function appraise(env, req) {
     market: marketShown,
     market_all: market && marketShown && market.count !== marketShown.count ? market : null,
     // What actually sold (SoldComps), newest first, with a few of the sales to show.
-    sold_market: soldMarket ? { ...soldMarket, recent: (sold || []).slice(0, 6).map(s => pick(s, ["title", "url", "price", "sold_at", "condition"])) } : null,
+    sold_market: soldShown ? { ...soldShown, recent: soldShown.recent.slice(0, 6).map(s => pick(s, ["title", "url", "price", "sold_at", "condition"])) } : null,
     // What the model set aside and why. A dealer who disagrees with a price should be able to see
     // which listings were kept out of it — including the ones it was wrong to exclude.
     rejected_comparables: rejected.slice(0, 8),
