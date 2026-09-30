@@ -855,7 +855,7 @@ async function renderItemDetail(id) {
           </div>` : ""}
           <div class="muted" style="margin-top:3px">Asking prices, not sold prices, so they run high. Checked ${esc(String(r.market.as_of).slice(0, 10))}.${r.market_all ? ` eBay returned ${r.market_all.count} listings in all ($${r.market_all.low}–$${r.market_all.high}); the rest were judged different items — see “Set aside” below.` : ""}</div>
           ${(r.live_listings || []).length ? `<div style="margin-top:5px">${r.live_listings.map(l =>
-            `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><a href="${esc(l.url)}" target="_blank" rel="noopener" style="color:var(--cobalt)">$${Math.round(l.price)}${l.condition ? ` · ${esc(l.condition)}` : ""} — ${esc(l.title)}</a></div>`).join("")}</div>` : ""}
+            `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><a href="${esc(epn(l.url, "gs-live"))}" target="_blank" rel="noopener" style="color:var(--cobalt)">$${Math.round(l.price)}${l.condition ? ` · ${esc(l.condition)}` : ""} — ${esc(l.title)}</a></div>`).join("")}</div>` : ""}
         </div>` : ""}
       ${nc ? "" : `<div id="shipEst" style="margin:8px 0;padding:8px 10px;border-left:3px solid var(--sub);background:var(--bg);font-size:.82rem">${r.shipping ? shipLine(r.shipping) : sizeBtnHtml("card")}</div>`}
       ${r.melt ? `<div style="margin:8px 0;padding:8px 10px;border-left:3px solid var(--green);background:var(--bg);font-size:.82rem">
@@ -866,10 +866,11 @@ async function renderItemDetail(id) {
       <div class="muted" style="font-size:.82rem">${esc(pr.basis)}</div>
       ${r.evidence.length ? `<h3 style="font-size:.95rem;margin-top:12px">Why</h3><ul class="ev">${r.evidence.map(e => `<li>${esc(e)}</li>`).join("")}</ul>` : ""}
       ${r.transcribed_text.length ? `<div class="muted" style="font-size:.82rem;margin-top:6px">Read on item: ${r.transcribed_text.map(esc).join(" · ")}</div>` : ""}
-      ${r.comparables.length ? `<h3 style="font-size:.95rem;margin-top:12px">Comparables</h3>${r.comparables.map(c => `<div class="split"><a href="${esc(c.url)}" target="_blank" rel="noopener" style="color:var(--cobalt)">${esc(c.title)}</a><span class="amt">${c.price ? "$" + Math.round(c.price) : ""}</span></div>`).join("")}` : ""}
+      ${r.comparables.length ? `<h3 style="font-size:.95rem;margin-top:12px">Comparables</h3>${r.comparables.map(c => `<div class="split"><a href="${esc(epn(c.url, "gs-comp"))}" target="_blank" rel="noopener" style="color:var(--cobalt)">${esc(c.title)}</a><span class="amt">${c.price ? "$" + Math.round(c.price) : ""}</span></div>`).join("")}` : ""}
       ${(r.rejected_comparables || []).length ? `<details style="margin-top:8px"><summary class="muted" style="font-size:.8rem;cursor:pointer">Set aside (${r.rejected_comparables.length}) — listings not used for this price</summary>${r.rejected_comparables.map(c => `<div class="muted" style="font-size:.78rem;margin-top:4px">${esc(c.title)}${c.why ? ` — <i>${esc(c.why)}</i>` : ""}</div>`).join("")}</details>` : ""}
       ${r.questions_for_dealer.length ? `<div class="muted" style="font-size:.82rem;margin-top:10px">Would help: ${r.questions_for_dealer.map(esc).join(" · ")}</div>` : ""}
       ${r.warnings.length ? `<div class="muted" style="font-size:.75rem;margin-top:8px">${r.warnings.map(esc).join(" · ")}</div>` : ""}
+      ${(r.comparables.length || (r.live_listings || []).length) ? `<div class="muted" style="font-size:.7rem;margin-top:8px">eBay links are affiliate links: Guestimator may earn a small commission if you buy through them, at no cost to you.</div>` : ""}
       <div class="muted" style="font-size:.72rem;margin-top:8px">${esc(r.models.text)} + ${esc(r.models.vision)} on Nebius</div>
     </div>` : ""}
     ${ebayPanelHtml(b, !!(r && !nc && appraisal.status === "done"))}
@@ -965,6 +966,20 @@ async function renderItemDetail(id) {
   if (pending) pollT = setTimeout(() => { if (state.view === "item") renderItemDetail(id); }, 4000);
 }
 
+// eBay Partner Network: links out to other people's eBay listings carry Guestimator's campaign
+// id, so a purchase through them earns a commission. Only ebay.com links are touched; customid
+// says which screen the click came from. Never used for the seller's own listing.
+const EPN_CAMPID = "5339215150";
+function epn(url, where) {
+  try {
+    const u = new URL(url);
+    if (!/(^|\.)ebay\.com$/i.test(u.hostname)) return url;
+    const p = { mkcid: "1", mkrid: "711-53200-19255-0", siteid: "0", campid: EPN_CAMPID, toolid: "10001", customid: where || "gs", mkevt: "1" };
+    for (const [k, v] of Object.entries(p)) u.searchParams.set(k, v);
+    return u.toString();
+  } catch { return url; }
+}
+
 // Estimated shipping: packed weight and box. Estimates from a photo, so it says so and says how to
 // firm it up - the dealer weighs it before buying a label.
 function shipLine(s) {
@@ -1029,7 +1044,7 @@ function renderRefine(id, b) {
       <div class="muted" style="font-size:.78rem">Last time it was read as</div>
       <b>${esc(r.identification.name)}</b>${r.price_range && !r.needs_clarification ? ` <span class="muted">· $${Math.round(r.price_range.low)}–$${Math.round(r.price_range.high)}</span>` : ""}
       ${comps.length ? `<div class="muted" style="font-size:.78rem;margin-top:8px">Compared with</div>${comps.map(c =>
-        `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.82rem"><a href="${esc(c.url)}" target="_blank" rel="noopener" style="color:var(--cobalt)">${c.price ? "$" + Math.round(c.price) + " — " : ""}${esc(c.title)}</a></div>`).join("")}` : ""}
+        `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.82rem"><a href="${esc(epn(c.url, "gs-comp"))}" target="_blank" rel="noopener" style="color:var(--cobalt)">${c.price ? "$" + Math.round(c.price) + " — " : ""}${esc(c.title)}</a></div>`).join("")}` : ""}
       <div class="muted" style="font-size:.78rem;margin-top:8px">Wrong item, wrong version, or yours is better or worse than these? Say so below — that's what moves the price.</div>
     </div>` : ""}
     ${qs.length ? `<div class="card"><label>It asked</label>${qs.map((q, n) => `
