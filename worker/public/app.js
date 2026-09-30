@@ -1067,6 +1067,125 @@ function renderRefine(id, b) {
   state.view = "refine"; state.itemId = id;
 }
 
+// ---------- Photo viewer: tap a thumbnail to see it full screen, pinch / scroll / double-tap to zoom ----------
+// A dealer checks a signature or a hallmark on these, so 64px squares are not enough. Delegated
+// on the document so every .thumbs strip (item page, refine step) gets it without wiring.
+document.addEventListener("click", e => {
+  const img = e.target.closest && e.target.closest(".thumbs img");
+  if (!img) return;
+  const all = [...img.parentElement.querySelectorAll("img")];
+  openViewer(all.map(i => ({ src: i.currentSrc || i.src, label: i.title || i.alt || "" })), all.indexOf(img));
+});
+function openViewer(list, start) {
+  let i = Math.max(0, start), s = 1, tx = 0, ty = 0, base = null, pushed = false;
+  const box = document.createElement("div");
+  box.className = "lb"; box.setAttribute("role", "dialog"); box.setAttribute("aria-label", "Photo viewer");
+  box.innerHTML = `<img alt="" draggable="false">
+    <button class="x" aria-label="Close">✕</button>
+    ${list.length > 1 ? `<button class="pv" aria-label="Previous photo">‹</button><button class="nx" aria-label="Next photo">›</button>` : ""}
+    <button class="zb" aria-label="Zoom">＋</button>
+    <div class="cap"></div>`;
+  document.body.appendChild(box);
+  const im = box.querySelector("img"), cap = box.querySelector(".cap"), zb = box.querySelector(".zb");
+  const apply = () => {
+    im.style.transform = `translate(${tx}px,${ty}px) scale(${s})`;
+    zb.textContent = s > 1.01 ? "Fit" : "＋";
+  };
+  // Keep the picture over the middle of the screen so it can't be flung out of sight.
+  const clamp = () => {
+    if (!base) return;
+    const W = innerWidth, H = innerHeight, w = base.width * s, h = base.height * s;
+    tx = Math.min(W / 2 - base.left, Math.max(W / 2 - base.left - w, tx));
+    ty = Math.min(H / 2 - base.top, Math.max(H / 2 - base.top - h, ty));
+    if (s <= 1.001) { s = 1; tx = 0; ty = 0; }
+  };
+  const zoomAt = (ns, cx, cy) => {
+    ns = Math.min(6, Math.max(1, ns));
+    if (!base) return;
+    const lx = (cx - base.left - tx) / s, ly = (cy - base.top - ty) / s;
+    s = ns; tx = cx - base.left - lx * s; ty = cy - base.top - ly * s;
+    clamp(); apply();
+  };
+  const measure = () => { const t = im.style.transform; im.style.transform = "none"; base = im.getBoundingClientRect(); im.style.transform = t; };
+  const show = n => {
+    i = (n + list.length) % list.length; s = 1; tx = 0; ty = 0; base = null; apply();
+    im.onload = measure; im.src = list[i].src;
+    if (im.complete && im.naturalWidth) measure();
+    cap.textContent = `${list[i].label ? list[i].label + " · " : ""}${list.length > 1 ? `${i + 1} of ${list.length} · ` : ""}pinch, scroll or double-tap to zoom`;
+  };
+  const close = () => {
+    removeEventListener("keydown", onKey); removeEventListener("resize", onResize); removeEventListener("popstate", onPop);
+    box.remove();
+    if (pushed) { pushed = false; history.back(); }
+  };
+  // Android's back button should close the viewer, not leave the page.
+  const onPop = () => { pushed = false; close(); };
+  try { history.pushState({ lb: 1 }, ""); pushed = true; addEventListener("popstate", onPop); } catch { /* not fatal */ }
+  const onKey = e => {
+    if (e.key === "Escape") close();
+    else if (e.key === "ArrowRight" && list.length > 1) show(i + 1);
+    else if (e.key === "ArrowLeft" && list.length > 1) show(i - 1);
+    else if (e.key === "+" || e.key === "=") zoomAt(s * 1.5, innerWidth / 2, innerHeight / 2);
+    else if (e.key === "-") zoomAt(s / 1.5, innerWidth / 2, innerHeight / 2);
+  };
+  const onResize = () => { s = 1; tx = 0; ty = 0; apply(); measure(); };
+  addEventListener("keydown", onKey); addEventListener("resize", onResize);
+  box.querySelector(".x").onclick = e => { e.stopPropagation(); close(); };
+  if (list.length > 1) {
+    box.querySelector(".pv").onclick = e => { e.stopPropagation(); show(i - 1); };
+    box.querySelector(".nx").onclick = e => { e.stopPropagation(); show(i + 1); };
+  }
+  zb.onclick = e => { e.stopPropagation(); s > 1.01 ? (s = 1, tx = 0, ty = 0, apply()) : zoomAt(2.5, innerWidth / 2, innerHeight / 2); };
+  box.addEventListener("wheel", e => { e.preventDefault(); zoomAt(s * Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY); }, { passive: false });
+  // Pointer gestures: one finger pans (or swipes to the next photo when not zoomed), two pinch.
+  const pts = new Map();
+  let start0 = null, pinch = null, lastTap = 0;
+  box.addEventListener("pointerdown", e => {
+    if (e.target.closest("button")) return;
+    box.setPointerCapture(e.pointerId);
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 1) start0 = { x: e.clientX, y: e.clientY, tx, ty, t: Date.now(), onImg: e.target === im };
+    if (pts.size === 2) {
+      const [a, b2] = [...pts.values()];
+      pinch = { d: Math.hypot(a.x - b2.x, a.y - b2.y) || 1, s0: s };
+      start0 = null;
+    }
+    im.classList.add("drag");
+  });
+  box.addEventListener("pointermove", e => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 2 && pinch) {
+      const [a, b2] = [...pts.values()];
+      zoomAt(pinch.s0 * Math.hypot(a.x - b2.x, a.y - b2.y) / pinch.d, (a.x + b2.x) / 2, (a.y + b2.y) / 2);
+    } else if (pts.size === 1 && start0 && s > 1) {
+      tx = start0.tx + e.clientX - start0.x; ty = start0.ty + e.clientY - start0.y; clamp(); apply();
+    }
+  });
+  const up = e => {
+    if (!pts.has(e.pointerId)) return;
+    pts.delete(e.pointerId);
+    if (pts.size < 2) pinch = null;
+    // Lifting one finger of a pinch hands over to a pan with the other, never counted as a tap.
+    if (pts.size === 1) { const r = [...pts.values()][0]; start0 = { x: r.x, y: r.y, tx, ty, t: 0, onImg: true }; }
+    if (pts.size) return;
+    im.classList.remove("drag");
+    if (!start0) return;
+    const dx = e.clientX - start0.x, dy = e.clientY - start0.y, dt = Date.now() - start0.t;
+    const tap = Math.abs(dx) < 8 && Math.abs(dy) < 8 && dt < 300;
+    if (tap) {
+      const now = Date.now();
+      if (now - lastTap < 320) { lastTap = 0; s > 1.01 ? (s = 1, tx = 0, ty = 0, apply()) : zoomAt(2.5, e.clientX, e.clientY); }
+      else { lastTap = now; if (!start0.onImg && s <= 1.01) setTimeout(() => { if (lastTap === now) close(); }, 330); }
+    } else if (s <= 1.01 && list.length > 1 && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      show(dx < 0 ? i + 1 : i - 1);
+    }
+    start0 = null;
+  };
+  box.addEventListener("pointerup", up); box.addEventListener("pointercancel", up);
+  show(i);
+}
+
 // PWA
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 

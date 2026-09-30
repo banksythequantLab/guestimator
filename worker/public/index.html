@@ -97,7 +97,15 @@ textarea:focus{outline:2px solid var(--cobalt);border-color:var(--cobalt)}
 .shot .sl{font-size:.78rem;font-weight:800;margin-top:4px;text-transform:none;letter-spacing:0;color:var(--ink)}
 .shot .sh{font-size:.66rem;color:var(--sub);line-height:1.2;text-transform:none;letter-spacing:0;font-weight:400}
 .thumbs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
-.thumbs img{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+.thumbs img{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:zoom-in}
+.lb{position:fixed;inset:0;z-index:60;background:rgba(10,8,6,.94);display:flex;align-items:center;justify-content:center;touch-action:none;user-select:none;-webkit-user-select:none}
+.lb img{max-width:100vw;max-height:100vh;transform-origin:0 0;will-change:transform;cursor:grab;-webkit-user-drag:none}
+.lb img.drag{cursor:grabbing}
+.lb button{position:absolute;background:rgba(255,255,255,.14);color:#fff;border:0;border-radius:22px;min-width:44px;height:44px;font-size:1.3rem;font-weight:800;padding:0 12px}
+.lb .x{top:max(12px,env(safe-area-inset-top));right:12px}
+.lb .pv{left:10px;top:50%;transform:translateY(-50%)}.lb .nx{right:10px;top:50%;transform:translateY(-50%)}
+.lb .cap{position:absolute;bottom:max(14px,env(safe-area-inset-bottom));left:0;right:0;text-align:center;color:#ddd;font-size:.82rem;pointer-events:none}
+.lb .zb{bottom:max(40px,calc(env(safe-area-inset-bottom) + 28px));right:12px;font-size:1rem}
 ul.ev{margin:4px 0 0;padding-left:18px;font-size:.88rem}ul.ev li{margin:3px 0}
 .paywall{position:fixed;inset:0;background:rgba(20,16,12,.55);display:flex;align-items:flex-end;justify-content:center;z-index:50}
 .pw-card{background:var(--panel,#fff);width:100%;max-width:560px;border-radius:18px 18px 0 0;padding:16px 16px calc(28px + var(--sab));box-shadow:0 -8px 30px rgba(0,0,0,.25);max-height:88vh;overflow:auto}
@@ -123,6 +131,6 @@ ul.ev{margin:4px 0 0;padding-left:18px;font-size:.88rem}ul.ev li{margin:3px 0}
 <script src="/rc-sdk.js?v=0.4"></script>
 <script src="/billing.js?v=0.9"></script>
 <script src="/sales.js?v=1.1"></script>
-<script src="/app.js?v=2.9"></script>
+<script src="/app.js?v=3.0"></script>
 </body>
 </html>
