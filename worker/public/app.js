@@ -190,8 +190,8 @@ function ebayCardHtml(s) {
   if (!s || !s.configured) return "";
   if (s.connected) return `<div class="card" style="padding:12px 16px">
       <div class="row" style="justify-content:space-between;align-items:center;gap:8px">
-        <div><b>eBay connected</b><div class="muted" style="font-size:.82rem">${s.username ? "as " + esc(s.username) : "Ready to list"}</div></div>
-        <a href="#" id="ebayOff" class="muted" style="font-size:.8rem;font-weight:700">Disconnect</a>
+        <div><b>eBay connected</b><div class="muted" style="font-size:.82rem">${s.username ? "as " + esc(s.username) : "Ready to list"} · <a href="#" id="ebayOff" class="muted" style="font-weight:700">Disconnect</a></div></div>
+        <button class="btn sec sm" id="toEbayOrders" style="white-space:nowrap">eBay sales <span id="ebayBadge"></span></button>
       </div></div>`;
   return `<div class="card" style="border-color:var(--cobalt)">
       <label>Sell it on eBay</label>
@@ -234,6 +234,7 @@ if (inAppBrowser()) {
 }
 function wireEbayCard(after) {
   if ($("#ebayOn")) $("#ebayOn").onclick = connectEbay;
+  if ($("#toEbayOrders")) { $("#toEbayOrders").onclick = () => renderEbayOrders(); ebayOrdersBadge($("#ebayBadge")); }
   if ($("#ebayOff")) $("#ebayOff").onclick = async e => {
     e.preventDefault();
     if (!confirm("Disconnect eBay?\n\nListings already on eBay stay up. To fully remove access, also remove Guestimator in My eBay > Account > Third-party app access.")) return;
@@ -1265,7 +1266,9 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
       // Back from eBay's sign-in in a browser tab: the callback redirected to /?ebay=connected.
       const fromEbay = new URLSearchParams(location.search).get("ebay") === "connected";
       if (fromEbay) history.replaceState(null, "", "/");
-      if (!(await afterStripeReturn())) await renderHome();
+      // #ebay-orders: the link in a "Sold on eBay" email.
+      if (location.hash === "#ebay-orders" && !fromEbay) await renderEbayOrders();
+      else if (!(await afterStripeReturn())) await renderHome();
       if (fromEbay) afterEbayReturn(true);
     }
     else renderAuth("login");

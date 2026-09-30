@@ -14,6 +14,8 @@ export const SCOPES = [
   "https://api.ebay.com/oauth/api_scope/sell.inventory",
   "https://api.ebay.com/oauth/api_scope/sell.account",
   "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
+  // Sale alerts: read orders for our listings and mark them shipped with tracking.
+  "https://api.ebay.com/oauth/api_scope/sell.fulfillment",
 ];
 export const SIGNUP_URL = "https://signup.ebay.com/pa/crte";
 
@@ -240,7 +242,9 @@ export async function userToken(env, db, userId) {
     return { token: await unseal(env, a.access_token_enc), acct: a };
   let j;
   try {
-    j = await tokenCall(env, { grant_type: "refresh_token", refresh_token: await unseal(env, a.refresh_token_enc), scope: SCOPES.join(" ") });
+    // No scope: eBay then grants what this account consented to. Asking for SCOPES would fail
+    // (invalid_scope) for every account connected before a scope was added to the list.
+    j = await tokenCall(env, { grant_type: "refresh_token", refresh_token: await unseal(env, a.refresh_token_enc) });
   } catch (e) {
     if (/invalid_grant/i.test(e.message)) {
       await db.prepare("DELETE FROM ebay_accounts WHERE user_id=?").bind(userId).run();

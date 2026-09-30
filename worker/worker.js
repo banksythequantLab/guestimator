@@ -9,6 +9,8 @@ import { appraise, sizeOnly } from "./appraiser.js";
 import * as ebay from "./ebay.js";
 import * as garage from "./garage.js";
 import { quoteShipping } from "./shipping.js";
+import * as ebayOrders from "./ebayorders.js";
+import { ebaySoldAlert } from "./notify.js";
 // Every Guestimator item lives in one hidden per-user `sales` row (the schema is Bottle Tree's).
 const GUESS_BUCKET = "Guestimator";
 // The Android app's URL scheme (strings.xml custom_url_scheme; AndroidManifest intent-filter).
@@ -267,7 +269,7 @@ export default {
             "INSERT INTO ebay_accounts (user_id,ebay_user_id,ebay_username,refresh_token_enc,refresh_expires_at,access_token_enc,access_expires_at,created_at,updated_at) " +
             "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET ebay_user_id=excluded.ebay_user_id, ebay_username=excluded.ebay_username, " +
             "refresh_token_enc=excluded.refresh_token_enc, refresh_expires_at=excluded.refresh_expires_at, access_token_enc=excluded.access_token_enc, " +
-            "access_expires_at=excluded.access_expires_at, updated_at=excluded.updated_at")
+            "access_expires_at=excluded.access_expires_at, fulfillment_ok=NULL, updated_at=excluded.updated_at")
             .bind(st.user_id, who.userId, who.username, await ebay.seal(env, tok.refresh_token), refreshExp,
                   await ebay.seal(env, tok.access_token), new Date(Date.now() + (tok.expires_in || 7200) * 1000).toISOString(), ts, ts).run();
           return done();
@@ -414,6 +416,44 @@ export default {
           if (!r.meta?.changes) return J({ error: "Connect your eBay account first" }, 409);
           return J({ postal_code: zip.slice(0, 5) });
         }
+      }
+
+      // ---------- eBay sales of Guestimator listings ----------
+      if (parts[1] === "ebay" && parts[2] === "orders") {
+        // List (reading eBay first if the last read is more than two minutes old).
+        if (parts.length === 3 && m === "GET") {
+          const a = await db.prepare("SELECT orders_synced_at, fulfillment_ok FROM ebay_accounts WHERE user_id=?").bind(userId).first();
+          let sync = null;
+          if (a && a.fulfillment_ok !== 0 && (!a.orders_synced_at || Date.now() - Date.parse(a.orders_synced_at) > 120e3)) {
+            try { sync = await ebayOrders.syncOrders(env, db, userId); } catch (e) { sync = { ok: false, error: String(e.message || e), new: [] }; }
+            for (const id of sync.new || []) ctx.waitUntil(ebaySoldAlert(db, env, id, env.PUBLIC_ORIGIN || url.origin).catch(e => console.log("ebaySoldAlert", e)));
+          }
+          const { results } = await db.prepare(
+            "SELECT e.id, e.order_id, e.item_id, e.title, e.quantity, e.buyer, e.total_cents, e.ship_to, e.ship_service, e.ship_by, e.status, e.tracking, e.ordered_at, " +
+            "COALESCE(i.ai_title, i.name, e.title) AS item_title, (SELECT r2_key FROM photos p WHERE p.item_id=e.item_id ORDER BY p.sort, p.created_at LIMIT 1) AS thumb_key " +
+            "FROM ebay_orders e LEFT JOIN items i ON i.id=e.item_id WHERE e.user_id=? AND (e.status IN ('NOT_STARTED','IN_PROGRESS') OR e.ordered_at > ?) ORDER BY e.ordered_at DESC LIMIT 50")
+            .bind(userId, new Date(Date.now() - 30 * 86400e3).toISOString()).all();
+          return J({ connected: !!a, needs_reconnect: !!a && (a.fulfillment_ok === 0 || !!sync?.needs_reconnect), error: sync && !sync.ok ? sync.error || null : null,
+                     orders: results.map(r => ({ ...r, thumb: r.thumb_key ? `/p/${r.thumb_key}` : null })) });
+        }
+        if (parts[4] === "ship" && m === "POST") {
+          const b = await readJson(request);
+          const r = await ebayOrders.markShipped(env, db, userId, decodeURIComponent(parts[3]), b.tracking, b.carrier);
+          return J(r.ok ? { ok: true, carrier: r.carrier } : { error: r.error }, r.status);
+        }
+        if (parts[4] === "slip" && m === "GET") {
+          const o = await db.prepare("SELECT e.*, COALESCE(i.ai_title, i.name, e.title) AS item_title FROM ebay_orders e LEFT JOIN items i ON i.id=e.item_id WHERE e.id=? AND e.user_id=?")
+            .bind(decodeURIComponent(parts[3]), userId).first();
+          if (!o) return J({ error: "not found" }, 404);
+          const acct = await db.prepare("SELECT ebay_username FROM ebay_accounts WHERE user_id=?").bind(userId).first();
+          const ap = await db.prepare("SELECT result_json FROM appraisals WHERE item_id=? AND status='done' ORDER BY created_at DESC LIMIT 1").bind(o.item_id).first();
+          let ship = null; try { ship = ap?.result_json ? JSON.parse(ap.result_json).shipping : null; } catch {}
+          return H(garage.slipHtml({ title: acct?.ebay_username ? `eBay seller ${acct.ebay_username}` : "eBay seller" },
+            { id: o.id, ref: o.order_id, channel: "ebay", fulfilment: "ship", status: o.status === "CANCELLED" ? "refund_needed" : "paid",
+              item_cents: null, ship_cents: null, quantity: o.quantity, total_cents: o.total_cents, ship_address: o.ship_to,
+              tracking: o.tracking, created_at: o.ordered_at }, o.item_title || "Item", ship), 200, "no-store");
+        }
+        return J({ error: "not found" }, 404);
       }
 
       // ---------- Guestimator: one flat list of the user's items ----------
@@ -788,6 +828,22 @@ export default {
       return J({ error: "not found" }, 404);
     } catch (e) {
       return J({ error: String(e && e.message || e) }, 500);
+    }
+  },
+
+  // Every 15 minutes: read eBay orders for connected sellers, so a sale is noticed even when
+  // nobody has the app open. At most 25 accounts a run, least recently read first.
+  async scheduled(event, env, ctx) {
+    const db = env.DB, origin = env.PUBLIC_ORIGIN || "https://app.theguestimator.com";
+    const cutoff = new Date(Date.now() - 10 * 60e3).toISOString();
+    const { results } = await db.prepare(
+      "SELECT a.user_id FROM ebay_accounts a WHERE COALESCE(a.fulfillment_ok,1)<>0 AND (a.orders_synced_at IS NULL OR a.orders_synced_at < ?) " +
+      "AND EXISTS (SELECT 1 FROM ebay_listings l WHERE l.user_id=a.user_id AND l.status='published') ORDER BY a.orders_synced_at LIMIT 25").bind(cutoff).all();
+    for (const { user_id } of results) {
+      try {
+        const r = await ebayOrders.syncOrders(env, db, user_id);
+        for (const id of r.new || []) await ebaySoldAlert(db, env, id, origin).catch(e => console.log("ebaySoldAlert", e));
+      } catch (e) { console.log("ebay order sync failed", user_id, String(e && e.message || e)); }
     }
   },
 

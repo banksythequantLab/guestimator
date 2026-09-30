@@ -35,6 +35,8 @@
       "dead_letter_queue": "guestimator-appraisals-dlq"
     }]
   },
+  // eBay sale alerts: read orders for connected sellers (worker.js scheduled()).
+  "triggers": { "crons": ["*/15 * * * *"] },
   // Seller alerts (hold requests, sold online) via Cloudflare Email Service. theguestimator.com
   // has to be set up for sending in the dashboard; until then sends fail and are only logged.
   "send_email": [{ "name": "EMAIL" }],

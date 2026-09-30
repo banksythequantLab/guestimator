@@ -148,3 +148,22 @@ export async function buyerShippedEmail(db, env, orderId, origin) {
     text: plain(title, rows, link), html: shell(title, rows, link, track ? "Track it" : "See the sale", "Questions? Just reply - it goes to the seller."),
     replyTo: s.seller_email || undefined });
 }
+
+// ---------------------------------------------------------------- eBay
+/** Something listed through Guestimator sold on eBay. eBay emails too; this one says what to do next. */
+export async function ebaySoldAlert(db, env, rowId, origin) {
+  const o = await db.prepare(
+    `SELECT e.*, u.email AS seller_email, COALESCE(i.ai_title, i.name, e.title) AS item_title
+       FROM ebay_orders e JOIN users u ON u.id=e.user_id LEFT JOIN items i ON i.id=e.item_id WHERE e.id=?`).bind(rowId).first();
+  if (!o || o.status === "CANCELLED") return { sent: false, why: "no open order" };
+  let to = null;
+  try { const a = JSON.parse(o.ship_to || "null"); const d = a && a.address;
+        if (d) to = [a.name, d.line1, d.line2, [d.city, d.state, d.postal_code].filter(Boolean).join(" ")].filter(Boolean).join("\n"); } catch {}
+  const title = `Sold on eBay: ${o.item_title || "an item"}`;
+  const rows = [["Item", o.item_title], ["Paid", o.total_cents != null ? money(o.total_cents) : null], ["Buyer", o.buyer],
+                ["Ship to", to], ["Ship by", o.ship_by ? String(o.ship_by).slice(0, 10) : null]];
+  const link = `${origin}/#ebay-orders`;
+  return sendAlert(env, { to: o.seller_email, subject: title + (o.total_cents != null ? ` - ${money(o.total_cents)}` : ""),
+    text: plain(title, rows, link) + "\n\nPrint the packing slip, ship it, then add the tracking number in Guestimator - it goes to eBay for you.",
+    html: shell(title, rows, link, "Open my eBay sales", "You're getting this because you listed this item on eBay with Guestimator.") });
+}

@@ -608,7 +608,8 @@ export function slipHtml(sale, o, title, ship) {
   const to = shipToLines(o.ship_address);
   const from = [sale.title, sale.street, [sale.city, [sale.state, sale.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")].filter(Boolean);
   const day = String(o.updated_at || o.created_at || "").slice(0, 10);
-  const ref = String(o.id).slice(0, 8).toUpperCase();
+  const ref = o.ref || String(o.id).slice(0, 8).toUpperCase();
+  const ebayOrder = o.channel === "ebay";
   const row = (k, v) => `<tr><td>${esc(k)}</td><td class="r">${esc(v)}</td></tr>`;
   const box = isShip && ship && Array.isArray(ship.box_in)
     // In the on-screen bar only (hidden when printed): it's a note for the seller, not the buyer.
@@ -623,9 +624,9 @@ export function slipHtml(sale, o, title, ship) {
 <h1>${isShip ? "Packing slip" : "Pickup receipt"}</h1><div class="m">Order ${esc(ref)} · paid online ${esc(day)}${o.status === "refund_needed" ? " · <b>REFUND DUE: do not send</b>" : ""}</div>
 <div class="cols"><div><div class="lb">From</div><div class="addr">${from.map(esc).join("<br>")}</div></div>
 <div><div class="lb">${isShip ? "Ship to" : "Buyer"}</div><div class="addr">${(isShip ? to : [o.buyer_name, o.buyer_email].filter(Boolean)).map(esc).join("<br>") || "—"}</div></div></div>
-<table>${row(title, money(o.item_cents))}${isShip ? row("Shipping", o.ship_cents ? money(o.ship_cents) : "Free") : ""}<tr class="tot"><td>Paid</td><td class="r">${esc(money(o.total_cents))}</td></tr></table>
+<table>${o.item_cents != null ? row(title, money(o.item_cents)) : row(title + (o.quantity > 1 ? ` × ${o.quantity}` : ""), "")}${isShip && o.ship_cents != null ? row("Shipping", o.ship_cents ? money(o.ship_cents) : "Free") : ""}<tr class="tot"><td>Paid</td><td class="r">${esc(money(o.total_cents))}</td></tr></table>
 ${o.tracking ? `<p><b>Tracking:</b> ${esc(o.tracking)}</p>` : ""}
-${isShip ? `<p class="m">Questions about this order? Reply to your order email and it reaches the seller.</p>`
+${isShip ? `<p class="m">${ebayOrder ? "Sold on eBay. Questions about this order? Message the seller through eBay." : "Questions about this order? Reply to your order email and it reaches the seller."}</p>`
   : `<p class="m">Paid in full online. Pickup at ${esc(from.slice(1).join(", ") || sale.city)} · ${esc(whenText(sale))}.</p><div class="sig"><div>Picked up by (signature)</div><div>Date</div></div>`}
 </div></body></html>`;
 }
