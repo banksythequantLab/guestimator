@@ -11,6 +11,7 @@ const S = (title, price, extra = {}) => ({ itemId: String(Math.random()).slice(2
   condition: "Pre-Owned", soldPrice: String(price), soldCurrency: "USD", shippingPrice: "5.00", endedAt: "2026-09-20", bestOfferAccepted: false, ...extra });
 
 const kits = mapSold([S("64GB (32GBx2) SK Hynix DDR4-2400T RDIMM", 320), S("4x SK Hynix 32GB DDR4-2400 ECC RDIMM 128GB", 650), S("8 x Dimms -SK hynix (4x32GB) DDR4 PC4-2400T", 999),
+  S("SK Hynix 2x32GB DDR4-2666 ECC RDIMM 2Rx4 PC4-21300R", 330),
   S("SK Hynix 32GB 2Rx4 PC4-2400 DDR4 ECC Registered", 159)], "SK Hynix 32GB DDR4 2400 RDIMM");
 ok("multi-stick kits left out of a single-item sold price", kits.length === 1 && kits[0].price === 159, kits.map(k => k.title));
 ok("a set is compared with sets", mapSold([S("Pair of brass candlesticks", 80)], "pair of brass candlesticks").length === 1);

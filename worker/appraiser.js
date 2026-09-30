@@ -960,8 +960,9 @@ export function mapSold(items, query) {
 export function packOf(title) {
   const t = String(title || "");
   const m = t.match(/\b\d+\s*(?:gb|tb|mb)\s*x\s*(\d{1,2})\b/i);   // "(32GBx2)"
+  const n = t.match(/\b(\d{1,2})\s*x\s*\d+\s*(?:gb|tb|mb)\b/i);   // "2x32GB"
   const lot = detectLot(t, "");
-  return Math.max(m ? Number(m[1]) : 1, lot && lot.count > 1 ? lot.count : 1);
+  return Math.max(m ? Number(m[1]) : 1, n ? Number(n[1]) : 1, lot && lot.count > 1 ? lot.count : 1);
 }
 export async function ebaySold(env, query, limit = 30, maxLookups = 3) {
   _soldFail = null;
@@ -1911,7 +1912,10 @@ export async function appraise(env, req) {
     // Same for sales: once the model has said which sold listings are this item, the sold line
     // is built from those, so an LRDIMM or a 2133 that slipped past the filters drops out of it.
     const keptSold = keptLive(sold || [], comparables);
-    if (keptSold.length >= 2) soldShown = { ...summarise(keptSold, "eBay sold, last 90 days"), recent: keptSold };
+    // Even one kept sale beats the raw set: measured on SK Hynix 32GB, the model kept 1 of 10
+    // and the raw fallback showed $100–$1,100 with a 2x32GB kit in it. Nothing kept, nothing shown.
+    if (keptSold.length) soldShown = { ...summarise(keptSold, "eBay sold, last 90 days"), recent: keptSold };
+    else if (comparables.length) soldShown = null;
 
     // Two markets under one set of search terms. The dealer owns one of them, and which one
     // changes the price several-fold, so neither a single range nor a quiet trim is honest.
