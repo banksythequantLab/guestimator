@@ -410,6 +410,7 @@ function renderEbayDraft(id, d) {
         <div style="flex:1"><div class="muted" style="font-size:.75rem">Buyer pays</div><input id="eShip" inputmode="decimal" value="${esc(val.shipping_cost)}" placeholder="e.g. 12.00 (0 = free)"></div>
         <div style="flex:.7"><div class="muted" style="font-size:.75rem">Ships within</div><select id="eDays">${["1", "2", "3", "5"].map(n => `<option value="${n}"${n === val.handling_days ? " selected" : ""}>${n} day${n === "1" ? "" : "s"}</option>`).join("")}</select></div>
       </div>
+      ${d.shipping ? `<div style="font-size:.8rem;margin-top:8px">${shipLine(d.shipping)}</div>` : ""}
       <div class="muted" style="font-size:.75rem;margin-top:6px">USPS Priority, flat rate. 30-day returns, buyer pays return shipping. Change these any time in eBay Seller Hub.</div>
     </div>
     <button class="btn" id="eGo" style="background:var(--cobalt)">Preview listing &amp; eBay fees</button>
@@ -845,6 +846,7 @@ async function renderItemDetail(id) {
           ${(r.live_listings || []).length ? `<div style="margin-top:5px">${r.live_listings.map(l =>
             `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><a href="${esc(l.url)}" target="_blank" rel="noopener" style="color:var(--cobalt)">$${Math.round(l.price)}${l.condition ? ` · ${esc(l.condition)}` : ""} — ${esc(l.title)}</a></div>`).join("")}</div>` : ""}
         </div>` : ""}
+      ${r.shipping && !nc ? `<div style="margin:8px 0;padding:8px 10px;border-left:3px solid var(--sub);background:var(--bg);font-size:.82rem">${shipLine(r.shipping)}</div>` : ""}
       ${r.melt ? `<div style="margin:8px 0;padding:8px 10px;border-left:3px solid var(--green);background:var(--bg);font-size:.82rem">
           <b>Metal content:</b> ${r.melt.fine_troy_oz} ozt ${esc(r.melt.metal)} × $${r.melt.price_per_oz.toFixed(2)}/ozt = <b>$${r.melt.value} melt</b>
           <div class="muted" style="margin-top:3px">${esc(r.melt.basis)}</div>
@@ -948,6 +950,17 @@ async function renderItemDetail(id) {
   if ($("#retry")) $("#retry").onclick = () => rerun();
   state.view = "item"; state.itemId = id;
   if (pending) pollT = setTimeout(() => { if (state.view === "item") renderItemDetail(id); }, 4000);
+}
+
+// Estimated shipping: packed weight and box. Estimates from a photo, so it says so and says how to
+// firm it up - the dealer weighs it before buying a label.
+function shipLine(s) {
+  const lb = n => (n < 1 ? `${Math.round(n * 16)} oz` : `${n} lb`);
+  const box = (s.box_in || []).join(" × ");
+  const dim = s.dim_weight_lb > Math.ceil(s.packed_weight_lb)
+    ? ` UPS/FedEx will bill it as <b>${s.dim_weight_lb} lb</b> because the box is big for its weight.` : "";
+  return `<b>📦 Shipping estimate:</b> about <b>${lb(s.packed_weight_lb)}</b> packed, in a <b>${esc(box)} in</b> box${s.fragile ? " — <b>fragile</b>, pack with 3 in of padding" : ""}.${dim}
+    <div class="muted" style="margin-top:3px">Item alone ~${lb(s.item_weight_lb)}${s.basis ? ` (${esc(s.basis)})` : ""}. Guessed from the photos: weigh it before you buy a label.</div>`;
 }
 
 // ---------- Refine & re-run: back to photos + details, with what the last estimate found ----------

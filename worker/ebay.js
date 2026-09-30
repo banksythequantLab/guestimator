@@ -368,6 +368,9 @@ export async function buildDraft(env, { item, photos, result, origin, categoryId
     price: startingPrice(result),
     price_basis: result?.price_range?.suggested_retail > 0 ? "suggested retail from the estimate"
       : result?.market?.median > 0 ? "median of live eBay asking prices" : null,
+    // Estimated packed weight and box, shown beside the shipping price so the seller has
+    // something better than a guess to price shipping from.
+    shipping: result?.shipping || null,
     category: cat, categories: cats,
     // Measured live 2026-09-27: Antiques > Silver > Silverplate > Flatware returns NO condition
     // policies at all. Such a category does not use item condition, so none is sent.

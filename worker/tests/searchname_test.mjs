@@ -34,6 +34,14 @@ eq("shared word means no conflict",
   ignoresDealer("Red Wing 5 gallon salt glaze crock", "big old stoneware crock from the barn"), false);
 eq("no shared word is a conflict",
   ignoresDealer("Reloaded Federal 12 Gauge Shotshells", "WWII Silver Jefferson Nickels 4 Rolls"), true);
+// A capacity or model number is a word too. "16gb memory" vs the model's server-RAM name agree
+// on 16gb; before 2026-09-30 only letters-only words were compared and this was a "conflict".
+eq("letters+digits token counts as a shared word",
+  ignoresDealer("SK Hynix 16GB DDR4-2666 ECC Reg Server RAM (HPE PN 846794-001)", "16gb memory"), false);
+eq("different capacity still disagrees",
+  ignoresDealer("SK Hynix 32GB DDR4-2666 ECC Server RAM", "16gb memory"), true);
+eq("bare numbers and years are not model tokens",
+  ignoresDealer("1943 Walking Liberty Half Dollar", "1943 steel pennies"), true);
 
 // One shared word is not agreement. Production, 2026-09-23: "2023 American Silver Eagle Coin
 // Set" against "4 rolls of world war 2 silver nickels" shares only "silver". The old test let it

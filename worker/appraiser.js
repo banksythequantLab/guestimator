@@ -45,7 +45,8 @@ const IDENTIFY_SCHEMA = `{
  "price_range": {"low": 0, "high": 0, "suggested_retail": 0, "floor": 0, "currency": "USD", "basis": ""},
  "listing": {"title": "", "description": "", "tags": [], "condition_grade": ""},
  "dealer_questions": [{"q": "", "options": []}],
- "questions_for_dealer": []
+ "questions_for_dealer": [],
+ "shipping": {"item_weight_lb": 0, "item_in": [0, 0, 0], "fragile": false, "basis": ""}
 }
 
 FIELD GUIDE (do not copy these sentences into the JSON):
@@ -73,6 +74,11 @@ FIELD GUIDE (do not copy these sentences into the JSON):
   "Does a magnet stick to it?" ["Yes","No"]. Options must be mutually exclusive, under 24
   characters, and phrased as the dealer's answer. Include "Can't tell" whenever it is a real
   possibility. Ask nothing you could answer yourself from the photographs.
+- shipping: your best estimate of the item ITSELF, unpacked. item_weight_lb in pounds (decimals ok,
+  e.g. 0.3 for a teacup, 4 for a 12x18 framed oil, 25 for a 5-gallon crock). item_in = its
+  length, width, height in inches, largest first. If the dealer states a size or weight, use
+  theirs exactly. fragile = true for glass, ceramic, porcelain, framed art under glass, anything
+  that breaks. basis = a few words on what you based it on. Never leave these at zero.
 - Never ask again what the dealer's description already answers. It often holds earlier questions
   with their answers as "question: answer" - "No" and "None" are answers, not gaps. Ask about
   something new, or ask nothing.
@@ -767,6 +773,44 @@ export function forgetAnswered(first, description) {
   return first;
 }
 
+// Weight and box size for shipping, from the model's estimate of the bare item. The model is
+// asked only for what it can judge from a photo - how heavy, how big, does it break - and the
+// packing arithmetic is done here, the same way every time, because a model asked for "box size"
+// hands back the item's own size about half the time.
+//   box      = item + 2" of padding a side (3" if fragile), rounded up to whole inches
+//   packed   = item + box and fill, which scales with the box's volume
+//   dim wt   = what UPS and FedEx bill on when the box is big and light (L*W*H / 139)
+export function shippingEstimate(raw, lot) {
+  if (!raw || typeof raw !== "object") return null;
+  const w = Number(raw.item_weight_lb);
+  const dims = (Array.isArray(raw.item_in) ? raw.item_in : []).map(Number).filter(n => Number.isFinite(n) && n > 0);
+  if (!(w > 0) || dims.length < 2) return null;
+  while (dims.length < 3) dims.push(1);
+  const count = lot && lot.count > 1 ? lot.count : 1;
+  const fragile = raw.fragile === true || raw.fragile === "true";
+  const item = dims.slice(0, 3).map(d => Math.min(108, Math.max(0.5, d))).sort((a, b) => b - a);
+  // A lot ships together: stack the pieces along their thinnest side.
+  if (count > 1) item[2] = Math.min(108, item[2] * count);
+  item.sort((a, b) => b - a);
+  const pad = fragile ? 3 : 2;
+  const box = item.map(d => Math.ceil(d + 2 * pad));
+  const itemLb = Math.min(150, Math.max(0.05, w)) * count;
+  const vol = box[0] * box[1] * box[2];
+  const packLb = Math.max(0.3, vol * (fragile ? 0.0005 : 0.00035));
+  const packed = Math.round((itemLb + packLb) * 10) / 10;
+  const dimLb = Math.ceil(vol / 139);
+  return {
+    item_weight_lb: Math.round(itemLb * 10) / 10,
+    packed_weight_lb: packed,
+    // Round up to the next whole pound: that's how every carrier bills.
+    billable_lb: Math.max(Math.ceil(packed), dimLb),
+    dim_weight_lb: dimLb,
+    box_in: box,
+    fragile,
+    basis: String(raw.basis || "").slice(0, 160),
+  };
+}
+
 export function dealerQuestions(first) {
   const raw = Array.isArray(first && first.dealer_questions) ? first.dealer_questions : [];
   const asked = raw
@@ -1129,6 +1173,12 @@ const compounds = s => {
   const add = w => { out.add(w); const st = stem(w); if (st) out.add(st); };
   for (const w of raw) if (!STOP.has(w)) add(w);
   for (let i = 0; i + 1 < raw.length; i++) add(raw[i] + raw[i + 1]);
+  // Tokens mixing letters and digits - "16gb", "ddr4", "2rx8", "model-12" - are the most specific
+  // thing a dealer types, and the letters-only pattern above never saw them. Production,
+  // 2026-09-30: "16gb memory" against "SK Hynix 16GB DDR4-2666 ECC Server RAM" shared no word
+  // ("memory" isn't "RAM"), so a correct identification was overruled and its price withheld.
+  for (const t of String(s || "").toLowerCase().match(/[a-z0-9]+/g) || [])
+    if (t.length >= 3 && /[a-z]/.test(t) && /\d/.test(t)) out.add(t);
   return out;
 };
 
@@ -1543,7 +1593,8 @@ export async function appraise(env, req) {
     ? `\n\n## This is a lot of ${lotInfo.count}\nThe dealer's text describes ${lotInfo.count} identical ` +
       `pieces (${lotInfo.how}). Price ONE PIECE in price_range, not the lot. Do NOT multiply by ` +
       `${lotInfo.count} — that is done afterwards, outside your answer. Comparable listings are ` +
-      `per-piece prices, so compare like with like.`
+      `per-piece prices, so compare like with like. The shipping weight and size are for ONE ` +
+      `piece too; the lot's box is worked out afterwards.`
     : "";
 
   const sheet = buildEvidenceSheet(req, findings) + spotSheet + lotSheet;
@@ -1975,6 +2026,7 @@ export async function appraise(env, req) {
     comparables,
     listing,
     questions_for_dealer: clean(strs(first.questions_for_dealer)),
+    shipping: shippingEstimate(first.shipping, lotInfo),
     photo_findings: findings,
     models: { text: c.text, vision: c.vision, brain: "worker" },
     warnings,
