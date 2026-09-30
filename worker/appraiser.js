@@ -6,7 +6,9 @@ const DEFAULTS = {
   base: "https://api.tokenfactory.nebius.com/v1/",
   text: "nvidia/nemotron-3-super-120b-a12b",
   vision: "google/gemma-3-27b-it",
-  visionFallbacks: ["Qwen/Qwen2.5-VL-72B-Instruct", "google/gemma-3-27b-it"],
+  // Checked against Token Factory's /v1/models on 2026-09-30: Qwen2.5-VL-72B is gone (404), so it
+  // was a wasted call on every vision failure. MiniCPM-V 4.5 is the other vision model listed.
+  visionFallbacks: ["google/gemma-3-27b-it", "openbmb/MiniCPM-V-4_5"],
 };
 
 // ---------- prompts (verbatim from pipeline.py — these are tuned, don't paraphrase them) ----------

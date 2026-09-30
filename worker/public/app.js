@@ -270,6 +270,7 @@ async function renderHome() {
       <h1 class="h1" style="margin:0 0 4px">What's it worth?</h1>
       <div class="muted" style="font-size:.9rem;margin-bottom:12px">Snap a few photos, say what you know, and get a price from what's listed right now — with the comparables to prove it.</div>
       <button class="btn" id="aiAdd">📷 Guestimate something</button>
+      <button class="btn sec" id="bulkAdd" style="margin-top:8px">🏠 Lots of items at once</button>
     </div>
     <div id="ebayCard"></div>
     <div class="card"><div class="row" style="justify-content:space-between;align-items:center;gap:10px">
@@ -281,6 +282,7 @@ async function renderHome() {
     <div class="row" style="justify-content:space-between;margin:14px 2px 6px"><h3>Your items</h3></div>
     <div id="itemList" class="list"><div class="muted" style="padding:10px">Loading…</div></div>`;
   $("#aiAdd").onclick = () => renderCapture();
+  $("#bulkAdd").onclick = () => renderBulk();
   $("#toSales").onclick = () => renderSales();
   $("#toProfit").onclick = () => renderProfit();
   $("#signout").onclick = e => { e.preventDefault(); logout(); };

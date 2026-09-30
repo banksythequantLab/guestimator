@@ -243,3 +243,69 @@ async function renderProfit(range) {
   app.querySelectorAll("[data-range]").forEach(b => b.onclick = () => renderProfit(b.dataset.range));
   app.querySelectorAll("[data-item]").forEach(li => li.onclick = () => renderItemDetail(li.dataset.item));
 }
+
+// ---------- bulk mode: many items in one go ----------
+// One photo per item, taken back to back (or picked from the camera roll all at once), a few
+// words each, then all created together and optionally all priced. Finding items inside a single
+// room photo was tried first (Sep 30 2026): none of the vision models on Token Factory put boxes
+// in the right place reliably, so crops cut items in half. One photo per item always works.
+async function renderBulk() {
+  state.view = "bulk"; setChrome(); backTo(renderHome);
+  ctx.textContent = "Lots of items";
+  const picked = [];   // { file, url }
+  const draw = () => {
+    $("#bList").innerHTML = picked.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px">${picked.map((p, n) => `
+      <div style="border:1px solid var(--line);border-radius:10px;padding:6px">
+        <img src="${p.url}" alt="" style="width:100%;height:120px;object-fit:cover;border-radius:6px">
+        <input data-bname="${n}" value="${esc(p.name || "")}" placeholder="What is it? e.g. brass lamp" style="font-size:.85rem;margin-top:4px">
+        <a href="#" data-bdel="${n}" class="muted" style="font-size:.75rem">remove</a></div>`).join("")}</div>
+      <button class="btn" id="bAdd" style="margin-top:12px">Add ${picked.length} item${picked.length === 1 ? "" : "s"}</button>` : "";
+    app.querySelectorAll("[data-bname]").forEach(i => i.oninput = () => { picked[Number(i.dataset.bname)].name = i.value; });
+    app.querySelectorAll("[data-bdel]").forEach(a => a.onclick = e => { e.preventDefault(); picked.splice(Number(a.dataset.bdel), 1); draw(); });
+    if ($("#bAdd")) $("#bAdd").onclick = addAll;
+  };
+  app.innerHTML = `<div class="card" style="border-color:var(--green)">
+      <h1 class="h1" style="margin:0 0 4px">Lots of items at once</h1>
+      <div class="muted" style="font-size:.9rem;margin-bottom:12px">Clearing out a shelf, a room or a whole house? Take one photo of each thing, back to back, or pick them all from your camera roll. Give each a few words, then add them all together. Adding is free; each estimate is 1 credit.</div>
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        <label class="btn" style="flex:1;text-align:center">📷 Take a photo<input type="file" id="bCam" accept="image/*" capture="environment" style="display:none"></label>
+        <label class="btn sec" style="flex:1;text-align:center">🖼 Pick several<input type="file" id="bRoll" accept="image/*" multiple style="display:none"></label></div>
+    </div><div id="bList"></div>`;
+  const take = files => { for (const f of files) if (picked.length < 50) picked.push({ file: f, url: URL.createObjectURL(f), name: "" }); draw(); if (picked.length >= 50) toast("50 at a time — add these, then do the next batch"); };
+  $("#bCam").onchange = e => { take([...e.target.files]); e.target.value = ""; };
+  $("#bRoll").onchange = e => { take([...e.target.files]); e.target.value = ""; };
+
+  async function addAll() {
+    const missing = picked.findIndex(p => !String(p.name || "").trim());
+    if (missing !== -1) { const i = app.querySelector(`[data-bname="${missing}"]`); i.focus(); i.style.borderColor = "var(--rust)"; return toast("Give each one a few words — the photo alone gets it wrong too often."); }
+    const btn = $("#bAdd"); btn.disabled = true;
+    const made = [];
+    for (const p of picked) {
+      btn.textContent = `Adding ${made.length + 1} of ${picked.length}…`;
+      const name = p.name.trim().slice(0, 120);
+      try {
+        const { id } = await api("/items", { method: "POST", body: JSON.stringify({ name, description: name }) });
+        const fd = new FormData(); fd.append("photos", await shrink(p.file), "front.jpg"); fd.append("kinds", "front");
+        const up = await fetch(`/api/items/${id}/photos`, { method: "POST", body: fd, credentials: "same-origin" });
+        if (!up.ok) throw new Error("photo upload failed");
+        made.push(id);
+      } catch (e) { toast(`${name}: ${e.message}`); }
+    }
+    $("#bList").innerHTML = `<div class="card" style="border-color:var(--green)"><b>Added ${made.length} item${made.length === 1 ? "" : "s"}</b>
+      <div class="muted" style="font-size:.85rem;margin:4px 0 10px">Price them all now, or open each one to add a close-up of its marks first (better estimates).</div>
+      <button class="btn" id="bPrice">✨ Guestimate all ${made.length} (${made.length} credit${made.length === 1 ? "" : "s"})</button>
+      <button class="btn sec" id="bLater" style="margin-top:8px">Later — show my items</button></div>`;
+    $("#bLater").onclick = renderHome;
+    $("#bPrice").onclick = async () => {
+      if (!confirm(`Use ${made.length} credit${made.length === 1 ? "" : "s"} to price all ${made.length}?`)) return;
+      const b2 = $("#bPrice"); b2.disabled = true; let done = 0;
+      for (const id of made) {
+        b2.textContent = `Starting ${done + 1} of ${made.length}…`;
+        try { await api(`/items/${id}/appraise`, { method: "POST", body: JSON.stringify({}) }); done++; }
+        catch (e) { toast(e.message); break; }   // out of credits: the paywall has opened; stop here
+      }
+      toast(`${done} estimate${done === 1 ? "" : "s"} running — they show on your items as they finish`);
+      renderHome();
+    };
+  }
+}
