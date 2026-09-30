@@ -18,7 +18,9 @@ ok("friendly names", p.usps_priority.service === "USPS Priority Mail");
 
 let s = suggest([{ label: "Nearby", rates: { usps_priority: { service: "USPS Priority Mail", amount: 9.1 } } },
                  { label: "Mid-country", rates: { usps_priority: { service: "USPS Priority Mail", amount: 12.3 }, usps_ground_advantage: { service: "G", amount: 8 } } }]);
-ok("suggests mid-country Priority rounded up", s.suggested === 13 && /mid-country/.test(s.basis), s);
+ok("suggests mid-country Ground Advantage by default", s.suggested === 8 && /mid-country/.test(s.basis), s);
+s = suggest([{ label: "Mid-country", rates: { usps_priority: { service: "USPS Priority Mail", amount: 12.3 }, usps_ground_advantage: { service: "G", amount: 8 } } }], "priority");
+ok("suggests Priority when that's the chosen service, rounded up", s.suggested === 13, s);
 s = suggest([{ label: "Mid-country", rates: { ups_ground: { service: "UPS Ground", amount: 14.01 } } }]);
 ok("falls back to cheapest when no Priority", s.suggested === 15 && s.suggested_service === "UPS Ground", s);
 ok("no rates -> null suggestion", suggest([{ label: "Mid-country", rates: {} }]).suggested === null);
@@ -40,7 +42,8 @@ ok("ZIP-only quote addresses", JSON.stringify(calls[1].body.address_from) === '{
 ok("parcel is the estimated box and packed weight", JSON.stringify(calls[0].body.parcels[0]) === JSON.stringify({ length: "22", width: "16", height: "6", distance_unit: "in", weight: "4.8", mass_unit: "lb" }), calls[0].body.parcels[0]);
 ok("synchronous rating", calls[0].body.async === false);
 ok("zones labelled", q.zones.map(z => z.label).join("|") === "Nearby|Mid-country|Across the country");
-ok("suggested from mid-country Priority", q.suggested === 15, q);
+ok("suggested from mid-country Ground Advantage", q.suggested === 10, q);
+ok("Priority quote on request", (await quoteShipping(env, "07086", est, "priority")).suggested === 15);
 
 const err = async (fn) => { try { await fn(); return null; } catch (e) { return e; } };
 let e = await err(() => quoteShipping({}, "07086", est));

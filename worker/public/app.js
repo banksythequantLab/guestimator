@@ -359,6 +359,7 @@ function renderEbayDraft(id, d) {
     description: e ? e.description : d.description,
     postal_code: e && e.postal_code ? e.postal_code : ((ebayStatus && ebayStatus.postal_code) || ""),
     shipping_cost: e ? e.shipping_cost : "",
+    shipping_service: e && e.shipping_service === "priority" ? "priority" : "ground",
     handling_days: e ? String(e.handling_days) : "3",
   };
   const conds = d.conditions && d.conditions.length ? d.conditions : CONDITION_FALLBACK;
@@ -410,15 +411,18 @@ function renderEbayDraft(id, d) {
         <div style="flex:1"><div class="muted" style="font-size:.75rem">Buyer pays</div><input id="eShip" inputmode="decimal" value="${esc(val.shipping_cost)}" placeholder="e.g. 12.00 (0 = free)"></div>
         <div style="flex:.7"><div class="muted" style="font-size:.75rem">Ships within</div><select id="eDays">${["1", "2", "3", "5"].map(n => `<option value="${n}"${n === val.handling_days ? " selected" : ""}>${n} day${n === "1" ? "" : "s"}</option>`).join("")}</select></div>
       </div>
+      <div style="margin-top:8px"><div class="muted" style="font-size:.75rem">Ship by</div>
+        <select id="eSvc"><option value="ground"${val.shipping_service === "ground" ? " selected" : ""}>USPS Ground Advantage — cheaper, 2–5 days</option>
+          <option value="priority"${val.shipping_service === "priority" ? " selected" : ""}>USPS Priority Mail — faster, 1–3 days</option></select></div>
       ${d.shipping ? `<div style="font-size:.8rem;margin-top:8px">${shipLine(d.shipping)}</div>
       <button class="btn sec sm" id="eQuote" style="margin-top:8px">💲 Get real shipping prices</button><div id="eQuoteOut"></div>` : ""}
-      <div class="muted" style="font-size:.75rem;margin-top:6px">USPS Priority, flat rate. 30-day returns, buyer pays return shipping. Change these any time in eBay Seller Hub.</div>
+      <div class="muted" style="font-size:.75rem;margin-top:6px">One flat price by the USPS service above. 30-day returns, buyer pays return shipping. Change these any time in eBay Seller Hub.</div>
     </div>
     <button class="btn" id="eGo" style="background:var(--cobalt)">Preview listing &amp; eBay fees</button>
     <div class="muted" style="font-size:.75rem;text-align:center;margin:8px 0 20px">Nothing goes live yet. Next you'll see the listing and eBay's exact fees, then decide.</div>`;
   const tc = () => $("#tCount").textContent = `(${$("#eTitle").value.length}/80)`;
   $("#eTitle").oninput = tc; tc();
-  if ($("#eQuote")) $("#eQuote").onclick = () => getShipQuote(id, $("#eZip").value, $("#eQuote"), $("#eQuoteOut"), $("#eShip"));
+  if ($("#eQuote")) $("#eQuote").onclick = () => getShipQuote(id, $("#eZip").value, $("#eQuote"), $("#eQuoteOut"), $("#eShip"), $("#eSvc").value);
   // Everything on the form, as the seller left it. category_id is the category these aspects and
   // this condition were chosen for, so a later category switch knows not to carry them over.
   const readForm = () => {
@@ -429,6 +433,7 @@ function renderEbayDraft(id, d) {
       condition: $("#eCond") ? $("#eCond").value : null, condition_note: $("#eCondNote") ? $("#eCondNote").value : "",
       aspects, description: $("#eDesc").value,
       postal_code: $("#eZip").value, shipping_cost: $("#eShip").value, handling_days: $("#eDays").value,
+      shipping_service: $("#eSvc").value,
     };
   };
   $("#dBack").onclick = () => { ebayEdits[id] = readForm(); renderItemDetail(id); };
@@ -466,7 +471,8 @@ function renderEbayPreview(id, d, body, r) {
   const money2 = n => "$" + Number(n || 0).toFixed(2);
   const f = r.fees;
   const cond = (d.conditions || []).find(c => c.value === body.condition);
-  const shipping = Number(body.shipping_cost) === 0 ? "Free shipping" : `${money2(body.shipping_cost)} shipping (USPS Priority)`;
+  const svcName = body.shipping_service === "priority" ? "USPS Priority Mail" : "USPS Ground Advantage";
+  const shipping = Number(body.shipping_cost) === 0 ? `Free shipping (${svcName})` : `${money2(body.shipping_cost)} shipping (${svcName})`;
   const feeRows = f && f.fees.length
     ? f.fees.map(x => `<div class="split"><span>${esc(x.type.replace(/([a-z])([A-Z])/g, "$1 $2"))}${x.discount ? ` <span class="muted" style="font-size:.78rem">(−${money2(x.discount)} promo)</span>` : ""}</span><span class="amt">${money2(x.net)}</span></div>`).join("")
     : f ? `<div class="muted" style="font-size:.88rem">eBay quotes <b>no fee to list</b> this item.</div>` : "";
@@ -967,12 +973,12 @@ function shipLine(s) {
 
 // Live rates for the estimated box, from the seller's ZIP to near / mid / far buyers. Fills the
 // price box with the suggestion only if the seller hasn't typed one; either way they can edit it.
-async function getShipQuote(itemId, fromZip, btn, out, priceInput) {
+async function getShipQuote(itemId, fromZip, btn, out, priceInput, service = "ground") {
   const zip = String(fromZip || "").trim();
   if (!/^\d{5}$/.test(zip)) { toast("Enter the 5-digit ZIP you ship from first."); return; }
   const was = btn.textContent; btn.disabled = true; btn.textContent = "Checking USPS, UPS, FedEx…";
   try {
-    const q = await api(`/items/${itemId}/shipping-quote?from=${zip}`);
+    const q = await api(`/items/${itemId}/shipping-quote?from=${zip}&service=${service === "priority" ? "priority" : "ground"}`);
     const svc = ["usps_ground_advantage", "usps_priority", "ups_ground", "fedex_ground", "fedex_home_delivery"]
       .filter(t => q.zones.some(z => z.rates[t]));
     const name = t => (q.zones.map(z => z.rates[t]).find(Boolean) || {}).service || t;

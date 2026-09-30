@@ -427,26 +427,39 @@ export const createReturnPolicy = (env, token) => createOrFind(env, token, "retu
   name: "Guestimator 30-day returns", marketplaceId: MARKETPLACE, categoryTypes: ALL_CATS,
   returnsAccepted: true, returnPeriod: { value: 30, unit: "DAY" }, returnShippingCostPayer: "BUYER",
 }, "returnPolicyId");
-// Flat-rate USPS Priority at the price the seller types. Calculated shipping would need a
-// weight and box size for every item, which is exactly the chore this app is here to skip.
-export function fulfillmentPolicyBody(shippingCost, handlingDays) {
+// Flat-rate USPS at the price the seller types. Ground Advantage by default: for the small, light
+// things this app mostly lists it is about half the price of Priority (a 6 oz memory stick,
+// Sep 2026: $6.07 vs $12.82 mid-country), and buyers see shipping before they see anything else.
+// The codes are eBay's, read from GeteBayDetails (ShippingServiceDetails, ValidForSellingFlow)
+// on 2026-09-30 - Ground Advantage is "USPSParcel". The obvious-looking "USPSGroundAdvantage" is
+// not a selling code and fails.
+export const SHIP_SERVICES = {
+  ground: { code: "USPSParcel", name: "USPS Ground Advantage", short: "Ground Advantage" },
+  priority: { code: "USPSPriority", name: "USPS Priority Mail", short: "Priority" },
+};
+export const shipService = s => (SHIP_SERVICES[s] ? s : "ground");
+export function fulfillmentPolicyBody(shippingCost, handlingDays, service = "ground") {
   const cost = Math.max(0, Math.round(Number(shippingCost) * 100) / 100);
   const free = cost === 0;
+  const svc = SHIP_SERVICES[shipService(service)];
+  const days = Math.min(Math.max(Math.round(Number(handlingDays) || 3), 1), 10);
   return {
-    name: free ? "Guestimator free shipping" : `Guestimator flat $${cost.toFixed(2)} shipping`,
+    // The name is how an existing policy is found again (createOrFind), so everything that makes
+    // two policies different has to be in it - service and handling time as well as price.
+    name: `Guestimator ${svc.short} ${free ? "free" : "$" + cost.toFixed(2)} ${days}d`,
     marketplaceId: MARKETPLACE, categoryTypes: ALL_CATS,
-    handlingTime: { unit: "DAY", value: Math.min(Math.max(Math.round(Number(handlingDays) || 3), 1), 10) },
+    handlingTime: { unit: "DAY", value: days },
     shippingOptions: [{
       optionType: "DOMESTIC", costType: "FLAT_RATE",
       shippingServices: [{
-        sortOrder: 1, shippingCarrierCode: "USPS", shippingServiceCode: "USPSPriority",
+        sortOrder: 1, shippingCarrierCode: "USPS", shippingServiceCode: svc.code,
         freeShipping: free, shippingCost: { value: cost.toFixed(2), currency: "USD" },
       }],
     }],
   };
 }
-export const createFulfillmentPolicy = (env, token, cost, days) =>
-  createOrFind(env, token, "fulfillment", fulfillmentPolicyBody(cost, days), "fulfillmentPolicyId");
+export const createFulfillmentPolicy = (env, token, cost, days, service) =>
+  createOrFind(env, token, "fulfillment", fulfillmentPolicyBody(cost, days, service), "fulfillmentPolicyId");
 
 // ---- where it ships from: eBay wants a postal code, not a street address ----
 export async function ensureLocation(env, token, postalCode) {

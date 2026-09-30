@@ -57,7 +57,7 @@ async function rate(env, fromZip, toZip, parcel) {
  * est = appraisal result.shipping ({ box_in:[L,W,H], packed_weight_lb }).
  * Returns { from, zones:[{label, zip, rates:{token:{service,amount,days}}}], suggested, basis }.
  */
-export async function quoteShipping(env, fromZipRaw, est) {
+export async function quoteShipping(env, fromZipRaw, est, service = "ground") {
   if (!env.SHIPPO_API_TOKEN) throw Object.assign(new Error("Shipping quotes aren't switched on yet."), { status: 503 });
   const from = zip5(fromZipRaw);
   if (!from) throw Object.assign(new Error("Enter the 5-digit ZIP you ship from."), { status: 400 });
@@ -72,19 +72,20 @@ export async function quoteShipping(env, fromZipRaw, est) {
     { label: "Across the country", zip: farZip(from) },
   ];
   const zones = await Promise.all(spots.map(async s => ({ ...s, rates: await rate(env, from, s.zip, parcel) })));
-  return { from, parcel: { box_in: est.box_in, weight_lb: Number(parcel.weight) }, zones, ...suggest(zones) };
+  return { from, parcel: { box_in: est.box_in, weight_lb: Number(parcel.weight) }, zones, ...suggest(zones, service) };
 }
 
-// The eBay listing ships USPS Priority at one flat price, so the suggestion is what Priority costs
-// a mid-country buyer, rounded up to the next dollar. That covers most buyers and loses a little
-// on the far coast - the zone table shows exactly how much. If Priority isn't offered, fall back
-// to the cheapest mid-country service.
-export function suggest(zones) {
+// The eBay listing ships one USPS service at one flat price (Ground Advantage unless the seller
+// picks Priority), so the suggestion is what THAT service costs a mid-country buyer, rounded up to
+// the next dollar. That covers most buyers and loses a little on the far coast - the zone table
+// shows exactly how much. If the service isn't offered, fall back to the cheapest mid-country rate.
+const SERVICE_TOKEN = { ground: "usps_ground_advantage", priority: "usps_priority" };
+export function suggest(zones, service = "ground") {
   const mid = (zones || []).find(z => z.label === "Mid-country") || (zones || [])[0];
   if (!mid) return { suggested: null, basis: "No rates came back." };
-  const pri = mid.rates.usps_priority;
+  const want = mid.rates[SERVICE_TOKEN[service] || SERVICE_TOKEN.ground];
   const cheapest = Object.values(mid.rates).sort((a, b) => a.amount - b.amount)[0];
-  const pick = pri || cheapest;
+  const pick = want || cheapest;
   if (!pick) return { suggested: null, basis: "No rates came back for this box." };
   return {
     suggested: Math.ceil(pick.amount),

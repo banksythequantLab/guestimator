@@ -649,7 +649,7 @@ export default {
             return J({ error: msg, stage, refunded: !!fundedBy }, 502);
           };
           try {
-            if (!fulfillmentPolicyId) fulfillmentPolicyId = await ebay.createFulfillmentPolicy(env, tok, b.shipping_cost, b.handling_days);
+            if (!fulfillmentPolicyId) fulfillmentPolicyId = await ebay.createFulfillmentPolicy(env, tok, b.shipping_cost, b.handling_days, ebay.shipService(b.shipping_service));
             const paymentPolicyId = pol.payment[0]?.id || await ebay.createPaymentPolicy(env, tok);
             const returnPolicyId = (pol.return.some(p => p.id === b.return_policy_id) ? b.return_policy_id : pol.return[0]?.id)
               || await ebay.createReturnPolicy(env, tok);
@@ -686,7 +686,7 @@ export default {
         if (parts[3] === "shipping-quote" && m === "GET") {
           const ap = await db.prepare("SELECT result_json FROM appraisals WHERE item_id=? AND status='done' ORDER BY created_at DESC LIMIT 1").bind(iid).first();
           let est = null; try { est = ap?.result_json ? JSON.parse(ap.result_json).shipping : null; } catch {}
-          try { return J(await quoteShipping(env, url.searchParams.get("from"), est)); }
+          try { return J(await quoteShipping(env, url.searchParams.get("from"), est, url.searchParams.get("service") === "priority" ? "priority" : "ground")); }
           catch (e) { return J({ error: String(e.message || e) }, e.status || 502); }
         }
 

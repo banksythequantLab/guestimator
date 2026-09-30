@@ -115,7 +115,13 @@ eq("empty body", E.ebayErrorText(null, 503), "eBay returned 503");
 // ---- shipping policy body ----
 const fp = E.fulfillmentPolicyBody("12.5", 2);
 ok("flat cost formatted", fp.shippingOptions[0].shippingServices[0].shippingCost.value === "12.50");
-ok("name carries the price, so re-use finds it", fp.name === "Guestimator flat $12.50 shipping");
+ok("name carries service, price and handling, so re-use finds the right one", fp.name === "Guestimator Ground Advantage $12.50 2d");
+ok("Ground Advantage by default, with eBay's real code", fp.shippingOptions[0].shippingServices[0].shippingServiceCode === "USPSParcel");
+const pp = E.fulfillmentPolicyBody("12.5", 2, "priority");
+ok("Priority when asked", pp.shippingOptions[0].shippingServices[0].shippingServiceCode === "USPSPriority" && pp.name === "Guestimator Priority $12.50 2d");
+ok("unknown service falls back to Ground Advantage", E.fulfillmentPolicyBody(5, 3, "teleport").shippingOptions[0].shippingServices[0].shippingServiceCode === "USPSParcel");
+ok("different handling time is a different policy", E.fulfillmentPolicyBody(5, 1).name !== E.fulfillmentPolicyBody(5, 3).name);
+ok("policy name within eBay's 64 chars", E.fulfillmentPolicyBody(9999.99, 10, "ground").name.length <= 64);
 ok("free shipping when 0", E.fulfillmentPolicyBody(0, 3).shippingOptions[0].shippingServices[0].freeShipping === true);
 ok("handling clamped", E.fulfillmentPolicyBody(5, 99).handlingTime.value === 10 && E.fulfillmentPolicyBody(5, 0).handlingTime.value === 3);
 
