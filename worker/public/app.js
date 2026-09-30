@@ -893,7 +893,10 @@ async function renderItemDetail(id) {
     }
     renderItemDetail(id);
   };
-  if ($("#reappraise")) $("#reappraise").onclick = () => rerun();
+  // Re-run goes back to the photos-and-details step, not straight to the model: by now the dealer
+  // has seen what it was taken for and which listings it was compared with, and that is exactly
+  // when they know what to add — a sharper marks photo, "it's the cobalt one", a size.
+  if ($("#reappraise")) $("#reappraise").onclick = () => { clearTimeout(pollT); renderRefine(id, b); };
   // The answer is appended to the DEALER's stored description — item.description — not to the
   // listing box on this form, which holds the model's prose. Appending to that box would feed
   // the model's own words back as the dealer's.
@@ -936,9 +939,132 @@ async function renderItemDetail(id) {
     }
     await answerWith(answered.join(". "), $("#clarifyGo"));
   };
-  if ($("#retry")) $("#retry").onclick = rerun;
+  if ($("#retry")) $("#retry").onclick = () => rerun();
   state.view = "item"; state.itemId = id;
   if (pending) pollT = setTimeout(() => { if (state.view === "item") renderItemDetail(id); }, 4000);
+}
+
+// ---------- Refine & re-run: back to photos + details, with what the last estimate found ----------
+// The questions the model asked and the listings it compared against are shown here because they
+// are the prompt: "it took this for a Silver Eagle set" is what tells the dealer to say "rolls of
+// war nickels". Answers go back as the DEALER's words (item.description), never the listing copy.
+function renderRefine(id, b) {
+  const { item, photos, appraisal } = b;
+  const r = appraisal && appraisal.result;
+  const qs = (r && r.questions_for_dealer) || [];
+  const comps = r ? (r.comparables || []).slice(0, 4) : [];
+  const room = Math.max(0, 12 - photos.length);
+  app.innerHTML = `
+    <button class="back" id="rfBack" style="padding:8px 0">‹ Back to the estimate</button>
+    <h1 class="h1">Add details &amp; re-run</h1>
+    ${r ? `<div class="card" style="font-size:.88rem">
+      <div class="muted" style="font-size:.78rem">Last time it was read as</div>
+      <b>${esc(r.identification.name)}</b>${r.price_range && !r.needs_clarification ? ` <span class="muted">· $${Math.round(r.price_range.low)}–$${Math.round(r.price_range.high)}</span>` : ""}
+      ${comps.length ? `<div class="muted" style="font-size:.78rem;margin-top:8px">Compared with</div>${comps.map(c =>
+        `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.82rem"><a href="${esc(c.url)}" target="_blank" rel="noopener" style="color:var(--cobalt)">${c.price ? "$" + Math.round(c.price) + " — " : ""}${esc(c.title)}</a></div>`).join("")}` : ""}
+      <div class="muted" style="font-size:.78rem;margin-top:8px">Wrong item, wrong version, or yours is better or worse than these? Say so below — that's what moves the price.</div>
+    </div>` : ""}
+    ${qs.length ? `<div class="card"><label>It asked</label>${qs.map((q, n) => `
+      <div style="margin-top:8px;font-size:.88rem"><b>${esc(q)}</b></div>
+      <input id="rfQ${n}" placeholder="Skip if you don't know">`).join("")}</div>` : ""}
+    <div class="card">
+      <label>Photos (${photos.length} so far)</label>
+      <div class="thumbs" style="margin:6px 0">${photos.map(p => `<img src="${esc(p.url)}" alt="${esc(p.kind)}" title="${esc(p.kind)}">`).join("")}</div>
+      ${room ? `<div class="muted" style="font-size:.82rem;margin-bottom:6px">Add a sharper or closer shot — marks and labels help most. Up to ${room} more.</div>
+      <div class="shots" id="rfShots">${SHOTS.map(s => `
+        <div class="shot" data-kind="${s.kind}"><input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden>
+          <div class="ph" id="rfph-${s.kind}">📷</div><div class="sl">${s.label}</div><div class="sh">${s.hint}</div>
+          <a href="#" class="pick" style="font-size:.64rem;color:var(--sub);text-decoration:underline">choose file</a></div>`).join("")}</div>
+      <div style="height:8px"></div>
+      <label class="btn sec sm" style="display:inline-block">+ More photos <input type="file" accept="image/jpeg,image/png,image/webp" multiple hidden id="rfMore"></label>
+      <span class="muted" id="rfCount" style="font-size:.82rem;margin-left:8px"></span>`
+      : `<div class="muted" style="font-size:.82rem">This item already has the maximum of 12 photos.</div>`}
+    </div>
+    <div class="card">
+      <label>What you know about it</label>
+      <textarea id="rfDesc" rows="3" placeholder="What it is, where it came from, age, condition…">${esc(item.description || "")}</textarea>
+      <div style="height:10px"></div>
+      <label>Any writing, stamps or marks on it</label>
+      <textarea id="rfMarks" rows="2" placeholder="Copy exactly what you can read">${esc(item.markings || "")}</textarea>
+      <div style="height:12px"></div>
+      <button class="btn" id="rfGo">✨ Re-run the estimate</button>
+      <div class="muted" style="font-size:.78rem;margin-top:6px;text-align:center">Uses 1 credit, same as the first estimate.</div>
+      <div style="height:6px"></div>
+      <button class="btn sec" id="rfCancel">Cancel</button>
+    </div>`;
+  const shots = {}, more = [];
+  const count = () => Object.keys(shots).length + more.length;
+  const bump = () => { const c = $("#rfCount"); if (c) c.textContent = count() ? count() + " new" : ""; };
+  const full = () => { if (count() >= room) { toast(`That's the 12-photo limit for one item.`); return true; } return false; };
+  const setShot = (kind, f) => { if (!shots[kind] && full()) return; shots[kind] = f; $("#rfph-" + kind).innerHTML = `<img src="${URL.createObjectURL(f)}" alt="">`; bump(); };
+  app.querySelectorAll("#rfShots .shot input").forEach(inp => inp.onchange = async () => {
+    const kind = inp.closest(".shot").dataset.kind, f = inp.files[0];
+    inp.value = "";
+    if (!f) return;
+    const ok = await acceptPhoto(f, kind === "marks" ? "marks photo" : "photo");
+    if (ok) setShot(kind, ok);
+  });
+  app.querySelectorAll("#rfShots .shot").forEach(tile => {
+    const kind = tile.dataset.kind, inp = tile.querySelector("input"), s = SHOTS.find(x => x.kind === kind);
+    tile.querySelector(".pick").onclick = e => { e.preventDefault(); e.stopPropagation(); inp.click(); };
+    tile.onclick = async () => {
+      if (!canUseCamera()) return inp.click();
+      const f = await openCamera(s ? s.label + " — " + s.hint : "Take a photo");
+      if (!f) return;
+      const ok = await acceptPhoto(f, kind === "marks" ? "marks photo" : "photo");
+      if (ok) setShot(kind, ok);
+    };
+  });
+  if ($("#rfMore")) $("#rfMore").onchange = async e => {
+    const picked = [...e.target.files]; e.target.value = "";
+    for (const f of picked) { if (full()) break; const ok = await acceptPhoto(f); if (ok) more.push(ok); }
+    bump();
+  };
+  const back = () => renderItemDetail(id);
+  $("#rfBack").onclick = back; $("#rfCancel").onclick = back;
+  $("#rfGo").onclick = async () => {
+    const answers = qs.map((q, n) => {
+      const v = (($("#rfQ" + n) || {}).value || "").trim();
+      return v ? `${String(q).replace(/\?+$/, "")}: ${v}` : null;
+    }).filter(Boolean);
+    const desc = [$("#rfDesc").value.trim(), ...answers].filter(Boolean).join(". ");
+    const markings = $("#rfMarks").value.trim();
+    if (!desc && !markings) {
+      $("#rfDesc").focus(); $("#rfDesc").style.borderColor = "var(--rust)";
+      return toast("Tell us what it is, even roughly — the photo alone gets it wrong too often.");
+    }
+    const files = [...Object.entries(shots).map(([k, f]) => ({ kind: k, f })), ...more.map(f => ({ kind: "other", f }))];
+    const go = $("#rfGo"); go.disabled = true;
+    let uploaded = false;
+    try {
+      if (files.length) {
+        go.textContent = "Uploading…";
+        const fd = new FormData();
+        for (const { kind, f } of files) fd.append("photos", await shrink(f), f.name || (kind + ".jpg"));
+        fd.append("kinds", files.map(x => x.kind).join(","));
+        const up = await fetch("/api/items/" + id + "/photos", { method: "POST", body: fd, credentials: "same-origin" });
+        if (!up.ok) throw new Error((await up.json().catch(() => ({}))).error || "upload failed");
+        uploaded = true;
+      }
+      go.textContent = "Pricing it…";
+      // Only send what changed, so an untouched field never overwrites the stored one.
+      const body = {};
+      if (desc !== String(item.description || "").trim()) body.dealer_description = desc;
+      if (markings !== String(item.markings || "").trim()) body.markings = markings;
+      await api("/items/" + id + "/appraise", { method: "POST", body: JSON.stringify(body) });
+      renderItemDetail(id);
+    } catch (e) {
+      toast(e.message);
+      // Photos that did upload are kept on the item, so a retry must not send them twice.
+      // If the upload itself failed they are still staged here and go with the retry.
+      if (uploaded) {
+        Object.keys(shots).forEach(k => { delete shots[k]; const ph = $("#rfph-" + k); if (ph) ph.textContent = "📷"; });
+        more.length = 0; bump();
+      }
+      go.disabled = false; go.textContent = "✨ Re-run the estimate";
+    }
+  };
+  state.view = "refine"; state.itemId = id;
 }
 
 // PWA
