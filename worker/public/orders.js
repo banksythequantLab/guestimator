@@ -100,8 +100,11 @@ async function wireLabels(root, after) {
     b.onclick = () => { b.remove(); labelPanel(kind, id, box, after); };
   });
 }
+// Paper choice is remembered per device: a regular printer at home, a 4×6 printer at the shop.
+const paperPref = () => { try { return localStorage.getItem("gs_paper") || "PDF"; } catch { return "PDF"; } };
 const labelDone = l => `<div style="margin-top:6px;font-size:.82rem"><a class="btn sm" href="${esc(l.label_url)}" target="_blank" rel="noopener" style="text-decoration:none">🖨 Print label</a>
-  <span class="muted">${esc(l.service || l.carrier || "")} · ${money(l.amount_cents)}${l.tracking ? ` · ${esc(l.tracking)}` : ""}</span></div>`;
+  <span class="muted">${esc(l.service || l.carrier || "")} · ${money(l.amount_cents)}${l.tracking ? ` · ${esc(l.tracking)}` : ""}</span>
+  <div class="muted" style="font-size:.72rem;margin-top:4px">Regular printer: print at <b>Actual size / 100%</b>, not "Fit to page" (a shrunk barcode may not scan). Cut on the line and tape all four edges with clear tape, keeping tape off the barcode.</div></div>`;
 
 function fromForm(f) {
   f = f || {};
@@ -139,7 +142,7 @@ async function labelPanel(kind, id, box, after, over) {
     ${q.rates.length ? `<div style="margin-top:8px">${q.rates.map((r, n) => `<label class="row" style="gap:8px;font-weight:400;font-size:.88rem;margin:4px 0">
         <input type="radio" name="rate-${esc(id)}" value="${esc(r.rate_id)}" data-cents="${Math.round(r.amount * 100)}" ${n === 0 ? "checked" : ""} style="width:auto">
         <span style="flex:1">${esc(r.service)}${r.days ? ` <span class="muted">· ${r.days} day${r.days === 1 ? "" : "s"}</span>` : ""}</span><b>$${r.amount.toFixed(2)}</b></label>`).join("")}</div>
-      <div class="row" style="gap:6px;margin-top:6px;align-items:center"><select data-paper style="width:auto"><option value="PDF">Letter paper</option><option value="PDF_4x6">4×6 label printer</option></select>
+      <div class="row" style="gap:6px;margin-top:6px;align-items:center"><select data-paper style="width:auto"><option value="PDF">Letter paper (regular printer)</option><option value="PDF_4x6" ${paperPref() === "PDF_4x6" ? "selected" : ""}>4×6 label printer</option></select>
         <button class="btn sm" data-buy style="flex:1">Buy label</button></div>
       <div class="muted" style="font-size:.72rem;margin-top:4px">Charged to the Shippo account on file. Buying marks the order shipped and sends the tracking number${kind === "ebay" ? " to eBay" : " to the buyer"}.</div>`
     : `<div class="muted" style="font-size:.82rem;margin-top:6px">${esc(q.note || "No rates.")}</div>`}</div>`;
@@ -149,6 +152,7 @@ async function labelPanel(kind, id, box, after, over) {
     const sel = () => box.querySelector(`input[name="rate-${CSS.escape(id)}"]:checked`);
     const label = () => { const s = sel(); buy.textContent = s ? `Buy label · $${(s.dataset.cents / 100).toFixed(2)}` : "Buy label"; };
     box.querySelectorAll(`input[name="rate-${CSS.escape(id)}"]`).forEach(x => x.onchange = label); label();
+    box.querySelector("[data-paper]").onchange = ev => { try { localStorage.setItem("gs_paper", ev.target.value); } catch {} };
     buy.onclick = async () => {
       const s = sel(); if (!s) return;
       if (!confirm(`Buy this label for $${(s.dataset.cents / 100).toFixed(2)}? It's charged right away.`)) return;
