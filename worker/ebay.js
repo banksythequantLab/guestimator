@@ -551,6 +551,18 @@ export async function updateOfferTerms(env, token, offerId, terms, priceCents = 
   return { ok: true };
 }
 
+/** Point a live offer at another return policy (eBay revises the listing). Same full-replace
+ *  update as updateOfferTerms, from eBay's own copy of the offer. */
+export async function updateOfferReturns(env, token, offerId, returnPolicyId) {
+  const g = await callRetry(env, token, "GET", `/sell/inventory/v1/offer/${offerId}`);
+  if (!g.ok) return { error: ebayErrorText(g.json, g.status) };
+  const { offerId: _o, status: _s, listing: _l, ...body } = g.json || {};
+  body.listingPolicies = { ...(body.listingPolicies || {}), returnPolicyId };
+  const u = await callRetry(env, token, "PUT", `/sell/inventory/v1/offer/${offerId}`, body);
+  if (!u.ok) return { error: ebayErrorText(u.json, u.status) };
+  return { ok: true };
+}
+
 // ---- the listing itself: inventory item, then offer, then publish ----
 export async function publishListing(env, token, L) {
   const inv = await callRetry(env, token, "PUT", `/sell/inventory/v1/inventory_item/${encodeURIComponent(L.sku)}`, {

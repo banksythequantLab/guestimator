@@ -29,7 +29,7 @@ ok("eBay shape", JSON.stringify(ebayBestOffer({ accept_cents: 17900, decline_cen
 ok("off", ebayBestOffer(null).bestOfferEnabled === false);
 
 // ---------- eBay, stubbed ----------
-const calls = []; let failPut = false;
+const calls = []; let failPut = false; let made30 = false;
 const offer = { offerId: "OFF-1", sku: "S", marketplaceId: "EBAY_US", format: "FIXED_PRICE", status: "PUBLISHED", listing: { listingId: "L1" },
   categoryId: "170083", availableQuantity: 1, listingDescription: "d", merchantLocationKey: "loc",
   listingPolicies: { fulfillmentPolicyId: "F", paymentPolicyId: "P", returnPolicyId: "R" }, pricingSummary: { price: { value: "199.00", currency: "USD" } } };
@@ -41,6 +41,10 @@ globalThis.fetch = async (u, init = {}) => {
   if (url.endsWith("/sell/inventory/v1/offer/OFF-1") && init.method === "PUT")
     return failPut ? jr({ errors: [{ errorId: 25001, longMessage: "Best Offer is not available in this category." }] }, 400) : new Response(null, { status: 204 });
   if (url.endsWith("/bulk_update_price_quantity")) return jr({ responses: [{ statusCode: 200 }] });
+  if (/\/sell\/account\/v1\/return_policy\?/.test(url)) return jr({ returnPolicies: [{ returnPolicyId: "RNONE", name: "No returns", returnsAccepted: false },
+    ...(made30 ? [{ returnPolicyId: "R30", name: "Guestimator 30-day returns", returnsAccepted: true, returnPeriod: { value: 30, unit: "DAY" }, returnShippingCostPayer: "BUYER" }] : [])] });
+  if (/\/sell\/account\/v1\/(fulfillment|payment)_policy\?/.test(url)) return jr({ fulfillmentPolicies: [], paymentPolicies: [] });
+  if (url.endsWith("/sell/account/v1/return_policy") && init.method === "POST") { made30 = true; return jr({ returnPolicyId: "R30" }, 201); }
   return jr({ errors: [{ message: "unstubbed " + url }] }, 404);
 };
 
@@ -97,5 +101,14 @@ r = await call("POST", `/api/ebay/slow/${lid}/lower`, { price_cents: 14900 });
 ok("offers off: price drop uses the plain price update", r.status === 200 && calls.some(c => c.url.endsWith("bulk_update_price_quantity")));
 ok("someone else's listing -> 404", (await call("POST", `/api/ebay/listings/nope/best-offer`, { enabled: true })).status === 404);
 
+// ---------- return policy on a live listing ----------
+r = await call("POST", `/api/ebay/listings/${lid}/returns`, { policy_id: "new30" });
+put = calls.filter(c => c.method === "PUT").pop();
+ok("switch to 30-day returns: policy created once, offer re-pointed, rest kept", r.status === 200 && r.json.returns === "30-day returns, buyer pays return shipping"
+  && put.body.listingPolicies.returnPolicyId === "R30" && put.body.listingPolicies.fulfillmentPolicyId === "F", r.json);
+r = await call("POST", `/api/ebay/listings/${lid}/returns`, { policy_id: "someone-elses" });
+ok("a policy that isn't the seller's is refused", r.status === 400);
+r = await call("POST", `/api/ebay/listings/${lid}/returns`, { policy_id: "RNONE" });
+ok("back to an existing policy", r.status === 200 && r.json.returns === "No returns" && calls.filter(c => c.method === "PUT").pop().body.listingPolicies.returnPolicyId === "RNONE", r.json);
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

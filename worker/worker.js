@@ -493,6 +493,25 @@ export default {
         return J({ policies: pol.return, new30: ebay.NEW_RETURNS_30 });
       }
 
+      // Change a live listing's return policy: one of the seller's own, or "new30" (created once).
+      if (parts[1] === "ebay" && parts[2] === "listings" && parts[4] === "returns" && m === "POST") {
+        const b = await readJson(request);
+        const l = await db.prepare("SELECT l.*, i.listing_status FROM ebay_listings l JOIN items i ON i.id=l.item_id WHERE l.id=? AND l.user_id=?").bind(parts[3], userId).first();
+        if (!l) return J({ error: "not found" }, 404);
+        if (l.status !== "published" || l.listing_status !== "live" || !l.offer_id) return J({ error: "This listing isn't live any more." }, 409);
+        const ut = await ebay.userToken(env, db, userId);
+        if (!ut) return J({ error: "Connect your eBay account first", needs_connect: true }, 409);
+        try {
+          const pol = await ebay.listPolicies(env, ut.token);
+          const pid = b.policy_id === ebay.NEW_RETURNS_30 ? await ebay.createReturnPolicy(env, ut.token)
+            : pol.return.some(p => p.id === b.policy_id) ? b.policy_id : null;
+          if (!pid) return J({ error: "Pick one of your eBay return policies" }, 400);
+          const u = await ebay.updateOfferReturns(env, ut.token, l.offer_id, pid);
+          if (u.error) return J({ error: u.error }, 502);
+          const after = await ebay.listPolicies(env, ut.token);
+          return J({ ok: true, return_policy_id: pid, returns: (after.return.find(p => p.id === pid) || {}).summary || null });
+        } catch (e) { return J({ error: String(e.message || e) }, 502); }
+      }
       // ---------- price-drop nudges for slow eBay listings ----------
       if (parts[1] === "ebay" && parts[2] === "slow") {
         if (parts.length === 3 && m === "GET")
