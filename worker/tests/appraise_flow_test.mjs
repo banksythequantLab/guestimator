@@ -23,7 +23,8 @@ const SOLD = [
   ["SK Hynix 2x32GB DDR4-2400 ECC RDIMM kit", 330, "https://www.ebay.com/itm/104"],      // a kit: filtered before the model
   ["SK Hynix 32GB DDR4-2400 ECC LRDIMM HMA84GL7AMR4N", 1100, "https://www.ebay.com/itm/105"], // wrong type: the model rejects it
 ];
-const LIVE = [["SK Hynix 32GB PC4-2400T RDIMM HMA84GR7MFR4N-UH", 173], ["SK Hynix 32GB DDR4 2400 ECC RDIMM server", 185], ["SK Hynix 32GB DDR4-2400 RDIMM", 199]];
+const LIVE = [["SK Hynix 32GB PC4-2400T RDIMM HMA84GR7MFR4N-UH", 173], ["SK Hynix 32GB DDR4 2400 ECC RDIMM server", 185], ["SK Hynix 32GB DDR4-2400 RDIMM", 199],
+  ["SK Hynix 32GB DDR4-2400 ECC RDIMM new sealed", 12450]];   // junk: the model never keeps it
 
 let mode = "ok";
 const seen = { reprice: [], cold: [], identify: 0 };
@@ -48,7 +49,7 @@ globalThis.fetch = async (u, init = {}) => {
     }
     if (/setting a retail price/.test(sys)) {
       seen.cold.push(user);
-      return said(mode === "allfail" ? { low: 0, high: 0 } : { low: 120, high: 170, suggested_retail: 150, floor: 110, currency: "USD", basis: "COLD-BASIS from sold comparables." });
+      return said(mode === "allfail" ? { low: 0, high: 0 } : { low: 120, high: 169.95, suggested_retail: 150.15, floor: 110, currency: "USD", basis: "COLD-BASIS from sold comparables." });
     }
     if (/writing for an independent antique dealer/.test(sys)) {
       seen.identify++;
@@ -78,9 +79,14 @@ ok("ok: sold listings are in front of the model, marked sold", /"sold": true/.te
 ok("ok: no pre-judged sold range in the prompt", /completed sales are among/.test(seen.reprice[0]) && !/\$126-\$1100/.test(seen.reprice[0]), seen.reprice[0].slice(0, 600));
 ok("ok: the rejected LRDIMM is recorded with its reason", (r.rejected_comparables || []).some(x => /LRDIMM/.test(x.title) && /RDIMM/.test(x.why)), r.rejected_comparables);
 
+ok("ok: asking prices reach the model as a median, not a junk-ended range", /4 listed, median \$192/.test(seen.reprice[0]) && !/\$173-\$12450/.test(seen.reprice[0]), seen.reprice[0].slice(0, 700));
+ok("ok: model kept only sales -> no unjudged asking line, no market warnings", r.market === null
+  && !/two different markets|too wide to be one product|judged to be different items/.test(W(r)), { market: r.market, w: W(r) });
+
 // ---------- noprice ----------
 r = await run("noprice");
 ok("noprice: cold pass sets the price", r.price_range.low === 120 && r.price_range.high === 170 && seen.cold.length === 1, r.price_range);
+ok("noprice: prices from $20 up are whole dollars", r.price_range.high === 170 && r.price_range.suggested_retail === 150, r.price_range);
 ok("noprice: dealer told which pass priced it", /second pass over the comparables/.test(W(r)), W(r));
 ok("noprice: the discarded repricer note is NOT shown", !/REPRICER-NOTE/.test(r.price_range.basis) && /COLD-BASIS/.test(r.price_range.basis), r.price_range.basis);
 ok("noprice: kept sales still drive the sold line", r.sold_market && r.sold_market.count === 3, r.sold_market);

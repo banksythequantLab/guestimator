@@ -112,8 +112,11 @@ export function repricePrompt({ ident, condition, lotInfo, market, hits, soldMar
     (lotInfo ? `\nThis is a lot of ${lotInfo.count} identical pieces, and price_range is the price ` +
       `of ONE PIECE. Keep it that way. The comparables below are per-piece listings, so they are ` +
       `directly comparable. Do NOT multiply by ${lotInfo.count}.\n` : "") +
-    (market ? `\nLIVE eBay asking prices right now: ${market.count} listed, ` +
-      `$${market.low}-$${market.high}, median $${market.median}. These are ASKING prices, not sold ` +
+    // The median only, not the range: the range is built before anything is judged, and one junk
+    // listing sets an end of it ($12,450 under a $175 median on SK Hynix 32GB RDIMM). The median
+    // barely moves for one outlier.
+    (market ? `\nLIVE eBay asking prices right now: ${market.count} listed, median $${market.median} ` +
+      `(some may be other variants; judge each). These are ASKING prices, not sold ` +
       `prices, so a dealer's retail sits near or above them rather than far below.\n` : "") +
     // No pre-computed sold range here. It was built before the model judged which sales are this
     // item, and the model quoted it back: SK Hynix 32GB RDIMM got "sold range $62-$560" in its
@@ -1195,15 +1198,18 @@ function grade(s) {
   return "Good";
 }
 
+// Whole dollars from $20 up: a model reading sold prices answers "$189.95" and "$150.15", and a
+// dealer prices in dollars. Under $20 the cents are kept ($1.42 for a nickel is a real price).
+const whole = v => v >= 20 ? Math.round(v) : v;
 function priceOf(d, currency) {
   d = d || {};
-  let low = num(d.low), high = num(d.high);
+  let low = whole(num(d.low)), high = whole(num(d.high));
   if (high < low) [low, high] = [high, low];
-  const mid = (low || high) ? (low + high) / 2 : 0;
+  const mid = (low || high) ? whole((low + high) / 2) : 0;
   return {
     low, high,
-    suggested_retail: num(d.suggested_retail, mid) || mid,
-    floor: num(d.floor, low) || low,
+    suggested_retail: whole(num(d.suggested_retail, mid)) || mid,
+    floor: whole(num(d.floor, low)) || low,
     currency: String(d.currency || currency),
     basis: String(d.basis || ""),
   };
@@ -1841,8 +1847,8 @@ export async function appraise(env, req) {
         `Currency: ${currency}\n` +
         (soldMarket ? `Comparables marked "sold": true are completed eBay sales (what buyers paid); ` +
           `use only the ones that are this exact item.\n` : "") +
-        (market ? `Live asking prices right now: ${market.count} listed, $${market.low}-$${market.high}, ` +
-          `median $${market.median}. Asking, not sold.\n` : "") +
+        (market ? `Live asking prices right now: ${market.count} listed, median $${market.median}. ` +
+          `Asking, not sold; some may be other variants.\n` : "") +
         `\nComparables:\n${JSON.stringify(hits.slice(0, 8), null, 1)}\n\n` +
         `Set a dealer retail range from these listings alone.`;
       try {
@@ -1923,6 +1929,9 @@ export async function appraise(env, req) {
     const kept = keptLive(live, comparables);
     if (kept.length) marketShown = summarise(kept);
     else if (!comparables.length && rejected.length) marketShown = null;
+    // The model judged the pool and kept only sales: the unjudged asking prices are not this item's
+    // market, so they are not shown as one (and not mined for "two markets" warnings below).
+    else if (comparables.length && keptLive(sold || [], comparables).length) marketShown = null;
     // Same for sales: once the model has said which sold listings are this item, the sold line
     // is built from those, so an LRDIMM or a 2133 that slipped past the filters drops out of it.
     const keptSold = keptLive(sold || [], comparables);
@@ -1933,7 +1942,8 @@ export async function appraise(env, req) {
 
     // Two markets under one set of search terms. The dealer owns one of them, and which one
     // changes the price several-fold, so neither a single range nor a quiet trim is honest.
-    const parts = splitByPrice(kept.length ? kept : (live || []));
+    // Only listings the model kept, once it has judged the pool; the raw pool only when it never did.
+    const parts = splitByPrice(kept.length ? kept : marketShown === market ? (live || []) : []);
     if (parts && marketShown) {
       marketShown.split = { lower: summarise(parts.lower), upper: summarise(parts.upper), ratio: parts.ratio };
       const lo = marketShown.split.lower, hi = marketShown.split.upper;
@@ -1956,7 +1966,7 @@ export async function appraise(env, req) {
         `terms. Say which one yours is in the description and re-run; until then treat the range ` +
         `above as the whole category, not as your item.`);
     }
-    if (market && !marketShown)
+    if (market && !marketShown && !(soldShown && soldShown.count))
       warnings.push(`all ${market.count} eBay listings found were judged to be different items, so ` +
         `there is no live price range for this one — the estimate is not anchored to today's market.`);
     // Relevant listings with no numbers on them cannot correct anything. Search returns page
