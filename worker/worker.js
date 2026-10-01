@@ -14,6 +14,7 @@ import { ebaySoldAlert, buyerShippedEmail } from "./notify.js";
 import * as labels from "./labels.js";
 import * as nudges from "./nudges.js";
 import * as profit from "./profit.js";
+import { priceCheck } from "./pricecheck.js";
 // Every Guestimator item lives in one hidden per-user `sales` row (the schema is Bottle Tree's).
 const GUESS_BUCKET = "Guestimator";
 // The Android app's URL scheme (strings.xml custom_url_scheme; AndroidManifest intent-filter).
@@ -474,6 +475,10 @@ export default {
             "content-disposition": `attachment; filename="guestimator-profit-${range.from || "all"}-${range.to || now().slice(0, 10)}.csv"` } });
         return J({ ...rep, inventory: await profit.inventorySummary(db, userId) });
       }
+
+      // ---------- price check: live eBay listings vs recent eBay sales ----------
+      if (parts[1] === "ebay" && parts[2] === "pricecheck" && parts.length === 3 && m === "GET")
+        return J(await priceCheck(env, db, userId));
 
       // ---------- price-drop nudges for slow eBay listings ----------
       if (parts[1] === "ebay" && parts[2] === "slow") {

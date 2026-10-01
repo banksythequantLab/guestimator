@@ -53,8 +53,10 @@ async function renderEbayOrders() {
     <h3 style="margin:14px 2px 6px">To ship (${open.length})</h3>
     <div class="list">${open.map(card).join("") || `<div class="empty"><div class="em">📭</div>Nothing waiting. When something you listed sells, it shows up here and you get an email.</div>`}</div>
     ${done.length ? `<h3 style="margin:14px 2px 6px">Last 30 days</h3><div class="list">${done.map(card).join("")}</div>` : ""}
-    <div id="slowBox"></div>`;
+    <div id="slowBox"></div>
+    <div id="checkBox"></div>`;
   slowSellers($("#slowBox"));
+  priceCheckBox($("#checkBox"));
   if ($("#reEbay")) $("#reEbay").onclick = () => connectEbay();
   wireLabels(app, renderEbayOrders);
   app.querySelectorAll("[data-trk]").forEach(inp => inp.oninput = () => {
@@ -206,6 +208,52 @@ async function slowSellers(box) {
   box.querySelectorAll("[data-slow-keep]").forEach(b => b.onclick = async () => {
     b.disabled = true;
     try { await api(`/ebay/slow/${encodeURIComponent(b.dataset.slowKeep)}/keep`, { method: "POST" }); slowSellers(box); } catch (e) { toast(e.message); b.disabled = false; }
+  });
+}
+
+// ---------- price check: live listings vs what the same thing sold for on eBay ----------
+// On demand, not on every visit: each listing can cost up to three sold-price lookups.
+function priceCheckBox(box) {
+  if (!box) return;
+  box.innerHTML = `<h3 style="margin:14px 2px 6px">Price check</h3>
+    <div class="card" style="padding:10px"><div class="muted" style="font-size:.82rem;margin-bottom:8px">Compare each live eBay listing with what the same thing actually sold for on eBay in the last 90 days.</div>
+    <button class="btn sm" data-pc-run>Check my prices</button></div>`;
+  box.querySelector("[data-pc-run]").onclick = () => runPriceCheck(box);
+}
+async function runPriceCheck(box) {
+  box.innerHTML = `<h3 style="margin:14px 2px 6px">Price check</h3><div class="muted" style="font-size:.85rem;margin:0 2px">Looking up recent eBay sales…</div>`;
+  let d; try { d = await api("/ebay/pricecheck"); }
+  catch (e) { box.innerHTML = `<h3 style="margin:14px 2px 6px">Price check</h3><div style="color:var(--rust);font-size:.85rem">${esc(e.message)}</div>`; return; }
+  if (!d.listings.length) { box.innerHTML = `<h3 style="margin:14px 2px 6px">Price check</h3><div class="muted" style="font-size:.85rem;margin:0 2px">No live eBay listings to check.</div>`; return; }
+  const tag = { high: ["Priced above recent sales", "var(--rust)"], low: ["Below recent sales", "var(--cobalt)"], ok: ["In line with recent sales", "var(--ok)"],
+    thin: ["Too few sales to judge", "inherit"], none: ["No recent sales found", "inherit"] };
+  const line = l => {
+    const [t, col] = tag[l.verdict] || ["", "inherit"];
+    const s = l.sold;
+    const ev = s ? `${s.count} sold · ${money(s.low * 100)}–${money(s.high * 100)} · median ${money(s.median * 100)}` : esc(l.why || "");
+    const pct = l.verdict === "high" ? ` (${l.pct}% above median)` : l.verdict === "low" ? ` (${l.pct}% below median)` : "";
+    return `<div class="li" style="align-items:flex-start"><div style="min-width:0;flex:1">
+      <div class="nm"><a href="${esc(l.listing_url || "#")}" target="_blank" rel="noopener" style="color:inherit">${esc(l.title)}</a></div>
+      <div style="font-size:.82rem"><b>${money(l.price_cents)}</b> · <span style="color:${col};font-weight:600">${t}${pct}</span></div>
+      <div class="muted" style="font-size:.78rem">${ev}</div>
+      ${l.recent.length ? `<div class="muted" style="font-size:.74rem;margin-top:2px">${l.recent.map(r => `<a href="${esc(r.url)}" target="_blank" rel="noopener" style="color:inherit">$${Number(r.price).toFixed(2)}${r.sold_at ? ` ${esc(String(r.sold_at).slice(5, 10))}` : ""}</a>`).join(" · ")}</div>` : ""}
+      ${l.suggested_cents ? `<div class="row" style="gap:6px;margin-top:6px;align-items:center">
+        <input data-pc-price="${esc(l.id)}" value="${(l.suggested_cents / 100).toFixed(2)}" inputmode="decimal" style="width:90px">
+        <button class="btn sm" data-pc-lower="${esc(l.id)}">Lower on eBay</button></div>` : ""}
+    </div></div>`;
+  };
+  box.innerHTML = `<h3 style="margin:14px 2px 6px">Price check</h3>
+    <div class="list">${d.listings.map(line).join("")}</div>
+    <div class="muted" style="font-size:.72rem;margin:6px 2px">Sold prices are eBay sales in the last 90 days, before shipping. Tap a price to see that sale and check it's really the same item before you change yours.</div>
+    <button class="btn sec sm" data-pc-again style="margin-top:4px">Check again</button>`;
+  box.querySelector("[data-pc-again]").onclick = () => runPriceCheck(box);
+  box.querySelectorAll("[data-pc-lower]").forEach(b => b.onclick = async () => {
+    const id = b.dataset.pcLower, v = Number(box.querySelector(`[data-pc-price="${CSS.escape(id)}"]`).value);
+    if (!(v > 0)) return toast("Enter a price");
+    if (!confirm(`Change the eBay price to $${v.toFixed(2)}?`)) return;
+    b.disabled = true;
+    try { await api(`/ebay/slow/${encodeURIComponent(id)}/lower`, { method: "POST", body: JSON.stringify({ price_cents: Math.round(v * 100) }) }); toast("Price lowered on eBay ✓"); runPriceCheck(box); }
+    catch (e) { toast(e.message); b.disabled = false; }
   });
 }
 
