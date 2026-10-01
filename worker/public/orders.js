@@ -189,10 +189,10 @@ async function slowSellers(box) {
   let d; try { d = await api("/ebay/slow"); } catch { return; }
   if (!d.listings.length) { box.innerHTML = ""; return; }
   box.innerHTML = `<h3 style="margin:14px 2px 6px">Not selling yet (${d.listings.length})</h3>
-    <div class="muted" style="font-size:.8rem;margin:0 2px 6px">Listed two weeks or more without a sale. A small drop often does it; suggestions never go below the low end of your estimate.</div>
+    <div class="muted" style="font-size:.8rem;margin:0 2px 6px">Listed two weeks or more without a sale. Suggestions follow recent eBay sales when there are enough; otherwise 10% off, never below the low end of your estimate.</div>
     <div class="list">${d.listings.map(l => `<div class="li" style="align-items:flex-start" data-slow-row="${esc(l.id)}">
       <div style="min-width:0;flex:1"><div class="nm"><a href="${esc(l.listing_url || "#")}" target="_blank" rel="noopener" style="color:inherit">${esc(l.title)}</a></div>
-        <div class="muted" style="font-size:.8rem">${money(l.price_cents)} for ${l.days} days${l.low_cents ? ` · estimate low ${money(l.low_cents)}` : ""}</div>
+        <div class="muted" style="font-size:.8rem">${money(l.price_cents)} for ${l.days} days${l.basis === "sold" ? ` · ${l.sold_count} recent sales, median ${money(l.sold_median_cents)}` : l.low_cents ? ` · estimate low ${money(l.low_cents)}` : ""}</div>
         <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center">
           <input data-slow-price="${esc(l.id)}" value="${(l.suggested_cents / 100).toFixed(2)}" inputmode="decimal" style="width:90px">
           <button class="btn sm" data-slow-lower="${esc(l.id)}">Lower on eBay</button>

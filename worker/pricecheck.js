@@ -29,6 +29,25 @@ export function verdict(priceCents, sold) {
   return { verdict: "ok", median_cents: med };
 }
 
+/** Sold-price evidence for one listing row ({title, result_json}): the estimate's own judged
+ *  sales when under a week old, otherwise one fresh lookup. */
+export async function soldFor(env, r, nowMs = Date.now()) {
+  let res = null; try { res = JSON.parse(r.result_json || "null"); } catch {}
+  const sm = res?.sold_market;
+  if (sm && sm.count && nowMs - Date.parse(sm.as_of || 0) < FRESH_DAYS * DAY)
+    return { sold: sm, recent: sm.recent || [], source: "estimate", why: null };
+  const q = res?.identification ? compsQuery(res.identification) : r.title;
+  const list = await ebaySold(env, q);
+  if (list && list.length) return { sold: summarise(list, "eBay sold, last 90 days"), recent: list, source: "fresh", why: null };
+  return { sold: null, recent: [], source: "fresh", why: soldFailure() };
+}
+
+/** Remember what was found (or that nothing was) so the slow-seller view needn't look again. */
+export async function cacheSold(db, listingId, sold, nowMs = Date.now()) {
+  await db.prepare("UPDATE ebay_listings SET sold_count=?, sold_median_cents=?, sold_checked_at=? WHERE id=?")
+    .bind(sold ? sold.count : 0, sold ? Math.round(sold.median * 100) : null, new Date(nowMs).toISOString(), listingId).run();
+}
+
 export async function priceCheck(env, db, userId, { nowMs = Date.now(), maxListings = 15 } = {}) {
   const rows = (await db.prepare(
     `SELECT l.id, l.item_id, l.price_cents, l.listing_url, l.best_offer_accept_cents, l.best_offer_decline_cents, COALESCE(i.ai_title, i.name) AS title,
@@ -39,17 +58,8 @@ export async function priceCheck(env, db, userId, { nowMs = Date.now(), maxListi
       ORDER BY l.updated_at LIMIT ?`).bind(userId, maxListings).all()).results;
   const out = [];
   for (const r of rows) {
-    let res = null; try { res = JSON.parse(r.result_json || "null"); } catch {}
-    let sold = null, recent = [], source = "fresh", why = null;
-    const sm = res?.sold_market;
-    if (sm && sm.count && nowMs - Date.parse(sm.as_of || 0) < FRESH_DAYS * DAY) {
-      sold = sm; recent = sm.recent || []; source = "estimate";
-    } else {
-      const q = res?.identification ? compsQuery(res.identification) : r.title;
-      const list = await ebaySold(env, q);
-      if (list && list.length) { sold = summarise(list, "eBay sold, last 90 days"); recent = list; }
-      else why = soldFailure();
-    }
+    const { sold, recent, source, why } = await soldFor(env, r, nowMs);
+    await cacheSold(db, r.id, sold, nowMs);
     out.push({ id: r.id, item_id: r.item_id, title: r.title, listing_url: r.listing_url, price_cents: r.price_cents,
       best_offer: r.best_offer_accept_cents != null ? { accept_cents: r.best_offer_accept_cents, decline_cents: r.best_offer_decline_cents } : null,
       sold: sold ? { count: sold.count, low: sold.low, high: sold.high, median: sold.median } : null,

@@ -4,6 +4,7 @@
 
 import * as ebay from "./ebay.js";
 import { sendAlert } from "./notify.js";
+import { verdict, MIN_SALES, soldFor, cacheSold } from "./pricecheck.js";
 
 export const SLOW_DAYS = 14;
 const DAY = 86400e3;
@@ -22,11 +23,26 @@ export function suggestLower(priceCents, lowDollars, pct = 0.10) {
   return t;
 }
 
+// What to suggest for a slow listing. Recent eBay sales decide when there are enough of them: priced
+// well above the median sale -> suggest the median; already in line or below -> no cut (a lower
+// price is not what's holding it back, so no nudge). Too few sales to judge -> the old rule,
+// 10% off, never under the estimate's low end.
+export const SOLD_FRESH_DAYS = 7;
+export function nudgeFor(priceCents, lowDollars, soldCount, soldMedianCents) {
+  if (soldCount >= MIN_SALES && soldMedianCents > 0) {
+    const v = verdict(priceCents, { count: soldCount, median: soldMedianCents / 100 });
+    return v.verdict === "high" && v.suggested_cents ? { suggested_cents: v.suggested_cents, basis: "sold", median_cents: soldMedianCents, sold_count: soldCount } : null;
+  }
+  const s = suggestLower(priceCents, lowDollars);
+  return s ? { suggested_cents: s, basis: "pct" } : null;
+}
+
 // Listings that are live, ours, and have not moved in SLOW_DAYS. `forEmail` also skips ones
 // emailed in the last SLOW_DAYS; the app view skips ones the seller chose to keep.
-export async function slowListings(db, userId, { nowMs = Date.now(), forEmail = false } = {}) {
+export async function slowListings(db, userId, { nowMs = Date.now(), forEmail = false, env = null, maxLookups = 10 } = {}) {
   const cut = new Date(nowMs - SLOW_DAYS * DAY).toISOString();
   const q = `SELECT l.id, l.item_id, l.user_id, l.offer_id, l.sku, l.listing_url, l.price_cents, l.updated_at,
+                    l.sold_count, l.sold_median_cents, l.sold_checked_at,
                     COALESCE(i.ai_title, i.name) AS title,
                     (SELECT result_json FROM appraisals a WHERE a.item_id=l.item_id AND a.status='done' ORDER BY a.created_at DESC LIMIT 1) AS result_json
                FROM ebay_listings l JOIN items i ON i.id=l.item_id
@@ -38,13 +54,26 @@ export async function slowListings(db, userId, { nowMs = Date.now(), forEmail = 
                 AND l.created_at = (SELECT MAX(created_at) FROM ebay_listings x WHERE x.item_id=l.item_id)
               ORDER BY l.updated_at LIMIT 100`;
   const rows = (await db.prepare(q).bind(cut, userId || "", userId || "", cut).all()).results;
-  return rows.map(r => {
+  // The email pass may look sales up (a few per run); the in-app view only reads what was found
+  // before, so opening the screen never spends lookups.
+  let looked = 0;
+  const out = [];
+  for (const r of rows) {
+    if (env && forEmail && looked < maxLookups && (!r.sold_checked_at || nowMs - Date.parse(r.sold_checked_at) > SOLD_FRESH_DAYS * DAY)) {
+      looked++;
+      const f = await soldFor(env, r, nowMs);
+      await cacheSold(db, r.id, f.sold, nowMs);
+      r.sold_count = f.sold ? f.sold.count : 0; r.sold_median_cents = f.sold ? Math.round(f.sold.median * 100) : null;
+    }
     let low = null; try { low = JSON.parse(r.result_json || "null")?.price_range?.low ?? null; } catch {}
-    const suggested = suggestLower(r.price_cents, low);
-    return { id: r.id, item_id: r.item_id, user_id: r.user_id, offer_id: r.offer_id, sku: r.sku, title: r.title, listing_url: r.listing_url,
-             price_cents: r.price_cents, low_cents: low != null ? Math.round(low * 100) : null, suggested_cents: suggested,
-             days: Math.floor((nowMs - Date.parse(r.updated_at)) / DAY) };
-  }).filter(r => r.suggested_cents);
+    const n = nudgeFor(r.price_cents, low, r.sold_count || 0, r.sold_median_cents);
+    if (!n) continue;
+    out.push({ id: r.id, item_id: r.item_id, user_id: r.user_id, offer_id: r.offer_id, sku: r.sku, title: r.title, listing_url: r.listing_url,
+               price_cents: r.price_cents, low_cents: low != null ? Math.round(low * 100) : null, suggested_cents: n.suggested_cents,
+               basis: n.basis, sold_median_cents: n.median_cents ?? null, sold_count: n.sold_count ?? null,
+               days: Math.floor((nowMs - Date.parse(r.updated_at)) / DAY) });
+  }
+  return out;
 }
 
 /** Change the price on eBay (Inventory API bulk price update), then here. Restarts the clock. */
@@ -107,20 +136,21 @@ const money = c => "$" + (Number(c || 0) / 100).toFixed(2);
 
 /** One digest email per seller for listings that have gone slow since the last one. */
 export async function emailNudges(env, db, origin, { nowMs = Date.now(), maxSellers = 25 } = {}) {
-  const due = await slowListings(db, null, { nowMs, forEmail: true });
+  const due = await slowListings(db, null, { nowMs, forEmail: true, env });
   const bySeller = new Map();
   for (const d of due) (bySeller.get(d.user_id) || bySeller.set(d.user_id, []).get(d.user_id)).push(d);
   let sent = 0;
   for (const [userId, list] of [...bySeller].slice(0, maxSellers)) {
     const u = await db.prepare("SELECT email FROM users WHERE id=?").bind(userId).first();
     if (!u?.email) continue;
-    const lines = list.slice(0, 10).map(d => `${d.title}: ${money(d.price_cents)} for ${d.days} days. Try ${money(d.suggested_cents)}.`);
+    const lines = list.slice(0, 10).map(d => `${d.title}: ${money(d.price_cents)} for ${d.days} days. Try ${money(d.suggested_cents)}` +
+      (d.basis === "sold" ? ` (${d.sold_count} recent eBay sales, median ${money(d.sold_median_cents)}).` : "."));
     const link = `${origin}/#ebay-orders`;
     const title = list.length === 1 ? `Still listed: ${list[0].title}` : `${list.length} eBay listings haven't sold yet`;
     const html = `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#f4ecdc;margin:0;padding:24px;color:#241b10">
 <div style="max-width:520px;margin:0 auto;background:#fbf6ea;border:1px solid #e0d2b4;border-radius:14px;padding:20px">
 <div style="font-weight:800;font-size:18px;margin-bottom:10px">${title.replace(/[<>&]/g, "")}</div>
-<p style="font-size:14px">A small price drop is often all a slow listing needs. Each suggestion stays at or above the low end of our estimate.</p>
+<p style="font-size:14px">A small price drop is often all a slow listing needs. Where there are enough recent eBay sales, the suggestion is what the same thing actually sold for; otherwise it's 10% off, never below the low end of our estimate.</p>
 <ul style="font-size:14px;padding-left:18px">${lines.map(x => `<li style="margin:4px 0">${x.replace(/[<>&]/g, "")}</li>`).join("")}</ul>
 <a href="${link}" style="display:inline-block;background:#241b10;color:#f4ecdc;text-decoration:none;font-weight:700;padding:10px 16px;border-radius:10px">Review prices</a>
 <div style="margin-top:14px;font-size:12px;color:#6a5b44">One tap lowers it on eBay, or keep the price and we won't ask again for two weeks.</div></div></body></html>`;

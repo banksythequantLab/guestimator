@@ -105,5 +105,23 @@ ok("sold items are never nudged", nudgeMails().length === 1 && (await call("GET"
 ok("another user's listing can't be lowered", await (async () => { const c = cookie; cookie = ""; await call("POST", "/api/auth/register", { email: "x@example.com", password: "password123" });
   const s = (await call("POST", `/api/ebay/slow/${floor.lid}/lower`, { price_cents: 100 })).status; cookie = c; return s === 404; })());
 
+// ---------- recent sales decide the suggestion when there are enough of them ----------
+ok("well above the sold median -> suggest the median", JSON.stringify(N.nudgeFor(19900, 100, 5, 15900)) === JSON.stringify({ suggested_cents: 15900, basis: "sold", median_cents: 15900, sold_count: 5 }));
+ok("sold median beats the estimate's floor", N.nudgeFor(19900, 180, 4, 12000).suggested_cents === 12000);
+ok("in line with sales -> no cut", N.nudgeFor(16500, 100, 6, 15900) === null);
+ok("below sales -> no cut", N.nudgeFor(9900, 50, 6, 15900) === null);
+ok("too few sales -> the 10% rule", JSON.stringify(N.nudgeFor(19900, 100, 2, 12000)) === JSON.stringify({ suggested_cents: 17900, basis: "pct" }));
+// through the route, from what a price check found earlier (no lookup on opening the screen)
+const mkt = await mkListing("Pot", 19900, 20, 100);
+const lamp2 = await mkListing("Vase", 16500, 20, 100);
+db.raw.prepare("UPDATE ebay_listings SET sold_count=5, sold_median_cents=15200, sold_checked_at=? WHERE id=?").run(ago(1), mkt.lid);
+db.raw.prepare("UPDATE ebay_listings SET sold_count=6, sold_median_cents=15900, sold_checked_at=? WHERE id=?").run(ago(1), lamp2.lid);
+const before = calls.length;
+const sv = (await call("GET", "/api/ebay/slow")).json.listings;
+const pot = sv.find(x => x.id === mkt.lid);
+ok("slow view: market-based suggestion with its evidence", pot && pot.suggested_cents === 15200 && pot.basis === "sold" && pot.sold_count === 5 && pot.sold_median_cents === 15200, pot);
+ok("slow view: a listing already in line with sales is not nudged", !sv.some(x => x.id === lamp2.lid), sv.map(x => x.id));
+ok("slow view spent no lookups", !calls.slice(before).some(c => /sold-comps/.test(c.url)));
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
