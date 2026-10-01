@@ -392,6 +392,16 @@ export async function buildDraft(env, { item, photos, result, origin, categoryId
 // Someone who has sold on eBay before has them; someone who has not gets three sensible ones
 // made for them, named "Guestimator ..." so they can find and change them in Seller Hub.
 const ALL_CATS = [{ name: "ALL_EXCLUDING_MOTORS_VEHICLES" }];
+// What a return policy means to a buyer, in the words the listing preview shows. The preview used
+// to say "30-day returns" whatever the policy was; Derek's live Tesla listing said "Seller does
+// not accept returns" under a preview that had promised 30 days.
+export function returnSummary(p) {
+  if (!p || p.returnsAccepted === false) return "No returns";
+  const per = p.returnPeriod && p.returnPeriod.value ? `${p.returnPeriod.value}-${String(p.returnPeriod.unit || "DAY").toLowerCase()} returns` : "Returns accepted";
+  const who = p.returnShippingCostPayer === "SELLER" ? "free return shipping" : "buyer pays return shipping";
+  return `${per}, ${who}`;
+}
+export const NEW_RETURNS_30 = "new30";
 export async function listPolicies(env, token) {
   const get = async kind => {
     const r = await call(env, token, "GET", `/sell/account/v1/${kind}_policy?marketplace_id=${MARKETPLACE}`);
@@ -406,7 +416,7 @@ export async function listPolicies(env, token) {
     notOptedIn,
     fulfillment: pick(f, "fulfillmentPolicies", "fulfillmentPolicyId"),
     payment: pick(p, "paymentPolicies", "paymentPolicyId"),
-    return: pick(rt, "returnPolicies", "returnPolicyId"),
+    return: (rt.ok ? (rt.json?.returnPolicies || []) : []).map(x => ({ id: x.returnPolicyId, name: x.name, summary: returnSummary(x) })),
     error: bad && !notOptedIn ? ebayErrorText(bad.json, bad.status) : null,
   };
 }

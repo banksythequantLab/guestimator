@@ -369,6 +369,7 @@ function renderEbayDraft(id, d) {
     shipping_service: e && e.shipping_service === "priority" ? "priority" : "ground",
     handling_days: e ? String(e.handling_days) : "3",
     best_offer: e ? e.best_offer !== false : true,
+    return_policy_id: e ? e.return_policy_id || "" : "",
   };
   const conds = d.conditions && d.conditions.length ? d.conditions : CONDITION_FALLBACK;
   const aspectRow = (s, n) => {
@@ -423,7 +424,9 @@ function renderEbayDraft(id, d) {
         <select id="eSvc"><option value="ground"${val.shipping_service === "ground" ? " selected" : ""}>USPS Ground Advantage — cheaper, 2–5 days</option>
           <option value="priority"${val.shipping_service === "priority" ? " selected" : ""}>USPS Priority Mail — faster, 1–3 days</option></select></div>
       <div id="eShipEst">${d.shipping ? eShipEst(d.shipping) : `<div style="margin-top:8px">${sizeBtnHtml("ebay")}</div>`}</div>
-      <div class="muted" style="font-size:.75rem;margin-top:6px">One flat price by the USPS service above. 30-day returns, buyer pays return shipping. Change these any time in eBay Seller Hub.</div>
+      <div style="margin-top:8px"><div class="muted" style="font-size:.75rem">Returns</div>
+        <select id="eRet"><option value="">Loading your eBay return policies…</option></select></div>
+      <div class="muted" style="font-size:.75rem;margin-top:6px">One flat price by the USPS service above. Change these any time in eBay Seller Hub.</div>
     </div>
     <div class="card">
       <label class="row" style="gap:8px;align-items:flex-start;font-weight:600"><input type="checkbox" id="eOffers" ${val.best_offer ? "checked" : ""} style="width:auto;margin-top:3px">
@@ -431,6 +434,15 @@ function renderEbayDraft(id, d) {
     </div>
     <button class="btn" id="eGo" style="background:var(--cobalt)">Preview listing &amp; eBay fees</button>
     <div class="muted" style="font-size:.75rem;text-align:center;margin:8px 0 20px">Nothing goes live yet. Next you'll see the listing and eBay's exact fees, then decide.</div>`;
+  // The seller's own return policies, each with what it means to a buyer, plus a new 30-day one.
+  // The listing uses exactly the one chosen here, and the preview says which.
+  api("/ebay/return-policies").then(rp => {
+    const sel = $("#eRet"); if (!sel) return;
+    const want = val.return_policy_id || (rp.policies[0] ? rp.policies[0].id : rp.new30);
+    const has30 = rp.policies.some(x => /^30-day returns/.test(x.summary));
+    sel.innerHTML = rp.policies.map(x => `<option value="${esc(x.id)}"${x.id === want ? " selected" : ""}>${esc(x.summary)} (${esc(x.name)})</option>`).join("")
+      + (has30 ? "" : `<option value="${esc(rp.new30)}"${want === rp.new30 ? " selected" : ""}>30-day returns, buyer pays return shipping (new policy)</option>`);
+  }).catch(() => { const sel = $("#eRet"); if (sel) sel.innerHTML = `<option value="">Your eBay return policy</option>`; });
   const tc = () => $("#tCount").textContent = `(${$("#eTitle").value.length}/80)`;
   $("#eTitle").oninput = tc; tc();
   const bindQuote = () => { if ($("#eQuote")) $("#eQuote").onclick = () => getShipQuote(id, $("#eZip").value, $("#eQuote"), $("#eQuoteOut"), $("#eShip"), $("#eSvc").value); };
@@ -448,6 +460,7 @@ function renderEbayDraft(id, d) {
       aspects, description: $("#eDesc").value,
       postal_code: $("#eZip").value, shipping_cost: $("#eShip").value, handling_days: $("#eDays").value,
       shipping_service: $("#eSvc").value, best_offer: $("#eOffers") ? $("#eOffers").checked : true,
+      return_policy_id: $("#eRet") ? $("#eRet").value : "",
     };
   };
   $("#dBack").onclick = () => { ebayEdits[id] = readForm(); renderItemDetail(id); };
@@ -498,7 +511,7 @@ function renderEbayPreview(id, d, body, r) {
       ${d.images[0] ? `<img src="${esc(d.images[0])}" alt="" style="width:100%;max-height:260px;object-fit:contain;border-radius:10px;background:var(--bg)">` : ""}
       <h3 style="font-size:1.1rem;margin-top:10px">${esc(body.title)}</h3>
       <div class="big" style="font-size:1.6rem;color:var(--green)">${money2(body.price)}</div>
-      <div class="muted" style="font-size:.85rem">${[cond && cond.label, shipping, `ships within ${esc(body.handling_days)} day${body.handling_days === "1" ? "" : "s"}`, "30-day returns"].filter(Boolean).join(" · ")}</div>
+      <div class="muted" style="font-size:.85rem">${[cond && cond.label, shipping, `ships within ${esc(body.handling_days)} day${body.handling_days === "1" ? "" : "s"}`, r.returns ? esc(r.returns) : ""].filter(Boolean).join(" · ")}</div>
       <div class="muted" style="font-size:.8rem;margin-top:4px">${esc((d.categories.find(c => c.id === body.category_id) || d.category || {}).path || "")}</div>
       <div style="font-size:.82rem;margin-top:6px">${r.best_offer ? `Offers on: <b>${money2(r.best_offer.accept_cents / 100)}</b> or more accepted automatically${r.best_offer.decline_cents ? `, under <b>${money2(r.best_offer.decline_cents / 100)}</b> declined` : ""}.` : `<span class="muted">Offers off: buyers pay the listed price.</span>`}</div>
       ${Object.keys(body.aspects).length ? `<div style="font-size:.82rem;margin-top:8px">${Object.entries(body.aspects).map(([k, v]) => `<b>${esc(k)}:</b> ${esc(v.join(", "))}`).join(" · ")}</div>` : ""}

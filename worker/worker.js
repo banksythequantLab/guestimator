@@ -485,6 +485,14 @@ export default {
         catch (e) { return J({ error: String(e.message || e) }, 502); }
       }
 
+      // The seller's eBay return policies, for the listing form (and what each means to a buyer).
+      if (parts[1] === "ebay" && parts[2] === "return-policies" && m === "GET") {
+        const ut = await ebay.userToken(env, db, userId);
+        if (!ut) return J({ error: "Connect your eBay account first", needs_connect: true }, 409);
+        const pol = await ebay.listPolicies(env, ut.token);
+        return J({ policies: pol.return, new30: ebay.NEW_RETURNS_30 });
+      }
+
       // ---------- price-drop nudges for slow eBay listings ----------
       if (parts[1] === "ebay" && parts[2] === "slow") {
         if (parts.length === 3 && m === "GET")
@@ -774,8 +782,11 @@ export default {
           try {
             if (!fulfillmentPolicyId) fulfillmentPolicyId = await ebay.createFulfillmentPolicy(env, tok, b.shipping_cost, b.handling_days, ebay.shipService(b.shipping_service));
             const paymentPolicyId = pol.payment[0]?.id || await ebay.createPaymentPolicy(env, tok);
-            const returnPolicyId = (pol.return.some(p => p.id === b.return_policy_id) ? b.return_policy_id : pol.return[0]?.id)
-              || await ebay.createReturnPolicy(env, tok);
+            // The seller picks the return policy on the form: one of theirs, or a new 30-day one.
+            // Nothing picked keeps the old behaviour (their first policy, else a new 30-day one).
+            const returnPolicyId = b.return_policy_id === ebay.NEW_RETURNS_30 ? await ebay.createReturnPolicy(env, tok)
+              : (pol.return.some(p => p.id === b.return_policy_id) ? b.return_policy_id : pol.return[0]?.id) || await ebay.createReturnPolicy(env, tok);
+            const returns = (pol.return.find(p => p.id === returnPolicyId) || {}).summary || ebay.returnSummary({ returnsAccepted: true, returnPeriod: { value: 30, unit: "DAY" }, returnShippingCostPayer: "BUYER" });
             const locationKey = await ebay.ensureLocation(env, tok, zip);
             const text = String(b.description).trim();
             // Best Offer is on unless the seller turned it off; its thresholds come from this price
@@ -796,7 +807,7 @@ export default {
               await db.prepare("UPDATE ebay_listings SET status='draft', offer_id=?, category_id=?, price_cents=?, best_offer_accept_cents=?, best_offer_decline_cents=?, error=NULL, updated_at=? WHERE id=?")
                 .bind(p.offerId, String(b.category_id), Math.round(price * 100), bestOffer?.accept_cents ?? null, bestOffer?.decline_cents ?? null, now(), row.id).run();
               return J({ status: "preview", offer_id: p.offerId, fees: fees.error ? null : fees, fee_error: fees.error || null,
-                         listing_credits: listingCredits(env), best_offer: bestOffer });
+                         listing_credits: listingCredits(env), best_offer: bestOffer, returns });
             }
             const res = await ebay.publishListing(env, tok, L);
             if (res.error) return await fail(`${res.error} [at ${res.stage}]`, res.stage, res.offerId);

@@ -180,6 +180,9 @@ const cPrev = db.raw.prepare("SELECT credits FROM users WHERE id=?").get(me.id).
 r = await call("POST", `/api/items/${item}/ebay/preview`, { ...body, shipping_cost: "12", handling_days: 2 });
 ok("preview returns eBay's fee quote, net of promos, zero-fee lines dropped", r.status === 200 && r.json.status === "preview" && r.json.fees
    && r.json.fees.total === 0.35 && r.json.fees.fees.map(f => `${f.type}:${f.net}`).join(",") === "InsertionFee:0.35,GalleryPlusFee:0");
+ok("preview says the return policy the listing really gets", r.json.returns === "30-day returns, buyer pays return shipping", r.json.returns);
+{ const rp = await call("GET", "/api/ebay/return-policies");
+  ok("return policies listed for the form, with the new-30-day choice", rp.status === 200 && Array.isArray(rp.json.policies) && rp.json.new30 === "new30", rp.json); }
 ok("preview takes no credit", db.raw.prepare("SELECT credits FROM users WHERE id=?").get(me.id).credits === cPrev);
 ok("preview never calls publish", !calls.some(c => /\/publish$/.test(c.url)));
 ok("preview saved the offer for publish to reuse",
@@ -276,5 +279,12 @@ for (const p of ["/api/me/statements", "/api/me/orders", "/api/me/sellers", "/ap
   ok(`${p} no longer exists`, (await call("GET", p)).status === 404);
 ok("/shop/* is not served by the worker", (await call("GET", "/shop/anything")).text === "asset");
 
+// ---------- return policy wording ----------
+{
+  const { returnSummary } = await import("../ebay.js");
+  ok("no-returns policy reads as such", returnSummary({ returnsAccepted: false }) === "No returns");
+  ok("30 days, buyer pays", returnSummary({ returnsAccepted: true, returnPeriod: { value: 30, unit: "DAY" }, returnShippingCostPayer: "BUYER" }) === "30-day returns, buyer pays return shipping");
+  ok("60 days, seller pays", returnSummary({ returnsAccepted: true, returnPeriod: { value: 60, unit: "DAY" }, returnShippingCostPayer: "SELLER" }) === "60-day returns, free return shipping");
+}
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
