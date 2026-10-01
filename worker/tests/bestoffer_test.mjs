@@ -21,6 +21,8 @@ t = bestOfferTerms(100, 95);
 ok("floor above 90%: never auto-accept below the floor", t.accept_cents === 9500 && t.decline_cents === 9400, t);
 t = bestOfferTerms(100, 120);
 ok("floor at or above the price: accept just under it", t.accept_cents === 9900 && t.decline_cents < 9900, t);
+t = bestOfferTerms(199, 145, 11500);
+ok("seller minimum replaces the 70%/floor decline line", t.accept_cents === 17900 && t.decline_cents === 11500, t);
 ok("under $10: no offers", bestOfferTerms(9.99, 0) === null);
 t = bestOfferTerms(15, 0);
 ok("50c steps under $20", t.accept_cents === 1350 && t.decline_cents === 1050, t);
@@ -101,6 +103,13 @@ r = await call("POST", `/api/ebay/slow/${lid}/lower`, { price_cents: 14900 });
 ok("offers off: price drop uses the plain price update", r.status === 200 && calls.some(c => c.url.endsWith("bulk_update_price_quantity")));
 ok("someone else's listing -> 404", (await call("POST", `/api/ebay/listings/nope/best-offer`, { enabled: true })).status === 404);
 
+// ---------- seller's own minimum ----------
+r = await call("POST", `/api/ebay/listings/${lid}/best-offer`, { enabled: true, min_cents: 11500 });
+ok("minimum set: offers from $115 reach the seller", r.status === 200 && r.json.best_offer.decline_cents === 11500
+  && calls.filter(c => c.method === "PUT").pop().body.listingPolicies.bestOfferTerms.autoDeclinePrice.value === "115.00", r.json);
+ok("a minimum at or above the price is refused", (await call("POST", `/api/ebay/listings/${lid}/best-offer`, { enabled: true, min_cents: 99900 })).status === 400);
+r = await call("POST", `/api/ebay/slow/${lid}/lower`, { price_cents: 13900 });
+ok("minimum survives a price drop", r.status === 200 && db.raw.prepare("SELECT best_offer_decline_cents d, best_offer_min_cents m FROM ebay_listings WHERE id=?").get(lid).d === 11500, db.raw.prepare("SELECT * FROM ebay_listings WHERE id=?").get(lid));
 // ---------- return policy on a live listing ----------
 r = await call("POST", `/api/ebay/listings/${lid}/returns`, { policy_id: "new30" });
 put = calls.filter(c => c.method === "PUT").pop();

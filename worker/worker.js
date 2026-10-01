@@ -481,7 +481,7 @@ export default {
         return J(await priceCheck(env, db, userId));
       if (parts[1] === "ebay" && parts[2] === "listings" && parts[4] === "best-offer" && m === "POST") {
         const b = await readJson(request);
-        try { const r = await nudges.setListingBestOffer(env, db, userId, parts[3], b.enabled !== false); return J(r.ok ? r : { error: r.error }, r.status); }
+        try { const r = await nudges.setListingBestOffer(env, db, userId, parts[3], b.enabled !== false, b.min_cents); return J(r.ok ? r : { error: r.error }, r.status); }
         catch (e) { return J({ error: String(e.message || e) }, 502); }
       }
 

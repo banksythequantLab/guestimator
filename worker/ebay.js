@@ -529,14 +529,18 @@ export async function prepareOffer(env, token, L) {
 // declined on the spot. Everything in between waits for the seller. Under $10 haggling isn't
 // worth anyone's time, so no offers.
 const downNice = c => c >= 2000 ? Math.floor(c / 100) * 100 : Math.floor(c / 50) * 50;
-export function bestOfferTerms(price, floorDollars) {
+// minCents: the lowest offer the seller wants to SEE. When set it replaces the 70% / floor rule for
+// declining (Derek, Cisco at $199 with sales at $120: "yes" to seeing ~$120 offers), and the
+// estimate floor no longer lifts the auto-accept either - the seller has said what they'd take.
+export function bestOfferTerms(price, floorDollars, minCents = null) {
   const p = Math.round(Number(price) * 100);
   if (!(p >= 1000)) return null;
-  const floor = Number(floorDollars) > 0 ? Math.round(Number(floorDollars) * 100) : 0;
+  const min = Number(minCents) > 0 ? Math.round(Number(minCents)) : null;
+  const floor = min ? 0 : Number(floorDollars) > 0 ? Math.round(Number(floorDollars) * 100) : 0;
   let accept = Math.max(downNice(p * 0.9), downNice(floor));
   if (accept >= p) accept = downNice(p - 1);          // floor at or above the price: accept just under it
   if (!(accept > 0) || accept >= p) return null;
-  let decline = downNice(Math.max(p * 0.7, floor));
+  let decline = min ? min : downNice(Math.max(p * 0.7, floor));
   if (decline >= accept) decline = accept - (accept >= 2000 ? 100 : 50);
   if (!(decline > 0)) decline = null;
   return { accept_cents: accept, decline_cents: decline };
