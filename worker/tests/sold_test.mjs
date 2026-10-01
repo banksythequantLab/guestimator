@@ -38,7 +38,7 @@ globalThis.fetch = async () => { throw new Error("network down"); };
 ok("network failure -> null, not a throw", (await ebaySold({ SOLDCOMPS_API_KEY: "k" }, "x")) === null && /failed/.test(soldFailure()));
 
 const p = repricePrompt({ ident: { name: "crock" }, condition: "Good", lotInfo: null, market: { count: 3, low: 150, high: 200, median: 175 }, hits: r, soldMarket: sm });
-ok("repricer told sold prices are what buyers paid, and asking separately", /SOLD on eBay in the last 90 days: 2 sales, \$95-\$120/.test(p) && /ASKING prices/.test(p) && /"sold": true/.test(p));
+ok("repricer told sold prices are what buyers paid, no unjudged sold range, asking separately", /SOLD on eBay in the last 90 days: 2 completed sales/.test(p) && !/\$95-\$120/.test(p) && /cite only the matching/.test(p) && /ASKING prices/.test(p) && /"sold": true/.test(p));
 ok("no sold data -> prompt unchanged", !/SOLD on eBay/.test(repricePrompt({ ident: {}, hits: [] })));
 
 console.log(`${pass} passed, ${fail} failed`);

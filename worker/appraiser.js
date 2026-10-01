@@ -115,10 +115,14 @@ export function repricePrompt({ ident, condition, lotInfo, market, hits, soldMar
     (market ? `\nLIVE eBay asking prices right now: ${market.count} listed, ` +
       `$${market.low}-$${market.high}, median $${market.median}. These are ASKING prices, not sold ` +
       `prices, so a dealer's retail sits near or above them rather than far below.\n` : "") +
-    (soldMarket ? `\nSOLD on eBay in the last 90 days: ${soldMarket.count} sales, ` +
-      `$${soldMarket.low}-$${soldMarket.high}, median $${soldMarket.median}. These are what buyers actually ` +
-      `PAID - the strongest evidence here. Comparables marked "sold": true are completed sales; weigh ` +
-      `them above asking prices, and keep sold ones among your comparables when they match.\n` : "") +
+    // No pre-computed sold range here. It was built before the model judged which sales are this
+    // item, and the model quoted it back: SK Hynix 32GB RDIMM got "sold range $62-$560" in its
+    // basis (LRDIMMs and 2666s included) while the three matching sales were $126-$190.
+    (soldMarket ? `\nSOLD on eBay in the last 90 days: ${soldMarket.count} completed sales are among the ` +
+      `comparables below, marked "sold": true. These are what buyers actually PAID - the strongest ` +
+      `evidence here; weigh them above asking prices. Some may be a different variant (another speed, ` +
+      `type, size or a set); judge each one. Price from the sold ones that match this exact item, keep ` +
+      `those among your comparables, and if your basis cites a sold range, cite only the matching ones.\n` : "") +
     `\nComparables:\n${JSON.stringify(hits, null, 1)}`;
 }
 
@@ -1860,8 +1864,8 @@ export async function appraise(env, req) {
         // with no prior in it either.
         const cold = `Item: ${ident.name}\nCondition: ${listing.condition_grade || "Good"}\n` +
           `Currency: ${currency}\n` +
-          (soldMarket ? `Sold on eBay, last 90 days: ${soldMarket.count} sales, $${soldMarket.low}-$${soldMarket.high}, ` +
-            `median $${soldMarket.median}. What buyers paid.\n` : "") +
+          (soldMarket ? `Comparables marked "sold": true are completed eBay sales (what buyers paid); ` +
+            `use only the ones that are this exact item.\n` : "") +
           (market ? `Live asking prices right now: ${market.count} listed, $${market.low}-$${market.high}, ` +
             `median $${market.median}. Asking, not sold.\n` : "") +
           `\nComparables:\n${JSON.stringify(hits.slice(0, 8), null, 1)}\n\n` +
