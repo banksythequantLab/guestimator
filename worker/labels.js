@@ -1,3 +1,4 @@
+import { packageFor } from "./packing.js";
 // Buy a shipping label for an online order (garage-sale or eBay) through Shippo, then mark the
 // order shipped with the label's tracking number - which emails a garage buyer, or tells eBay.
 //
@@ -36,8 +37,10 @@ const fromAddress = f => ({ name: f.name, street1: f.street1, street2: f.street2
 
 // The estimated box unless the seller typed the real one (they should: they've weighed it now).
 export function parcelFor(est, over) {
-  const box = (over && Array.isArray(over.box_in) && over.box_in.length === 3 ? over.box_in : est && est.box_in || []).map(Number);
-  const lb = Number(over && over.weight_lb) || Number(est && est.packed_weight_lb);
+  // Without the seller's own measurements, the stock box or mailer packageFor picks.
+  const pk = packageFor(est);
+  const box = (over && Array.isArray(over.box_in) && over.box_in.length === 3 ? over.box_in : pk ? pk.box_in : est && est.box_in || []).map(Number);
+  const lb = Number(over && over.weight_lb) || Number(pk && pk.weight_lb) || Number(est && est.packed_weight_lb);
   if (box.length !== 3 || box.some(n => !(n > 0 && n <= 108)) || !(lb > 0 && lb <= 150)) return null;
   return { length: String(box[0]), width: String(box[1]), height: String(box[2]), distance_unit: "in", weight: String(Math.round(lb * 100) / 100), mass_unit: "lb" };
 }

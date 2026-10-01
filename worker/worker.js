@@ -16,6 +16,8 @@ import * as nudges from "./nudges.js";
 import * as profit from "./profit.js";
 import { priceCheck } from "./pricecheck.js";
 import * as weekly from "./weekly.js";
+import { packageFor } from "./packing.js";
+import * as stickers from "./stickers.js";
 // Every Guestimator item lives in one hidden per-user `sales` row (the schema is Bottle Tree's).
 const GUESS_BUCKET = "Guestimator";
 // The Android app's URL scheme (strings.xml custom_url_scheme; AndroidManifest intent-filter).
@@ -179,6 +181,16 @@ export default {
       // ---------- PUBLIC: garage / estate sale pages ----------
       if (parts[0] === "sale" && parts[1] && m === "GET")
         return await garage.salePages(request, env, url, parts, await currentUser(request, db));
+      // ---------- inventory stickers (signed-in seller only; printable page) ----------
+      if (parts[0] === "stickers" && parts.length === 1 && m === "GET") {
+        const uidS = await currentUser(request, db);
+        if (!uidS) return Response.redirect((env.PUBLIC_ORIGIN || url.origin) + "/", 302);
+        const ids = (url.searchParams.get("ids") || "").split(",").map(x => x.trim()).filter(Boolean);
+        const list = await stickers.stickerItems(db, uidS, ids);
+        return new Response(stickers.stickerPage(list, env.PUBLIC_ORIGIN || url.origin,
+          { skip: Number(url.searchParams.get("skip")) || 0, plain: url.searchParams.get("plain") === "1" }),
+          { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      }
       if (!p.startsWith("/api/")) return env.ASSETS.fetch(request);
       if (parts[1] === "public" && parts[2] === "garage") return await garage.publicApi(request, env, url, parts, ctx);
 
@@ -458,7 +470,8 @@ export default {
           let est = null; try { est = ap?.result_json ? JSON.parse(ap.result_json).shipping : null; } catch {}
           const parcel = labels.parcelFor(est, b);
           if (!parcel) return J({ error: "Enter the box size and weight.", needs_parcel: true }, 409);
-          try { return J({ ...(await labels.labelRates(env, from, t.to, parcel)), parcel }); }
+          const pkg = b.box_in ? null : packageFor(est);
+          try { return J({ ...(await labels.labelRates(env, from, t.to, parcel)), parcel, package: pkg }); }
           catch (e) { return J({ error: String(e.message || e) }, e.status || 502); }
         }
         if (parts[2] === "buy" && m === "POST") {

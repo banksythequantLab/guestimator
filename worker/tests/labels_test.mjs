@@ -19,7 +19,7 @@ ok("cleanFrom refuses bad state / missing street", L.cleanFrom({ name: "D", stre
 ok("toAddress from stored buyer JSON", JSON.stringify(L.toAddress('{"name":"Bob","phone":"512","address":{"line1":"1 Congress Ave","city":"Austin","state":"TX","postal_code":"78701","country":"US"}}'))
    === JSON.stringify({ name: "Bob", street1: "1 Congress Ave", street2: "", city: "Austin", state: "TX", zip: "78701", country: "US", phone: "512" }));
 ok("toAddress: incomplete -> null", L.toAddress('{"phone":"5"}') === null && L.toAddress(null) === null);
-ok("parcelFor: estimate, or the seller's own numbers", L.parcelFor({ box_in: [10, 5, 5], packed_weight_lb: 0.4 }).weight === "0.4" &&
+ok("parcelFor: the stock box for the estimate, or the seller's own numbers", L.parcelFor({ box_in: [10, 5, 5], packed_weight_lb: 0.4 }).weight === "0.5" && L.parcelFor({ box_in: [10, 5, 5], packed_weight_lb: 0.4 }).width === "8" &&
    L.parcelFor({ box_in: [10, 5, 5], packed_weight_lb: 0.4 }, { box_in: [12, 9, 4], weight_lb: 1.25 }).length === "12");
 ok("parcelFor: nothing usable -> null", L.parcelFor(null) === null && L.parcelFor({ box_in: [10, 5, 5], packed_weight_lb: 0 }) === null);
 ok("carrierOf", L.carrierOf("USPS") === "USPS" && L.carrierOf("FedEx") === "FedEx" && L.carrierOf("DHL Express") === null);

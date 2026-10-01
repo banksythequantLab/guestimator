@@ -39,7 +39,7 @@ const q = await quoteShipping(env, "07086", est);
 ok("three quotes: near, mid, far", calls.length === 3 && calls.map(c => c.body.address_to.zip).join() === "07086,64106,98101", calls.map(c => c.body.address_to.zip));
 ok("ShippoToken auth header", calls.every(c => c.auth === "ShippoToken shippo_test_x"));
 ok("ZIP-only quote addresses", JSON.stringify(calls[1].body.address_from) === '{"zip":"07086","country":"US"}');
-ok("parcel is the estimated box and packed weight", JSON.stringify(calls[0].body.parcels[0]) === JSON.stringify({ length: "22", width: "16", height: "6", distance_unit: "in", weight: "4.8", mass_unit: "lb" }), calls[0].body.parcels[0]);
+ok("parcel is the stock box that holds the estimate (22x16x6 -> 24x18x12), a little heavier", JSON.stringify(calls[0].body.parcels[0]) === JSON.stringify({ length: "24", width: "18", height: "12", distance_unit: "in", weight: "5.9", mass_unit: "lb" }) && q.package.name === "24×18×12 in box", calls[0].body.parcels[0]);
 ok("synchronous rating", calls[0].body.async === false);
 ok("zones labelled", q.zones.map(z => z.label).join("|") === "Nearby|Mid-country|Across the country");
 ok("suggested from mid-country Ground Advantage", q.suggested === 10, q);

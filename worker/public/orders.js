@@ -140,6 +140,7 @@ async function labelPanel(kind, id, box, after, over) {
   }
   const p = q.parcel;
   box.innerHTML = `<div class="card" style="margin:8px 0;padding:10px">
+    ${q.package ? `<div style="font-size:.82rem;margin-bottom:6px">📦 Pack it in a <b>${esc(q.package.name)}</b>${q.package.kind === "mailer" ? "" : ", with padding all round"}.</div>` : ""}
     ${parcelInputs(p)}
     ${q.rates.length ? `<div style="margin-top:8px">${q.rates.map((r, n) => `<label class="row" style="gap:8px;font-weight:400;font-size:.88rem;margin:4px 0">
         <input type="radio" name="rate-${esc(id)}" value="${esc(r.rate_id)}" data-cents="${Math.round(r.amount * 100)}" ${n === 0 ? "checked" : ""} style="width:auto">

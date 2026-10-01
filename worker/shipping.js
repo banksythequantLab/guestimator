@@ -1,3 +1,4 @@
+import { packageFor } from "./packing.js";
 // Live shipping quotes through Shippo, for the box and weight the appraisal estimated.
 //
 // A quote is needed before there is a buyer, so there is no destination address. Three are used
@@ -64,16 +65,18 @@ export async function quoteShipping(env, fromZipRaw, est, service = "ground") {
   if (!from) throw Object.assign(new Error("Enter the 5-digit ZIP you ship from."), { status: 400 });
   if (!est || !Array.isArray(est.box_in) || !(est.packed_weight_lb > 0))
     throw Object.assign(new Error("This item has no size and weight estimate yet. Tap 'Estimate weight & box size (free)' first."), { status: 409 });
-  const [L, W, H] = est.box_in;
+  // Quote the stock box or mailer the seller will actually use, not the exact padded size.
+  const pk = packageFor(est);
+  const [L, W, H] = pk ? pk.box_in : est.box_in;
   const parcel = { length: String(L), width: String(W), height: String(H), distance_unit: "in",
-                   weight: String(Math.max(0.1, est.packed_weight_lb)), mass_unit: "lb" };
+                   weight: String(Math.max(0.1, (pk && pk.weight_lb) || est.packed_weight_lb)), mass_unit: "lb" };
   const spots = [
     { label: "Nearby", zip: from },
     { label: "Mid-country", zip: MID },
     { label: "Across the country", zip: farZip(from) },
   ];
   const zones = await Promise.all(spots.map(async s => ({ ...s, rates: await rate(env, from, s.zip, parcel) })));
-  return { from, parcel: { box_in: est.box_in, weight_lb: Number(parcel.weight) }, zones, ...suggest(zones, service) };
+  return { from, parcel: { box_in: [L, W, H], weight_lb: Number(parcel.weight) }, package: pk, zones, ...suggest(zones, service) };
 }
 
 // The eBay listing ships one USPS service at one flat price (Ground Advantage unless the seller

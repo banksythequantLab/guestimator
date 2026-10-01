@@ -1,3 +1,4 @@
+import { packageFor } from "./packing.js";
 // Bottle Tree appraiser — ported from the FastAPI service (service/app/{pipeline,nebius,comps}.py)
 // so the Worker calls Nebius Token Factory and Tavily directly. No box to keep awake.
 // The edge/Ollama brain is intentionally not ported: it exists for the offline kiosk, not for this path.
@@ -812,7 +813,7 @@ export function shippingEstimate(raw, lot) {
   const packLb = Math.max(0.3, vol * (fragile ? 0.0005 : 0.00035));
   const packed = Math.round((itemLb + packLb) * 10) / 10;
   const dimLb = Math.ceil(vol / 139);
-  return {
+  const out = {
     item_weight_lb: Math.round(itemLb * 10) / 10,
     packed_weight_lb: packed,
     // Round up to the next whole pound: that's how every carrier bills.
@@ -822,6 +823,9 @@ export function shippingEstimate(raw, lot) {
     fragile,
     basis: String(raw.basis || "").slice(0, 160),
   };
+  // The stock box or padded mailer to actually use (packing.js).
+  out.package = packageFor(out);
+  return out;
 }
 
 // Items estimated before weight and box size existed have no `shipping`. Re-running the whole

@@ -278,7 +278,8 @@ async function renderHome() {
       <button class="btn sec sm" id="toSales" style="white-space:nowrap">Your sales <span id="salesBadge"></span></button></div></div>
     <div class="card" style="padding:12px 16px"><div class="row" style="justify-content:space-between;align-items:center;gap:10px">
       <div><b>Profit &amp; inventory</b><div class="muted" style="font-size:.82rem">What you've made, and what's still on the shelf</div></div>
-      <button class="btn sec sm" id="toProfit" style="white-space:nowrap">Report</button></div></div>
+      <div class="row" style="gap:6px"><a class="btn sec sm" href="/stickers" target="_blank" rel="noopener" style="white-space:nowrap;text-decoration:none" title="A small label for each unsold item: code, name, price and a QR that opens it here">🏷 Stickers</a>
+      <button class="btn sec sm" id="toProfit" style="white-space:nowrap">Report</button></div></div></div>
     <div class="row" style="justify-content:space-between;margin:14px 2px 6px"><h3>Your items</h3></div>
     <div id="itemList" class="list"><div class="muted" style="padding:10px">Loading…</div></div>`;
   $("#aiAdd").onclick = () => renderCapture();
@@ -915,6 +916,7 @@ async function renderItemDetail(id) {
       <button class="btn sec sm" id="costSave">Save</button></div></div>
     <div class="row" style="gap:8px;margin-bottom:16px;flex-wrap:wrap">
       ${!pending && photos.length ? `<button class="btn sec sm" id="reappraise">↻ Re-run the estimate</button>` : ""}
+      <a class="btn sec sm" href="/stickers?ids=${esc(id)}" target="_blank" rel="noopener" style="text-decoration:none">🏷 Print sticker</a>
       <button class="btn sec sm" id="delItem" style="color:var(--rust)">Delete item</button>
     </div>
 `;
@@ -1029,6 +1031,10 @@ function shipLine(s) {
   const box = (s.box_in || []).join(" × ");
   const dim = s.dim_weight_lb > Math.ceil(s.packed_weight_lb)
     ? ` UPS/FedEx will bill it as <b>${s.dim_weight_lb} lb</b> because the box is big for its weight.` : "";
+  // A stock box or padded mailer when the estimate names one (newer estimates); else the exact box.
+  const pk = s.package && s.package.kind !== "custom" ? s.package : null;
+  if (pk) return `<b>📦 Pack it in:</b> a <b>${esc(pk.name)}</b>, about <b>${lb(pk.weight_lb || s.packed_weight_lb)}</b> packed${s.fragile ? " — <b>fragile</b>, 3 in of padding all round" : pk.kind === "box" ? ", 2 in of padding all round" : ""}.
+    <div class="muted" style="margin-top:3px">Item alone ~${lb(s.item_weight_lb)}${s.basis ? ` (${esc(String(s.basis).replace(/[.\s]+$/, ""))})` : ""}. Guessed from the photos: weigh it before you buy a label.</div>`;
   return `<b>📦 Shipping estimate:</b> about <b>${lb(s.packed_weight_lb)}</b> packed, in a <b>${esc(box)} in</b> box${s.fragile ? " — <b>fragile</b>, pack with 3 in of padding" : ""}.${dim}
     <div class="muted" style="margin-top:3px">Item alone ~${lb(s.item_weight_lb)}${s.basis ? ` (${esc(String(s.basis).replace(/[.\s]+$/, ""))})` : ""}. Guessed from the photos: weigh it before you buy a label.</div>`;
 }
@@ -1324,7 +1330,10 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
       const fromEbay = new URLSearchParams(location.search).get("ebay") === "connected";
       if (fromEbay) history.replaceState(null, "", "/");
       // #ebay-orders: the link in a "Sold on eBay" email.
-      if (location.hash === "#ebay-orders" && !fromEbay) await renderEbayOrders();
+      // #item-<id>: the QR on an inventory sticker.
+      const itemHash = (location.hash.match(/^#item-([0-9a-f-]{36})$/) || [])[1];
+      if (itemHash && !fromEbay) await renderItemDetail(itemHash);
+      else if (location.hash === "#ebay-orders" && !fromEbay) await renderEbayOrders();
       else if (!(await afterStripeReturn())) await renderHome();
       if (fromEbay) afterEbayReturn(true);
     }
