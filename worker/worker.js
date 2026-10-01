@@ -479,6 +479,11 @@ export default {
       // ---------- price check: live eBay listings vs recent eBay sales ----------
       if (parts[1] === "ebay" && parts[2] === "pricecheck" && parts.length === 3 && m === "GET")
         return J(await priceCheck(env, db, userId));
+      if (parts[1] === "ebay" && parts[2] === "listings" && parts[4] === "best-offer" && m === "POST") {
+        const b = await readJson(request);
+        try { const r = await nudges.setListingBestOffer(env, db, userId, parts[3], b.enabled !== false); return J(r.ok ? r : { error: r.error }, r.status); }
+        catch (e) { return J({ error: String(e.message || e) }, 502); }
+      }
 
       // ---------- price-drop nudges for slow eBay listings ----------
       if (parts[1] === "ebay" && parts[2] === "slow") {
@@ -773,28 +778,33 @@ export default {
               || await ebay.createReturnPolicy(env, tok);
             const locationKey = await ebay.ensureLocation(env, tok, zip);
             const text = String(b.description).trim();
+            // Best Offer is on unless the seller turned it off; its thresholds come from this price
+            // and the floor the estimate set (never auto-accept below what we said to take).
+            const apBO = await db.prepare("SELECT result_json FROM appraisals WHERE item_id=? AND status='done' ORDER BY created_at DESC LIMIT 1").bind(iid).first();
+            let prBO = null; try { prBO = JSON.parse(apBO?.result_json || "null")?.price_range || null; } catch {}
+            const bestOffer = b.best_offer === false ? null : ebay.bestOfferTerms(price, prBO?.floor || prBO?.low);
             const L = {
               sku: ebay.skuFor(iid), offerId: row.offer_id, title, price, categoryId: b.category_id, condition,
               conditionDescription: String(b.condition_note || "").trim(), aspects, imageUrls: images,
               descriptionText: text, descriptionHtml: ebay.descriptionHtml(text),
-              fulfillmentPolicyId, paymentPolicyId, returnPolicyId, locationKey,
+              fulfillmentPolicyId, paymentPolicyId, returnPolicyId, locationKey, bestOffer,
             };
             if (preview) {
               const p = await ebay.prepareOffer(env, tok, L);
               if (p.error) return await fail(`${p.error} [at ${p.stage}]`, p.stage, p.offerId);
               const fees = await ebay.listingFees(env, tok, p.offerId);
-              await db.prepare("UPDATE ebay_listings SET status='draft', offer_id=?, category_id=?, price_cents=?, error=NULL, updated_at=? WHERE id=?")
-                .bind(p.offerId, String(b.category_id), Math.round(price * 100), now(), row.id).run();
+              await db.prepare("UPDATE ebay_listings SET status='draft', offer_id=?, category_id=?, price_cents=?, best_offer_accept_cents=?, best_offer_decline_cents=?, error=NULL, updated_at=? WHERE id=?")
+                .bind(p.offerId, String(b.category_id), Math.round(price * 100), bestOffer?.accept_cents ?? null, bestOffer?.decline_cents ?? null, now(), row.id).run();
               return J({ status: "preview", offer_id: p.offerId, fees: fees.error ? null : fees, fee_error: fees.error || null,
-                         listing_credits: listingCredits(env) });
+                         listing_credits: listingCredits(env), best_offer: bestOffer });
             }
             const res = await ebay.publishListing(env, tok, L);
             if (res.error) return await fail(`${res.error} [at ${res.stage}]`, res.stage, res.offerId);
-            await db.prepare("UPDATE ebay_listings SET status='published', offer_id=?, listing_id=?, listing_url=?, category_id=?, price_cents=?, funded_by=?, error=NULL, updated_at=? WHERE id=?")
-              .bind(res.offerId, res.listingId, res.url, String(b.category_id), Math.round(price * 100), fundedBy, now(), row.id).run();
+            await db.prepare("UPDATE ebay_listings SET status='published', offer_id=?, listing_id=?, listing_url=?, category_id=?, price_cents=?, best_offer_accept_cents=?, best_offer_decline_cents=?, funded_by=?, error=NULL, updated_at=? WHERE id=?")
+              .bind(res.offerId, res.listingId, res.url, String(b.category_id), Math.round(price * 100), bestOffer?.accept_cents ?? null, bestOffer?.decline_cents ?? null, fundedBy, now(), row.id).run();
             await db.prepare("UPDATE items SET ai_title=?, price_cents=?, listing_status='live', listed_at=COALESCE(listed_at,?) WHERE id=?")
               .bind(title, Math.round(price * 100), now(), iid).run();
-            return J({ status: "published", listing_id: res.listingId, url: res.url, warnings: res.warnings, credits_used: fundedBy ? 1 : 0 });
+            return J({ status: "published", listing_id: res.listingId, url: res.url, warnings: res.warnings, credits_used: fundedBy ? 1 : 0, best_offer: bestOffer });
           } catch (e) {
             return await fail(String(e && e.message || e), "setup");
           }

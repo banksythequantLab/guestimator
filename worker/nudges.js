@@ -56,19 +56,51 @@ export async function lowerPrice(env, db, userId, listingRowId, newCents) {
   if (!(cents >= 99) || cents >= l.price_cents) return { status: 400, error: "The new price has to be lower than the current one." };
   const t = await ebay.userToken(env, db, userId);
   if (!t) return { status: 409, error: "Connect eBay again first." };
-  const body = { requests: [{ sku: l.sku, offers: [{ offerId: l.offer_id, availableQuantity: 1, price: { value: (cents / 100).toFixed(2), currency: "USD" } }] }] };
-  const r = await ebay.call(env, t.token, "POST", "/sell/inventory/v1/bulk_update_price_quantity", body);
-  const res = (r.json?.responses || [])[0];
-  if (!r.ok || (res && res.statusCode && res.statusCode >= 400)) {
-    const errs = (res?.errors || r.json?.errors || []).map(e => e.longMessage || e.message).filter(Boolean).join(" ");
-    return { status: 502, error: errs || ebay.ebayErrorText(r.json, r.status) };
+  // With Best Offer on, the auto-accept price has to come down with the price (eBay won't take an
+  // auto-accept at or above the price), so both change in one offer update.
+  let terms = null;
+  if (l.best_offer_accept_cents != null) {
+    terms = ebay.bestOfferTerms(cents / 100, await floorOf(db, l.item_id));
+    const u = await ebay.updateOfferTerms(env, t.token, l.offer_id, terms, cents);
+    if (u.error) return { status: 502, error: u.error };
+  } else {
+    const body = { requests: [{ sku: l.sku, offers: [{ offerId: l.offer_id, availableQuantity: 1, price: { value: (cents / 100).toFixed(2), currency: "USD" } }] }] };
+    const r = await ebay.call(env, t.token, "POST", "/sell/inventory/v1/bulk_update_price_quantity", body);
+    const res = (r.json?.responses || [])[0];
+    if (!r.ok || (res && res.statusCode && res.statusCode >= 400)) {
+      const errs = (res?.errors || r.json?.errors || []).map(e => e.longMessage || e.message).filter(Boolean).join(" ");
+      return { status: 502, error: errs || ebay.ebayErrorText(r.json, r.status) };
+    }
   }
   const ts = new Date().toISOString();
   await db.batch([
-    db.prepare("UPDATE ebay_listings SET price_cents=?, updated_at=?, nudge_dismissed_at=NULL WHERE id=?").bind(cents, ts, l.id),
+    db.prepare("UPDATE ebay_listings SET price_cents=?, best_offer_accept_cents=?, best_offer_decline_cents=?, updated_at=?, nudge_dismissed_at=NULL WHERE id=?")
+      .bind(cents, terms ? terms.accept_cents : null, terms ? terms.decline_cents : null, ts, l.id),
     db.prepare("UPDATE items SET price_cents=? WHERE id=?").bind(cents, l.item_id),
   ]);
   return { status: 200, ok: true, price_cents: cents };
+}
+
+// The lowest the item's latest estimate said to take (floor, else the low end), in dollars.
+async function floorOf(db, itemId) {
+  const ap = await db.prepare("SELECT result_json FROM appraisals WHERE item_id=? AND status='done' ORDER BY created_at DESC LIMIT 1").bind(itemId).first();
+  try { const pr = JSON.parse(ap?.result_json || "null")?.price_range; return pr?.floor || pr?.low || null; } catch { return null; }
+}
+
+/** Turn Best Offer on or off for a live listing. Thresholds come from its price and the floor. */
+export async function setListingBestOffer(env, db, userId, listingRowId, enabled) {
+  const l = await db.prepare("SELECT l.*, i.listing_status FROM ebay_listings l JOIN items i ON i.id=l.item_id WHERE l.id=? AND l.user_id=?").bind(listingRowId, userId).first();
+  if (!l) return { status: 404, error: "not found" };
+  if (l.status !== "published" || l.listing_status !== "live" || !l.offer_id) return { status: 409, error: "This listing isn't live any more." };
+  const terms = enabled ? ebay.bestOfferTerms(l.price_cents / 100, await floorOf(db, l.item_id)) : null;
+  if (enabled && !terms) return { status: 400, error: "Offers are only worth turning on for items priced $10 or more." };
+  const t = await ebay.userToken(env, db, userId);
+  if (!t) return { status: 409, error: "Connect eBay again first." };
+  const u = await ebay.updateOfferTerms(env, t.token, l.offer_id, terms);
+  if (u.error) return { status: 502, error: u.error };
+  await db.prepare("UPDATE ebay_listings SET best_offer_accept_cents=?, best_offer_decline_cents=? WHERE id=?")
+    .bind(terms ? terms.accept_cents : null, terms ? terms.decline_cents : null, l.id).run();
+  return { status: 200, ok: true, best_offer: terms };
 }
 
 const money = c => "$" + (Number(c || 0) / 100).toFixed(2);

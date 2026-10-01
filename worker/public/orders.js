@@ -240,6 +240,9 @@ async function runPriceCheck(box) {
       ${l.suggested_cents ? `<div class="row" style="gap:6px;margin-top:6px;align-items:center">
         <input data-pc-price="${esc(l.id)}" value="${(l.suggested_cents / 100).toFixed(2)}" inputmode="decimal" style="width:90px">
         <button class="btn sm" data-pc-lower="${esc(l.id)}">Lower on eBay</button></div>` : ""}
+      <div class="row" style="gap:6px;margin-top:6px;align-items:center;font-size:.78rem">
+        <span class="muted" style="flex:1">${l.best_offer ? `Offers on · ${money(l.best_offer.accept_cents)}+ accepted automatically${l.best_offer.decline_cents ? `, under ${money(l.best_offer.decline_cents)} declined` : ""}` : "Offers off"}</span>
+        <button class="btn sec sm" data-pc-bo="${esc(l.id)}" data-on="${l.best_offer ? 1 : 0}">${l.best_offer ? "Turn off offers" : "Accept offers"}</button></div>
     </div></div>`;
   };
   box.innerHTML = `<h3 style="margin:14px 2px 6px">Price check</h3>
@@ -247,6 +250,14 @@ async function runPriceCheck(box) {
     <div class="muted" style="font-size:.72rem;margin:6px 2px">Sold prices are eBay sales in the last 90 days, before shipping. Tap a price to see that sale and check it's really the same item before you change yours.</div>
     <button class="btn sec sm" data-pc-again style="margin-top:4px">Check again</button>`;
   box.querySelector("[data-pc-again]").onclick = () => runPriceCheck(box);
+  box.querySelectorAll("[data-pc-bo]").forEach(b => b.onclick = async () => {
+    const on = b.dataset.on !== "1";
+    b.disabled = true;
+    try {
+      const r = await api(`/ebay/listings/${encodeURIComponent(b.dataset.pcBo)}/best-offer`, { method: "POST", body: JSON.stringify({ enabled: on }) });
+      toast(on ? `Offers on: ${money(r.best_offer.accept_cents)}+ accepted automatically ✓` : "Offers turned off ✓"); runPriceCheck(box);
+    } catch (e) { toast(e.message); b.disabled = false; }
+  });
   box.querySelectorAll("[data-pc-lower]").forEach(b => b.onclick = async () => {
     const id = b.dataset.pcLower, v = Number(box.querySelector(`[data-pc-price="${CSS.escape(id)}"]`).value);
     if (!(v > 0)) return toast("Enter a price");

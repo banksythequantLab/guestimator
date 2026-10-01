@@ -368,6 +368,7 @@ function renderEbayDraft(id, d) {
     shipping_cost: e ? e.shipping_cost : "",
     shipping_service: e && e.shipping_service === "priority" ? "priority" : "ground",
     handling_days: e ? String(e.handling_days) : "3",
+    best_offer: e ? e.best_offer !== false : true,
   };
   const conds = d.conditions && d.conditions.length ? d.conditions : CONDITION_FALLBACK;
   const aspectRow = (s, n) => {
@@ -424,6 +425,10 @@ function renderEbayDraft(id, d) {
       <div id="eShipEst">${d.shipping ? eShipEst(d.shipping) : `<div style="margin-top:8px">${sizeBtnHtml("ebay")}</div>`}</div>
       <div class="muted" style="font-size:.75rem;margin-top:6px">One flat price by the USPS service above. 30-day returns, buyer pays return shipping. Change these any time in eBay Seller Hub.</div>
     </div>
+    <div class="card">
+      <label class="row" style="gap:8px;align-items:flex-start;font-weight:600"><input type="checkbox" id="eOffers" ${val.best_offer ? "checked" : ""} style="width:auto;margin-top:3px">
+        <span>Accept offers<div class="muted" style="font-size:.75rem;font-weight:400">Offers at 90% of your price or more are accepted automatically; lowball offers (under 70%, or under the estimate's floor) are declined for you. Everything in between waits for you.</div></span></label>
+    </div>
     <button class="btn" id="eGo" style="background:var(--cobalt)">Preview listing &amp; eBay fees</button>
     <div class="muted" style="font-size:.75rem;text-align:center;margin:8px 0 20px">Nothing goes live yet. Next you'll see the listing and eBay's exact fees, then decide.</div>`;
   const tc = () => $("#tCount").textContent = `(${$("#eTitle").value.length}/80)`;
@@ -442,7 +447,7 @@ function renderEbayDraft(id, d) {
       condition: $("#eCond") ? $("#eCond").value : null, condition_note: $("#eCondNote") ? $("#eCondNote").value : "",
       aspects, description: $("#eDesc").value,
       postal_code: $("#eZip").value, shipping_cost: $("#eShip").value, handling_days: $("#eDays").value,
-      shipping_service: $("#eSvc").value,
+      shipping_service: $("#eSvc").value, best_offer: $("#eOffers") ? $("#eOffers").checked : true,
     };
   };
   $("#dBack").onclick = () => { ebayEdits[id] = readForm(); renderItemDetail(id); };
@@ -495,6 +500,7 @@ function renderEbayPreview(id, d, body, r) {
       <div class="big" style="font-size:1.6rem;color:var(--green)">${money2(body.price)}</div>
       <div class="muted" style="font-size:.85rem">${[cond && cond.label, shipping, `ships within ${esc(body.handling_days)} day${body.handling_days === "1" ? "" : "s"}`, "30-day returns"].filter(Boolean).join(" · ")}</div>
       <div class="muted" style="font-size:.8rem;margin-top:4px">${esc((d.categories.find(c => c.id === body.category_id) || d.category || {}).path || "")}</div>
+      <div style="font-size:.82rem;margin-top:6px">${r.best_offer ? `Offers on: <b>${money2(r.best_offer.accept_cents / 100)}</b> or more accepted automatically${r.best_offer.decline_cents ? `, under <b>${money2(r.best_offer.decline_cents / 100)}</b> declined` : ""}.` : `<span class="muted">Offers off: buyers pay the listed price.</span>`}</div>
       ${Object.keys(body.aspects).length ? `<div style="font-size:.82rem;margin-top:8px">${Object.entries(body.aspects).map(([k, v]) => `<b>${esc(k)}:</b> ${esc(v.join(", "))}`).join(" · ")}</div>` : ""}
       <details style="margin-top:8px"><summary class="muted" style="font-size:.82rem;cursor:pointer">Description</summary><div style="white-space:pre-wrap;font-size:.88rem;margin-top:6px">${esc(body.description)}</div></details>
     </div>

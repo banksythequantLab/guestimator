@@ -504,6 +504,43 @@ export async function prepareOffer(env, token, L) {
   return r;
 }
 
+// ---- Best Offer: buyers can make an offer, and eBay answers most of them for the seller ----
+// Offers at or above 90% of the price are accepted on the spot; offers under the item's floor
+// (the lowest the estimate said to take) or under 70% of the price, whichever is higher, are
+// declined on the spot. Everything in between waits for the seller. Under $10 haggling isn't
+// worth anyone's time, so no offers.
+const downNice = c => c >= 2000 ? Math.floor(c / 100) * 100 : Math.floor(c / 50) * 50;
+export function bestOfferTerms(price, floorDollars) {
+  const p = Math.round(Number(price) * 100);
+  if (!(p >= 1000)) return null;
+  const floor = Number(floorDollars) > 0 ? Math.round(Number(floorDollars) * 100) : 0;
+  let accept = Math.max(downNice(p * 0.9), downNice(floor));
+  if (accept >= p) accept = downNice(p - 1);          // floor at or above the price: accept just under it
+  if (!(accept > 0) || accept >= p) return null;
+  let decline = downNice(Math.max(p * 0.7, floor));
+  if (decline >= accept) decline = accept - (accept >= 2000 ? 100 : 50);
+  if (!(decline > 0)) decline = null;
+  return { accept_cents: accept, decline_cents: decline };
+}
+const amt = c => ({ value: (c / 100).toFixed(2), currency: "USD" });
+export const ebayBestOffer = t => t
+  ? { bestOfferEnabled: true, autoAcceptPrice: amt(t.accept_cents), ...(t.decline_cents ? { autoDeclinePrice: amt(t.decline_cents) } : {}) }
+  : { bestOfferEnabled: false };
+
+// Change an existing offer's Best Offer settings (and optionally its price) in one update. The
+// update replaces the whole offer, so it starts from eBay's own copy of it; on a published offer
+// eBay revises the live listing.
+export async function updateOfferTerms(env, token, offerId, terms, priceCents = null) {
+  const g = await callRetry(env, token, "GET", `/sell/inventory/v1/offer/${offerId}`);
+  if (!g.ok) return { error: ebayErrorText(g.json, g.status) };
+  const { offerId: _o, status: _s, listing: _l, ...body } = g.json || {};
+  body.listingPolicies = { ...(body.listingPolicies || {}), bestOfferTerms: ebayBestOffer(terms) };
+  if (priceCents) body.pricingSummary = { ...(body.pricingSummary || {}), price: amt(priceCents) };
+  const u = await callRetry(env, token, "PUT", `/sell/inventory/v1/offer/${offerId}`, body);
+  if (!u.ok) return { error: ebayErrorText(u.json, u.status) };
+  return { ok: true };
+}
+
 // ---- the listing itself: inventory item, then offer, then publish ----
 export async function publishListing(env, token, L) {
   const inv = await callRetry(env, token, "PUT", `/sell/inventory/v1/inventory_item/${encodeURIComponent(L.sku)}`, {
@@ -517,7 +554,8 @@ export async function publishListing(env, token, L) {
   const offerBody = {
     sku: L.sku, marketplaceId: MARKETPLACE, format: "FIXED_PRICE", availableQuantity: 1,
     categoryId: String(L.categoryId), listingDescription: L.descriptionHtml, listingDuration: "GTC",
-    listingPolicies: { fulfillmentPolicyId: L.fulfillmentPolicyId, paymentPolicyId: L.paymentPolicyId, returnPolicyId: L.returnPolicyId },
+    listingPolicies: { fulfillmentPolicyId: L.fulfillmentPolicyId, paymentPolicyId: L.paymentPolicyId, returnPolicyId: L.returnPolicyId,
+                       ...(L.bestOffer !== undefined ? { bestOfferTerms: ebayBestOffer(L.bestOffer) } : {}) },
     pricingSummary: { price: { value: Number(L.price).toFixed(2), currency: "USD" } },
     merchantLocationKey: L.locationKey,
   };
