@@ -1832,6 +1832,29 @@ export async function appraise(env, req) {
       `"${broadenedTo}" — comparable items rather than this exact one.`);
   if (hits.length) {
     const repriceUser = repricePrompt({ ident, condition: listing.condition_grade, lotInfo, market, hits, soldMarket });
+    // The cold pass: a pricing-only ask over the same comparables with no prior in it. Used when
+    // the repricer answers without a price AND when it fails outright - a failed repricer used to
+    // leave the pre-listing memory price standing: SK Hynix 32GB showed $30-$60 under a sold line
+    // of ten sales at $95-$200.
+    const coldPass = async () => {
+      const cold = `Item: ${ident.name}\nCondition: ${listing.condition_grade || "Good"}\n` +
+        `Currency: ${currency}\n` +
+        (soldMarket ? `Comparables marked "sold": true are completed eBay sales (what buyers paid); ` +
+          `use only the ones that are this exact item.\n` : "") +
+        (market ? `Live asking prices right now: ${market.count} listed, $${market.low}-$${market.high}, ` +
+          `median $${market.median}. Asking, not sold.\n` : "") +
+        `\nComparables:\n${JSON.stringify(hits.slice(0, 8), null, 1)}\n\n` +
+        `Set a dealer retail range from these listings alone.`;
+      try {
+        const p3 = priceOf(await textJson(c, PRICE_SYSTEM, cold, 300), currency);
+        if (p3.high > 0) { price = p3; warnings.push("price was set by a second pass over the comparables"); }
+        else throw new Error("no price");
+      } catch {
+        warnings.push(`the comparables below were found and judged, but neither pricing pass returned ` +
+          `a price, so the figure above is still the estimate made before any listing was seen. ` +
+          `Treat the comparables as the better evidence.`);
+      }
+    };
     try {
       const second = await textJson(c, REPRICE_SYSTEM, repriceUser, 1000);
       // The whole promise of this second pass is that the price gets re-set against real listings.
@@ -1854,7 +1877,7 @@ export async function appraise(env, req) {
       // usablePrice, not truthiness: an all-zero range must fall through to the cold fallback,
       // not replace the price we already have. See usablePrice for the measured failure.
       const secondPrice = usablePrice(second.price_range, currency);
-      if (secondPrice) price = secondPrice;
+      if (secondPrice) price = secondPrice;   // its basis_note is appended below only in this case
       else {
         // Withholding the prior is what makes the price well-calibrated, and it is also what
         // makes the model decline to answer: 13 of 30 cold runs returned a price_range where 30
@@ -1862,25 +1885,12 @@ export async function appraise(env, req) {
         // would hand the dealer exactly the pre-listing memory this change exists to get rid of.
         // So the fallback is a second COLD ask - a pricing-only call over the same comparables,
         // with no prior in it either.
-        const cold = `Item: ${ident.name}\nCondition: ${listing.condition_grade || "Good"}\n` +
-          `Currency: ${currency}\n` +
-          (soldMarket ? `Comparables marked "sold": true are completed eBay sales (what buyers paid); ` +
-            `use only the ones that are this exact item.\n` : "") +
-          (market ? `Live asking prices right now: ${market.count} listed, $${market.low}-$${market.high}, ` +
-            `median $${market.median}. Asking, not sold.\n` : "") +
-          `\nComparables:\n${JSON.stringify(hits.slice(0, 8), null, 1)}\n\n` +
-          `Set a dealer retail range from these listings alone.`;
-        try {
-          const p3 = priceOf(await textJson(c, PRICE_SYSTEM, cold, 300), currency);
-          if (p3.high > 0) { price = p3; warnings.push("price was set by a second pass over the comparables"); }
-          else throw new Error("no price");
-        } catch {
-          warnings.push(`the comparables below were found and judged, but neither pricing pass returned ` +
-            `a price, so the figure above is still the estimate made before any listing was seen. ` +
-            `Treat the comparables as the better evidence.`);
-        }
+        await coldPass();
       }
-      if (second.basis_note) price.basis = (price.basis + " " + String(second.basis_note)).trim();
+      // Only the pass that set the price explains it. When the cold pass priced it, the repricer's
+      // note described a range that was thrown away - SK Hynix 32GB read "$110-$200" in the price
+      // and "fair market value ... between $150 and $220" in the sentence under it.
+      if (secondPrice && second.basis_note) price.basis = (price.basis + " " + String(second.basis_note)).trim();
       for (const cp of (second.comparables || []).slice(0, 4))
         if (cp && typeof cp === "object" && cp.title) comparables.push(pick(cp, COMP_KEYS));
 
@@ -1902,7 +1912,7 @@ export async function appraise(env, req) {
         warnings.push(`only ${comparables.length} of the ${hits.length} listings found were judged ` +
           `comparable — the rest were set aside as different items (${rejected.slice(0, 3).map(r => r.why).filter(Boolean).join("; ")}). ` +
           `A price built on ${comparables.length} listing${comparables.length === 1 ? "" : "s"} is thinner than the count suggests.`);
-    } catch (e) { warnings.push(`comps re-pricing failed: ${e.message}`); }
+    } catch (e) { warnings.push(`comps re-pricing failed: ${e.message}`); await coldPass(); }
 
     // The market line is built from every live listing, because the model needs the whole pool in
     // front of it before it can judge any of it. But what the dealer READS has to agree with the
