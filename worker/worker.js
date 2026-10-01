@@ -802,9 +802,9 @@ export default {
             if (!fulfillmentPolicyId) fulfillmentPolicyId = await ebay.createFulfillmentPolicy(env, tok, b.shipping_cost, b.handling_days, ebay.shipService(b.shipping_service));
             const paymentPolicyId = pol.payment[0]?.id || await ebay.createPaymentPolicy(env, tok);
             // The seller picks the return policy on the form: one of theirs, or a new 30-day one.
-            // Nothing picked keeps the old behaviour (their first policy, else a new 30-day one).
-            const returnPolicyId = b.return_policy_id === ebay.NEW_RETURNS_30 ? await ebay.createReturnPolicy(env, tok)
-              : (pol.return.some(p => p.id === b.return_policy_id) ? b.return_policy_id : pol.return[0]?.id) || await ebay.createReturnPolicy(env, tok);
+            // Nothing picked means 30-day returns: their own 30-day policy, else a new one.
+            const picked = ebay.pickReturnPolicy(pol.return, b.return_policy_id);
+            const returnPolicyId = picked === ebay.NEW_RETURNS_30 ? await ebay.createReturnPolicy(env, tok) : picked;
             const returns = (pol.return.find(p => p.id === returnPolicyId) || {}).summary || ebay.returnSummary({ returnsAccepted: true, returnPeriod: { value: 30, unit: "DAY" }, returnShippingCostPayer: "BUYER" });
             const locationKey = await ebay.ensureLocation(env, tok, zip);
             const text = String(b.description).trim();

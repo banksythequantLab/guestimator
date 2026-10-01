@@ -438,8 +438,11 @@ function renderEbayDraft(id, d) {
   // The listing uses exactly the one chosen here, and the preview says which.
   api("/ebay/return-policies").then(rp => {
     const sel = $("#eRet"); if (!sel) return;
-    const want = val.return_policy_id || (rp.policies[0] ? rp.policies[0].id : rp.new30);
-    const has30 = rp.policies.some(x => /^30-day returns/.test(x.summary));
+    // 30-day returns by default (Derek, 2026-10-01): the seller's own 30-day policy if they have
+    // one, otherwise a new one. Any other policy is one tap away in the list.
+    const own30 = rp.policies.find(x => /^30-day returns/.test(x.summary));
+    const want = val.return_policy_id || (own30 ? own30.id : rp.new30);
+    const has30 = !!own30;
     sel.innerHTML = rp.policies.map(x => `<option value="${esc(x.id)}"${x.id === want ? " selected" : ""}>${esc(x.summary)} (${esc(x.name)})</option>`).join("")
       + (has30 ? "" : `<option value="${esc(rp.new30)}"${want === rp.new30 ? " selected" : ""}>30-day returns, buyer pays return shipping (new policy)</option>`);
   }).catch(() => { const sel = $("#eRet"); if (sel) sel.innerHTML = `<option value="">Your eBay return policy</option>`; });

@@ -402,6 +402,15 @@ export function returnSummary(p) {
   return `${per}, ${who}`;
 }
 export const NEW_RETURNS_30 = "new30";
+/** Which return policy a listing uses: the one asked for if it's the seller's, else their own
+ *  30-day policy, else NEW_RETURNS_30 (create one). 30 days is the default. */
+export function pickReturnPolicy(policies, wanted) {
+  const list = policies || [];
+  if (wanted === NEW_RETURNS_30) return NEW_RETURNS_30;
+  if (wanted && list.some(p => p.id === wanted)) return wanted;
+  const own30 = list.find(p => /^30-day returns/.test(p.summary || ""));
+  return own30 ? own30.id : NEW_RETURNS_30;
+}
 export async function listPolicies(env, token) {
   const get = async kind => {
     const r = await call(env, token, "GET", `/sell/account/v1/${kind}_policy?marketplace_id=${MARKETPLACE}`);

@@ -281,7 +281,12 @@ ok("/shop/* is not served by the worker", (await call("GET", "/shop/anything")).
 
 // ---------- return policy wording ----------
 {
-  const { returnSummary } = await import("../ebay.js");
+  const { returnSummary, pickReturnPolicy } = await import("../ebay.js");
+  const none = { id: "RN", summary: "No returns" }, r30 = { id: "R30", summary: "30-day returns, buyer pays return shipping" };
+  ok("default: only no-returns policies -> create a 30-day one", pickReturnPolicy([none], "") === "new30");
+  ok("default: their own 30-day policy is reused", pickReturnPolicy([none, r30], undefined) === "R30");
+  ok("an explicit choice of their own policy stands", pickReturnPolicy([none, r30], "RN") === "RN");
+  ok("a policy that isn't theirs falls back to 30 days", pickReturnPolicy([none], "XYZ") === "new30");
   ok("no-returns policy reads as such", returnSummary({ returnsAccepted: false }) === "No returns");
   ok("30 days, buyer pays", returnSummary({ returnsAccepted: true, returnPeriod: { value: 30, unit: "DAY" }, returnShippingCostPayer: "BUYER" }) === "30-day returns, buyer pays return shipping");
   ok("60 days, seller pays", returnSummary({ returnsAccepted: true, returnPeriod: { value: 60, unit: "DAY" }, returnShippingCostPayer: "SELLER" }) === "60-day returns, free return shipping");
