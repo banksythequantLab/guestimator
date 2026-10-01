@@ -4,7 +4,7 @@
 
 import * as ebay from "./ebay.js";
 import { sendAlert } from "./notify.js";
-import { verdict, MIN_SALES, soldFor, cacheSold } from "./pricecheck.js";
+import { verdict, MIN_SALES, soldFor, cacheSold, genuinelyNone } from "./pricecheck.js";
 
 export const SLOW_DAYS = 14;
 const DAY = 86400e3;
@@ -62,8 +62,9 @@ export async function slowListings(db, userId, { nowMs = Date.now(), forEmail = 
     if (env && forEmail && looked < maxLookups && (!r.sold_checked_at || nowMs - Date.parse(r.sold_checked_at) > SOLD_FRESH_DAYS * DAY)) {
       looked++;
       const f = await soldFor(env, r, nowMs);
-      await cacheSold(db, r.id, f.sold, nowMs);
-      r.sold_count = f.sold ? f.sold.count : 0; r.sold_median_cents = f.sold ? Math.round(f.sold.median * 100) : null;
+      await cacheSold(db, r.id, f.sold, nowMs, f.why);
+      if (f.sold) { r.sold_count = f.sold.count; r.sold_median_cents = Math.round(f.sold.median * 100); }
+      else if (genuinelyNone(f.why)) { r.sold_count = 0; r.sold_median_cents = null; }
     }
     let low = null; try { low = JSON.parse(r.result_json || "null")?.price_range?.low ?? null; } catch {}
     const n = nudgeFor(r.price_cents, low, r.sold_count || 0, r.sold_median_cents);

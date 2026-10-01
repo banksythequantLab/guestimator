@@ -10,11 +10,12 @@ import * as ebay from "./ebay.js";
 import * as garage from "./garage.js";
 import { quoteShipping } from "./shipping.js";
 import * as ebayOrders from "./ebayorders.js";
-import { ebaySoldAlert, buyerShippedEmail } from "./notify.js";
+import { ebaySoldAlert, buyerShippedEmail, sendAlert } from "./notify.js";
 import * as labels from "./labels.js";
 import * as nudges from "./nudges.js";
 import * as profit from "./profit.js";
 import { priceCheck } from "./pricecheck.js";
+import * as weekly from "./weekly.js";
 // Every Guestimator item lives in one hidden per-user `sales` row (the schema is Bottle Tree's).
 const GUESS_BUCKET = "Guestimator";
 // The Android app's URL scheme (strings.xml custom_url_scheme; AndroidManifest intent-filter).
@@ -202,6 +203,15 @@ export default {
       // hashed in exactly that order, hex encoded. The endpoint URL must match what is registered
       // with eBay character for character, which is why it is configuration and not derived from
       // the request — a proxy or a trailing slash would silently change the hash.
+      // One-click "stop these weekly emails" from the email itself: signed per user, no sign-in.
+      if (parts[1] === "weekly" && parts[2] === "off" && m === "GET") {
+        const u = url.searchParams.get("u"), t = url.searchParams.get("t");
+        const page = msg => new Response(`<!doctype html><meta name="viewport" content="width=device-width"><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#f4ecdc;padding:40px;color:#241b10"><div style="max-width:420px;margin:0 auto;background:#fbf6ea;border:1px solid #e0d2b4;border-radius:14px;padding:20px">${msg}</div></body>`,
+          { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+        if (!(await weekly.offTokenOk(env, u, t))) return page("That link isn't valid. Sign in to Guestimator to change your emails.");
+        await weekly.turnOff(db, u);
+        return page("<b>Done.</b> You won't get the weekly selling summary any more. Sale alerts still come when something sells.");
+      }
       if (parts[1] === "ebay" && parts[2] === "deletion") {
         if (!env.EBAY_VERIFY_TOKEN || !env.EBAY_DELETION_URL)
           return J({ error: "deletion endpoint not configured" }, 503);
@@ -512,6 +522,16 @@ export default {
           return J({ ok: true, return_policy_id: pid, returns: (after.return.find(p => p.id === pid) || {}).summary || null });
         } catch (e) { return J({ error: String(e.message || e) }, 502); }
       }
+      // Send this week's summary to me now (preview; does not count as the week's email).
+      if (parts[1] === "weekly" && parts[2] === "preview" && m === "POST") {
+        const me = await db.prepare("SELECT email FROM users WHERE id=?").bind(userId).first();
+        const origin = env.PUBLIC_ORIGIN || url.origin;
+        const sum = await weekly.weeklySummary(db, userId);
+        const mail = weekly.weeklyEmail(sum, origin, await weekly.offLink(env, origin, userId));
+        const r = await sendAlert(env, { to: me?.email, ...mail });
+        return J({ sent: !!r.sent, why: r.why || null, subject: mail.subject, listings: sum.listings.length, sold: sum.sold.length });
+      }
+
       // ---------- price-drop nudges for slow eBay listings ----------
       if (parts[1] === "ebay" && parts[2] === "slow") {
         if (parts.length === 3 && m === "GET")
@@ -977,6 +997,8 @@ export default {
     }
     // Price-drop nudges, after the order read so a listing that just sold is not nudged.
     try { await nudges.emailNudges(env, db, origin); } catch (e) { console.log("price nudges failed", String(e && e.message || e)); }
+    // Monday selling summary (no-op outside the window; once a week per seller).
+    try { await weekly.emailWeekly(env, db, origin); } catch (e) { console.log("weekly summary failed", String(e && e.message || e)); }
   },
 
   // An appraisal takes ~2 minutes of waiting on Token Factory. ctx.waitUntil() only buys 30s after the

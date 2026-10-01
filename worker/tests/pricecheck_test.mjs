@@ -22,13 +22,14 @@ ok("well below -> low, no price change offered", lo.verdict === "low" && lo.pct 
 ok("50c steps under $20", P.niceDown(1789) === 1750 && P.niceDown(2099) === 2000);
 
 // ---------- SoldComps, stubbed ----------
-const lookups = [];
+const lookups = []; let outage = false;
 const jr = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { "content-type": "application/json" } });
 const S = (title, price) => ({ title, url: "https://www.ebay.com/itm/9?nordt=true", soldPrice: String(price), soldCurrency: "USD", shippingPrice: "0", endedAt: "2026-09-20", condition: "Pre-Owned" });
 globalThis.fetch = async u => {
   const url = new URL(String(u));
   if (url.hostname === "api.sold-comps.com") {
     const kw = url.searchParams.get("keyword"); lookups.push(kw);
+    if (outage) return jr({ error: "upstream" }, 503);
     if (/Tesla/i.test(kw)) return jr({ items: [S("Nvidia Tesla M10 32GB GPU", 60), S("NVIDIA Tesla M10 GPU card", 70), S("Tesla M10 32GB", 80), S("Tesla M10 GPU", 75)] });
     return jr({ items: [] });
   }
@@ -76,5 +77,14 @@ ok("no sales -> none, with the reason", by[odd].verdict === "none" && !by[odd].s
 ok("sale links cleaned, at most three shown", by[gpu].recent.length === 3 && !by[gpu].recent[0].url.includes("nordt"), by[gpu].recent);
 ok("offer ids and SKUs stay server-side", !("offer_id" in by[gpu]) && !("sku" in by[gpu]));
 
+// a failed lookup never overwrites what was found before
+const cached = () => db.raw.prepare("SELECT sold_count n, sold_median_cents m FROM ebay_listings WHERE id=?").get(gpu);
+ok("first check cached the GPU's sales", cached().n === 4 && cached().m === 7300, cached());
+ok("and the Optane's genuine none as 0", db.raw.prepare("SELECT sold_count n, sold_checked_at t FROM ebay_listings WHERE id=?").get(odd).n === 0);
+outage = true;
+const r2 = await call("GET", "/api/ebay/pricecheck");
+ok("during an outage the GPU says why", r2.json.listings.find(l => l.id === gpu).verdict === "none" && /503/.test(r2.json.listings.find(l => l.id === gpu).why), r2.json.listings.find(l => l.id === gpu));
+ok("but its cached sales are kept", cached().n === 4 && cached().m === 7300, cached());
+outage = false;
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

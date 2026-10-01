@@ -43,14 +43,19 @@ export async function soldFor(env, r, nowMs = Date.now()) {
 }
 
 /** Remember what was found (or that nothing was) so the slow-seller view needn't look again. */
-export async function cacheSold(db, listingId, sold, nowMs = Date.now()) {
+// A failed lookup (timeout, quota, outage) is not "no sales": it keeps whatever was found before.
+// Measured 2026-10-01: a price check cut off mid-run left the Tesla at "0 sales" and the weekly
+// email said "not price-checked yet" for a listing with 20 recent sales.
+export const genuinelyNone = why => /no sold listing matched|no sales of this/i.test(String(why || ""));
+export async function cacheSold(db, listingId, sold, nowMs = Date.now(), why = null) {
+  if (!sold && !genuinelyNone(why)) return;
   await db.prepare("UPDATE ebay_listings SET sold_count=?, sold_median_cents=?, sold_checked_at=? WHERE id=?")
     .bind(sold ? sold.count : 0, sold ? Math.round(sold.median * 100) : null, new Date(nowMs).toISOString(), listingId).run();
 }
 
 export async function priceCheck(env, db, userId, { nowMs = Date.now(), maxListings = 15 } = {}) {
   const rows = (await db.prepare(
-    `SELECT l.id, l.item_id, l.price_cents, l.listing_url, l.best_offer_accept_cents, l.best_offer_decline_cents, COALESCE(i.ai_title, i.name) AS title,
+    `SELECT l.id, l.item_id, l.price_cents, l.listing_url, l.best_offer_accept_cents, l.best_offer_decline_cents, l.best_offer_min_cents, COALESCE(i.ai_title, i.name) AS title,
             (SELECT result_json FROM appraisals a WHERE a.item_id=l.item_id AND a.status='done' ORDER BY a.created_at DESC LIMIT 1) AS result_json
        FROM ebay_listings l JOIN items i ON i.id=l.item_id
       WHERE l.user_id=? AND l.status='published' AND i.listing_status='live' AND l.offer_id IS NOT NULL
@@ -59,9 +64,9 @@ export async function priceCheck(env, db, userId, { nowMs = Date.now(), maxListi
   const out = [];
   for (const r of rows) {
     const { sold, recent, source, why } = await soldFor(env, r, nowMs);
-    await cacheSold(db, r.id, sold, nowMs);
+    await cacheSold(db, r.id, sold, nowMs, why);
     out.push({ id: r.id, item_id: r.item_id, title: r.title, listing_url: r.listing_url, price_cents: r.price_cents,
-      best_offer: r.best_offer_accept_cents != null ? { accept_cents: r.best_offer_accept_cents, decline_cents: r.best_offer_decline_cents } : null,
+      best_offer: r.best_offer_accept_cents != null ? { accept_cents: r.best_offer_accept_cents, decline_cents: r.best_offer_decline_cents, min_cents: r.best_offer_min_cents ?? null } : null,
       sold: sold ? { count: sold.count, low: sold.low, high: sold.high, median: sold.median } : null,
       recent: recent.slice(0, 3).map(s => ({ title: s.title, url: s.url, price: s.price, sold_at: s.sold_at })),
       source, why, ...verdict(r.price_cents, sold) });

@@ -243,6 +243,10 @@ async function runPriceCheck(box) {
       <div class="row" style="gap:6px;margin-top:6px;align-items:center;font-size:.78rem">
         <span class="muted" style="flex:1">${l.best_offer ? `Offers on · ${money(l.best_offer.accept_cents)}+ accepted automatically${l.best_offer.decline_cents ? `, under ${money(l.best_offer.decline_cents)} declined` : ""}` : "Offers off"}</span>
         <button class="btn sec sm" data-pc-bo="${esc(l.id)}" data-on="${l.best_offer ? 1 : 0}">${l.best_offer ? "Turn off offers" : "Accept offers"}</button></div>
+      ${l.best_offer ? `<div class="row" style="gap:6px;margin-top:4px;align-items:center;font-size:.78rem">
+        <span class="muted">Lowest offer you want to see $</span>
+        <input data-pc-min="${esc(l.id)}" value="${l.best_offer.min_cents ? (l.best_offer.min_cents / 100).toFixed(0) : ""}" placeholder="auto" inputmode="decimal" style="width:70px">
+        <button class="btn sec sm" data-pc-minsave="${esc(l.id)}">Save</button></div>` : ""}
     </div></div>`;
   };
   box.innerHTML = `<h3 style="margin:14px 2px 6px">Price check</h3>
@@ -250,6 +254,18 @@ async function runPriceCheck(box) {
     <div class="muted" style="font-size:.72rem;margin:6px 2px">Sold prices are eBay sales in the last 90 days, before shipping. Tap a price to see that sale and check it's really the same item before you change yours.</div>
     <button class="btn sec sm" data-pc-again style="margin-top:4px">Check again</button>`;
   box.querySelector("[data-pc-again]").onclick = () => runPriceCheck(box);
+  // Lowest offer the seller wants to see: blank goes back to automatic (70% of the price or the
+  // estimate's floor). Offers below it are declined for them; offers from it up reach them.
+  box.querySelectorAll("[data-pc-minsave]").forEach(b => b.onclick = async () => {
+    const id = b.dataset.pcMinsave, raw = box.querySelector(`[data-pc-min="${CSS.escape(id)}"]`).value.replace(/[$,\s]/g, "");
+    const v = raw === "" ? null : Number(raw);
+    if (v !== null && !(v > 0)) return toast("Enter a dollar amount, or leave it blank for automatic");
+    b.disabled = true;
+    try {
+      const r = await api(`/ebay/listings/${encodeURIComponent(id)}/best-offer`, { method: "POST", body: JSON.stringify({ enabled: true, min_cents: v === null ? null : Math.round(v * 100) }) });
+      toast(`Offers under ${money(r.best_offer.decline_cents)} declined; ${money(r.best_offer.accept_cents)}+ accepted ✓`); runPriceCheck(box);
+    } catch (e) { toast(e.message); b.disabled = false; }
+  });
   box.querySelectorAll("[data-pc-bo]").forEach(b => b.onclick = async () => {
     const on = b.dataset.on !== "1";
     b.disabled = true;

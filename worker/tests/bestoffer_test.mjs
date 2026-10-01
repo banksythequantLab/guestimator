@@ -108,8 +108,12 @@ r = await call("POST", `/api/ebay/listings/${lid}/best-offer`, { enabled: true, 
 ok("minimum set: offers from $115 reach the seller", r.status === 200 && r.json.best_offer.decline_cents === 11500
   && calls.filter(c => c.method === "PUT").pop().body.listingPolicies.bestOfferTerms.autoDeclinePrice.value === "115.00", r.json);
 ok("a minimum at or above the price is refused", (await call("POST", `/api/ebay/listings/${lid}/best-offer`, { enabled: true, min_cents: 99900 })).status === 400);
+ok("price check shows the minimum", (await call("GET", "/api/ebay/pricecheck")).json.listings[0].best_offer.min_cents === 11500);
 r = await call("POST", `/api/ebay/slow/${lid}/lower`, { price_cents: 13900 });
 ok("minimum survives a price drop", r.status === 200 && db.raw.prepare("SELECT best_offer_decline_cents d, best_offer_min_cents m FROM ebay_listings WHERE id=?").get(lid).d === 11500, db.raw.prepare("SELECT * FROM ebay_listings WHERE id=?").get(lid));
+r = await call("POST", `/api/ebay/listings/${lid}/best-offer`, { enabled: true, min_cents: null });
+ok("blank minimum goes back to automatic", r.status === 200 && db.raw.prepare("SELECT best_offer_min_cents m FROM ebay_listings WHERE id=?").get(lid).m === null && r.json.best_offer.decline_cents !== 11500, r.json);
+
 // ---------- return policy on a live listing ----------
 r = await call("POST", `/api/ebay/listings/${lid}/returns`, { policy_id: "new30" });
 put = calls.filter(c => c.method === "PUT").pop();
