@@ -26,6 +26,7 @@ import * as shipops from "./shipops.js";
 import * as owner from "./owner.js";
 import * as ebaycare from "./ebaycare.js";
 import * as onboard from "./onboard.js";
+import * as growth from "./growth.js";
 
 // The Shippo account that paid for a label: the seller's own (OAuth) or the house token.
 const shipEnvFor = (env, db) => async l => l.payer === "seller" ? ((await shippoauth.labelEnv(env, db, l.user_id, false)) || {}).env || null : (env.SHIPPO_API_TOKEN ? env : null);
@@ -251,6 +252,15 @@ export default {
       // hashed in exactly that order, hex encoded. The endpoint URL must match what is registered
       // with eBay character for character, which is why it is configuration and not derived from
       // the request — a proxy or a trailing slash would silently change the hash.
+      // One-click unsubscribe from win-back reminders (growth.js): signed per user, no sign-in.
+      if (parts[1] === "growth" && parts[2] === "off" && m === "GET") {
+        const u = url.searchParams.get("u"), t = url.searchParams.get("t");
+        const page = msg => new Response(`<!doctype html><meta name="viewport" content="width=device-width"><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#f4ecdc;padding:40px;color:#241b10"><div style="max-width:420px;margin:0 auto;background:#fbf6ea;border:1px solid #e0d2b4;border-radius:14px;padding:20px">${msg}</div></body>`,
+          { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+        if (!(await growth.offTokenOk(env, u, t))) return page("That link isn't valid.");
+        await growth.turnOff(db, u);
+        return page("<b>Done.</b> No more reminder emails. Sale alerts and receipts still come.");
+      }
       // One-click "stop these weekly emails" from the email itself: signed per user, no sign-in.
       if (parts[1] === "weekly" && parts[2] === "off" && m === "GET") {
         const u = url.searchParams.get("u"), t = url.searchParams.get("t");
@@ -360,6 +370,7 @@ export default {
           await db.prepare("INSERT INTO users (id,email,pw_hash,pw_salt,created_at,credits) VALUES (?,?,?,?,?,?)")
             .bind(id, email, h, salt, ts, SIGNUP_CREDITS).run();
           ctx.waitUntil(onboard.welcomeEmail(env, email, env.PUBLIC_ORIGIN || url.origin).catch(e => console.log("welcome email", e)));
+          await growth.markGsUser(db, id);
           return J({ email }, 200, { "Set-Cookie": sessionCookie(await newSession(db, id)) });
         }
         if (act === "login" && m === "POST") {
@@ -371,6 +382,7 @@ export default {
           if (!u.pw_hash) return J({ error: "This account uses Sign in with Google" }, 401);
           const h = await pbkdf2(b.password || "", u.pw_salt);
           if (!timingEq(h, u.pw_hash)) return J({ error: "Wrong email or password" }, 401);
+          await growth.markGsUser(db, u.id);
           return J({ email }, 200, { "Set-Cookie": sessionCookie(await newSession(db, u.id)) });
         }
         if (act === "google" && m === "POST") {
@@ -393,6 +405,9 @@ export default {
             u = { id, email: g.email };
             ctx.waitUntil(onboard.welcomeEmail(env, g.email, env.PUBLIC_ORIGIN || url.origin).catch(e => console.log("welcome email", e)));
           }
+          {
+            await growth.markGsUser(db, u.id);
+          }
           return J({ email: u.email }, 200, { "Set-Cookie": sessionCookie(await newSession(db, u.id)) });
         }
         if (act === "logout" && m === "POST") {
@@ -408,7 +423,7 @@ export default {
         }
         // Public: the web client ID is not a secret; the app needs it to render the Google button.
         if (act === "config" && m === "GET")
-          return J({ google_client_id: env.GOOGLE_CLIENT_ID || null });
+          return J({ google_client_id: env.GOOGLE_CLIENT_ID || null, referral_credits: growth.refCredits(env) });
         return J({ error: "not found" }, 404);
       }
 
@@ -443,6 +458,13 @@ export default {
       }
 
       // ---------- promo codes (free credits, no checkout) ----------
+      // ---------- referral link: mine, and claiming the one I signed up through ----------
+      if (parts[1] === "referral" && parts.length === 2 && m === "GET")
+        return J(await growth.referralInfo(env, db, userId, env.PUBLIC_ORIGIN || url.origin));
+      if (parts[1] === "referral" && parts[2] === "claim" && m === "POST") {
+        const r = await growth.claim(db, userId, (await readJson(request)).code);
+        return J(r, r.status);
+      }
       if (parts[1] === "me" && parts[2] === "redeem" && m === "POST") {
         const b = await readJson(request);
         const r = await redeemPromo(db, userId, b.code, parsePromoCodes(env.PROMO_CODES));
@@ -1164,6 +1186,9 @@ export default {
     try { await shipops.moneyAlerts(env, db); } catch (e) { await owner.opsFail(db, "money alerts failed", e); console.log("money alerts failed", String(e && e.message || e)); }
     // eBay returns / not-received / cases (and buyer messages when that scope is on).
     try { await ebaycare.careSweep(env, db, origin); } catch (e) { await owner.opsFail(db, "ebay care failed", e); console.log("ebay care failed", String(e && e.message || e)); }
+    // Referral rewards (after a referred seller's first purchase) and win-back reminders.
+    try { await growth.rewardSweep(env, db, origin); } catch (e) { await owner.opsFail(db, "referral rewards failed", e); console.log("referral rewards failed", String(e && e.message || e)); }
+    try { await growth.winbackSweep(env, db, origin); } catch (e) { await owner.opsFail(db, "winback failed", e); console.log("winback failed", String(e && e.message || e)); }
     // Monday selling summary (no-op outside the window; once a week per seller).
     try { await weekly.emailWeekly(env, db, origin); } catch (e) { await owner.opsFail(db, "weekly summary failed", e); console.log("weekly summary failed", String(e && e.message || e)); }
   },

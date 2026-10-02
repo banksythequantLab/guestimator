@@ -141,12 +141,18 @@ async function mountGoogle() {
 const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} };
 (function grabCode() {
-  const c = new URLSearchParams(location.search).get("code");
+  const q = new URLSearchParams(location.search), c = q.get("code"), r = q.get("ref");
   if (c && /^[A-Za-z0-9_-]{3,32}$/.test(c)) lsSet("gs_code", c.toUpperCase());
+  if (r && /^[A-Za-z0-9]{4,12}$/.test(r)) lsSet("gs_ref", r.toUpperCase());
 })();
 const firstAuthMode = () => (lsGet("gs_had_account") ? "login" : "register");
 async function afterSignIn() {
   lsSet("gs_had_account", "1");
+  const ref = lsGet("gs_ref");
+  if (ref) {   // a friend's invite: only counts for a new account (the server checks)
+    lsSet("gs_ref", null);
+    try { await api("/referral/claim", { method: "POST", body: JSON.stringify({ code: ref }) }); toast("Invite accepted ✓ Free credits arrive after your first purchase."); } catch {}
+  }
   const code = lsGet("gs_code"); if (!code) return;
   lsSet("gs_code", null);
   try { const r = await api("/me/redeem", { method: "POST", body: JSON.stringify({ code }) }); toast(`Code ${code} applied: ${r.credits_added} free credits ✓`); }
@@ -168,6 +174,7 @@ function renderAuth(mode) {
       <div class="muted">${isLogin ? "Sign in to your items." : "Price anything from what's selling now, then list it on eBay in minutes."}</div>
     </div>
     ${isLogin ? "" : pitchHtml()}
+    ${lsGet("gs_ref") && !isLogin ? `<div class="card" style="padding:10px 14px;border-color:var(--green);font-size:.88rem">🎁 A friend invited you. You both get free credits after your first purchase.</div>` : ""}
     ${lsGet("gs_code") ? `<div class="card" style="padding:10px 14px;border-color:var(--cobalt);font-size:.88rem">🎁 Code <b>${esc(lsGet("gs_code"))}</b> will be applied when you ${isLogin ? "sign in" : "create your account"}.</div>` : ""}
     <div class="card">
       <label>Email</label>
@@ -296,6 +303,7 @@ async function renderHome() {
       <button class="btn sec" id="bulkAdd" style="margin-top:8px">🏠 Lots of items at once</button>
     </div>
     <div id="startCard"></div>
+    <div id="inviteCard"></div>
     <div id="ebayCard"></div>
     <div class="card"><div class="row" style="justify-content:space-between;align-items:center;gap:10px">
       <div><b>Garage & estate sales</b><div class="muted" style="font-size:.82rem">Free sale page, price tags, holds, online buying</div></div>
@@ -323,7 +331,7 @@ async function renderHome() {
   let list = [];
   try { list = await api("/items"); } catch (e) { $("#itemList").innerHTML = `<div class="muted">${esc(e.message)}</div>`; return; }
   const el = $("#itemList");
-  startCard(list);
+  startCard(list); inviteCard();
   if (!list.length) { el.innerHTML = `<div class="empty"><div class="em">🔎</div>Nothing yet. Tap <b>Guestimate something</b> to price your first item.</div>`; return; }
   const badge = i => i.ebay_status === "published" ? `<span class="pill" style="background:var(--cobalt);color:#fff">on eBay</span>`
     : i.appraisal_status === "pending" ? `<span class="pill">estimating…</span>`
@@ -341,6 +349,25 @@ async function renderHome() {
     clearTimeout(pollT);
     pollT = setTimeout(() => { if (state.view === "home") renderHome(); }, 6000);
   }
+}
+
+// ---------- invite a friend: personal referral link with copy / share ----------
+async function inviteCard() {
+  const box = $("#inviteCard");
+  if (!box || lsGet("gs_invite_hidden")) return;
+  let r; try { r = await api("/referral"); } catch { return; }
+  if (state.view !== "home" || !r.credits) return;
+  box.innerHTML = `<div class="card" style="padding:12px 16px">
+    <div class="row" style="justify-content:space-between;align-items:center"><b>🎁 Give ${r.credits}, get ${r.credits}</b><a href="#" data-iv="hide" class="muted" style="font-size:.78rem">Hide</a></div>
+    <div class="muted" style="font-size:.82rem;margin:4px 0 8px">Invite a friend who sells stuff. When they make their first purchase, you both get ${r.credits} free credits.${r.joined ? ` ${r.joined} joined · ${r.rewarded} rewarded.` : ""}</div>
+    <div class="row" style="gap:6px"><input value="${esc(r.link)}" readonly style="flex:1;font-size:.8rem" data-iv="link"><button class="btn sec sm" data-iv="share" style="white-space:nowrap">${navigator.share ? "Share" : "Copy"}</button></div></div>`;
+  box.querySelector("[data-iv=hide]").onclick = e => { e.preventDefault(); lsSet("gs_invite_hidden", "1"); box.innerHTML = ""; };
+  box.querySelector("[data-iv=link]").onclick = e => e.target.select();
+  box.querySelector("[data-iv=share]").onclick = async () => {
+    const text = `I use Guestimator to price stuff and list it on eBay. Sign up with my link and we both get ${r.credits} free credits:`;
+    if (navigator.share) { try { await navigator.share({ title: "Guestimator", text, url: r.link }); } catch {} return; }
+    try { await navigator.clipboard.writeText(r.link); toast("Link copied ✓"); } catch { box.querySelector("[data-iv=link]").select(); toast("Copy the link above"); }
+  };
 }
 
 // ---------- first-run checklist: the three steps to a first eBay sale, until done or hidden ----------
