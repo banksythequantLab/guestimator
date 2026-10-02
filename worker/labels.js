@@ -49,7 +49,7 @@ export function parcelFor(est, over) {
 export const carrierOf = p => ({ usps: "USPS", ups: "UPS", fedex: "FedEx" })[String(p || "").toLowerCase()] || null;
 
 async function shippo(env, method, path, body) {
-  const r = await fetch(SHIPPO + path, { method, headers: { authorization: `ShippoToken ${env.SHIPPO_API_TOKEN}`, "content-type": "application/json" },
+  const r = await fetch(SHIPPO + path, { method, headers: { authorization: env.SHIPPO_AUTH || `ShippoToken ${env.SHIPPO_API_TOKEN}`, "content-type": "application/json" },
                                          body: body ? JSON.stringify(body) : undefined });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw Object.assign(new Error((j && (j.detail || j.message || JSON.stringify(j).slice(0, 200))) || `Shippo ${r.status}`), { status: 502 });

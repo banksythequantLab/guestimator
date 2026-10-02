@@ -20,6 +20,7 @@ import { packageFor, flatRateFits } from "./packing.js";
 import * as stickers from "./stickers.js";
 import * as watchers from "./watchers.js";
 import * as tax from "./tax.js";
+import * as shippoauth from "./shippoauth.js";
 // Every Guestimator item lives in one hidden per-user `sales` row (the schema is Bottle Tree's).
 const GUESS_BUCKET = "Guestimator";
 // The Android app's URL scheme (strings.xml custom_url_scheme; AndroidManifest intent-filter).
@@ -183,6 +184,15 @@ export default {
       // ---------- PUBLIC: garage / estate sale pages ----------
       if (parts[0] === "sale" && parts[1] && m === "GET")
         return await garage.salePages(request, env, url, parts, await currentUser(request, db));
+      // ---------- Shippo OAuth callback: a seller connected their own Shippo account ----------
+      if (parts[0] === "shippo" && parts[1] === "callback" && m === "GET") {
+        const origin = env.PUBLIC_ORIGIN || url.origin;
+        const who = await shippoauth.readState(env, url.searchParams.get("state"));
+        if (!who || !url.searchParams.get("code") || !shippoauth.oauthReady(env)) return Response.redirect(origin + "/?shippo=failed#ebay-orders", 302);
+        try { await shippoauth.saveToken(env, db, who, await shippoauth.exchange(env, url.searchParams.get("code"))); }
+        catch (e) { console.log("shippo oauth failed", String(e.message || e)); return Response.redirect(origin + "/?shippo=failed#ebay-orders", 302); }
+        return Response.redirect(origin + "/?shippo=connected#ebay-orders", 302);
+      }
       // ---------- tax-time summary (signed-in seller only; printable page) ----------
       if (parts[0] === "tax-summary" && parts.length === 1 && m === "GET") {
         const uidT = await currentUser(request, db);
@@ -461,8 +471,17 @@ export default {
         const on = labels.labelsOn(env, me?.email);
         const set = await db.prepare("SELECT ship_from FROM seller_settings WHERE user_id=?").bind(userId).first();
         let from = null; try { from = set?.ship_from ? JSON.parse(set.ship_from) : null; } catch {}
-        if (parts[2] === "settings" && m === "GET") return J({ enabled: on, ship_from: from });
-        if (!on) return J({ error: "Buying labels isn't switched on for your account yet." }, 403);
+        // Whose Shippo account pays: the seller's own (connected by OAuth), else the house account
+        // for LABEL_USERS. Anyone else connects their Shippo account first.
+        const le = await shippoauth.labelEnv(env, db, userId, on);
+        if (parts[2] === "settings" && m === "GET")
+          return J({ enabled: !!le, payer: le ? le.payer : null, connected: !!(le && le.payer === "seller"), can_connect: shippoauth.oauthReady(env), ship_from: from });
+        if (parts[2] === "connect" && m === "GET") {
+          if (!shippoauth.oauthReady(env)) return J({ error: "Connecting a Shippo account isn't switched on yet." }, 503);
+          return J({ url: shippoauth.authorizeUrl(env, await shippoauth.makeState(env, userId)) });
+        }
+        if (parts[2] === "disconnect" && m === "POST") { await shippoauth.disconnect(db, userId); return J({ ok: true }); }
+        if (!le) return J({ error: "Connect your Shippo account to buy labels. Labels are billed to it by Shippo.", needs_shippo: true, can_connect: shippoauth.oauthReady(env) }, 403);
         if (parts[2] === "settings" && m === "PUT") {
           const c = labels.cleanFrom(await readJson(request));
           if (c.error) return J({ error: c.error }, 400);
@@ -481,12 +500,12 @@ export default {
           const parcel = labels.parcelFor(est, b);
           if (!parcel) return J({ error: "Enter the box size and weight.", needs_parcel: true }, 409);
           const pkg = b.box_in ? null : packageFor(est);
-          try { return J({ ...(await labels.labelRates(env, from, t.to, parcel, b.box_in ? [] : flatRateFits(est))), parcel, package: pkg }); }
+          try { return J({ ...(await labels.labelRates(le.env, from, t.to, parcel, b.box_in ? [] : flatRateFits(est))), parcel, package: pkg }); }
           catch (e) { return J({ error: String(e.message || e) }, e.status || 502); }
         }
         if (parts[2] === "buy" && m === "POST") {
           try {
-            const r = await labels.buyLabel(env, db, userId, b.kind, String(b.order_id || ""), b.rate_id, b.amount_cents, b.file_type,
+            const r = await labels.buyLabel(le.env, db, userId, b.kind, String(b.order_id || ""), b.rate_id, b.amount_cents, b.file_type,
                                             env.PUBLIC_ORIGIN || url.origin, ctx, buyerShippedEmail);
             return J(r.error ? { error: r.error, label: r.label || null } : r, r.status);
           } catch (e) { return J({ error: String(e.message || e) }, e.status || 502); }

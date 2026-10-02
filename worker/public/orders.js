@@ -94,7 +94,14 @@ async function wireLabels(root, after) {
   if (!btns.length) return;
   const cfg = await labelSettings();
   btns.forEach(async b => {
-    if (!cfg.enabled) { b.remove(); return; }
+    if (!cfg.enabled) {
+      // Not on the house account: sellers buy labels through their own Shippo account.
+      if (!cfg.can_connect) { b.remove(); return; }
+      b.textContent = "🏷️ Connect Shippo to buy labels";
+      b.title = "Labels are billed to your own Shippo account by Shippo. Free to set up.";
+      b.onclick = async () => { try { const r = await api("/labels/connect"); location.href = r.url; } catch (e) { toast(e.message); } };
+      return;
+    }
     const kind = b.dataset.labelKind, id = b.dataset.labelId;
     const box = root.querySelector(`[data-label-box="${CSS.escape(id)}"]`);
     try {   // already bought? offer the print link instead

@@ -1347,6 +1347,9 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
       const d = await me.json(); user = d.email;
       // Back from eBay's sign-in in a browser tab: the callback redirected to /?ebay=connected.
       const fromEbay = new URLSearchParams(location.search).get("ebay") === "connected";
+      // Back from connecting a Shippo account (labels billed to the seller).
+      const shippoBack = new URLSearchParams(location.search).get("shippo");
+      if (shippoBack) { history.replaceState(null, "", "/" + location.hash); setTimeout(() => toast(shippoBack === "connected" ? "Shippo connected ✓ You can buy labels now." : "Shippo wasn't connected. Try again from a sale."), 600); }
       if (fromEbay) history.replaceState(null, "", "/");
       // #ebay-orders: the link in a "Sold on eBay" email.
       // #item-<id>: the QR on an inventory sticker.
