@@ -202,6 +202,9 @@ export default {
         catch (e) { await owner.opsFail(db, "shippo oauth failed", e); console.log("shippo oauth failed", String(e.message || e)); return Response.redirect(origin + "/?shippo=failed#ebay-orders", 302); }
         return Response.redirect(origin + "/?shippo=connected#ebay-orders", 302);
       }
+      // ---------- share target without the service worker (first visit, or SW not installed yet):
+      // the photos can't be kept, so just open the app rather than showing an error ----------
+      if (parts[0] === "share-target" && parts.length === 1 && m === "POST") return Response.redirect((env.PUBLIC_ORIGIN || url.origin) + "/?shared=0", 303);
       // ---------- owner dashboard (owner only; everyone else gets a 404) ----------
       if (parts[0] === "owner" && parts.length === 1 && m === "GET") {
         const uidO = await currentUser(request, db);

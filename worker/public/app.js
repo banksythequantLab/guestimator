@@ -142,6 +142,7 @@ const lsGet = k => { try { return localStorage.getItem(k); } catch { return null
 const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} };
 (function grabCode() {
   const q = new URLSearchParams(location.search), c = q.get("code"), r = q.get("ref");
+  if (q.has("shared")) { state.pendingShare = true; history.replaceState(null, "", "/" + location.hash); }
   if (c && /^[A-Za-z0-9_-]{3,32}$/.test(c)) lsSet("gs_code", c.toUpperCase());
   if (r && /^[A-Za-z0-9]{4,12}$/.test(r)) lsSet("gs_ref", r.toUpperCase());
 })();
@@ -289,7 +290,26 @@ document.addEventListener("visibilitychange", async () => {
   }
 });
 
+// Photos shared into the app from the phone (manifest share_target -> sw.js -> "gs-share" cache).
+async function takeShared() {
+  const out = { files: [], text: "" };
+  try {
+    const c = await caches.open("gs-share");
+    for (const req of await c.keys()) {
+      const r = await c.match(req);
+      if (req.url.endsWith("/shared/text")) out.text = await r.text();
+      else { const b = await r.blob(); out.files.push(new File([b], decodeURIComponent(r.headers.get("x-name") || "photo.jpg"), { type: b.type || "image/jpeg" })); }
+      await c.delete(req);
+    }
+  } catch {}
+  return out;
+}
 async function renderHome() {
+  if (state.pendingShare) {
+    state.pendingShare = false;
+    const s = await takeShared();
+    if (s.files.length) { toast(`${s.files.length} photo${s.files.length === 1 ? "" : "s"} added`); return renderCapture(s); }
+  }
   state.view = "home"; setChrome();
   app.innerHTML = `
     <div class="row" style="justify-content:space-between;align-items:center;margin:10px 0 2px;gap:8px;flex-wrap:wrap">
@@ -714,7 +734,7 @@ const SHOTS = [
   { kind: "detail", label: "Detail", hint: "Decoration, hardware, texture" },
   { kind: "damage", label: "Damage", hint: "Chips, repairs, wear (optional)" },
 ];
-function renderCapture() {
+function renderCapture(pre) {
   state.tab = "items"; setChrome();
   const shots = {};
   app.innerHTML = `<h1 class="h1">Add item with AI</h1>
@@ -776,6 +796,15 @@ function renderCapture() {
       const ok = await acceptPhoto(f); if (ok) { more.push(ok); bumpMore(); }
     };
   }
+  // Shared in from the gallery: first photo is the front, the rest go in as extras.
+  if (pre && pre.files && pre.files.length) (async () => {
+    for (const [n, f] of pre.files.entries()) {
+      const ok = await acceptPhoto(f); if (!ok) continue;
+      if (n === 0) setShot(SHOTS[0].kind, ok); else more.push(ok);
+    }
+    bumpMore();
+    if (pre.text && !$("#cDesc").value) $("#cDesc").value = pre.text;
+  })();
   $("#cCancel").onclick = renderHome;
   $("#cGo").onclick = async () => {
     const files = [...Object.entries(shots).map(([k, f]) => ({ kind: k, f })), ...more.map(f => ({ kind: "other", f }))];
