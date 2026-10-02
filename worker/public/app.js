@@ -921,6 +921,7 @@ async function renderItemDetail(id) {
     <div class="row" style="gap:8px;margin-bottom:16px;flex-wrap:wrap">
       ${!pending && photos.length ? `<button class="btn sec sm" id="reappraise">↻ Re-run the estimate</button>` : ""}
       <a class="btn sec sm" href="/stickers?ids=${esc(id)}" target="_blank" rel="noopener" style="text-decoration:none">🏷 Print sticker</a>
+      ${r && appraisal.status === "done" ? `<button class="btn sec sm" id="xpost">📋 Cross-post kit</button>` : ""}
       <button class="btn sec sm" id="delItem" style="color:var(--rust)">Delete item</button>
     </div>
 `;
@@ -961,6 +962,7 @@ async function renderItemDetail(id) {
   // has seen what it was taken for and which listings it was compared with, and that is exactly
   // when they know what to add — a sharper marks photo, "it's the cobalt one", a size.
   if ($("#reappraise")) $("#reappraise").onclick = () => { clearTimeout(pollT); renderRefine(id, b); };
+  if ($("#xpost")) $("#xpost").onclick = () => { clearTimeout(pollT); renderCrosspost(id); };
   if ($("#soldGo")) $("#soldGo").onclick = async () => {
     const v = $("#soldIn").value.trim();
     if (!v) { $("#soldIn").focus(); return toast("What did it sell for?"); }

@@ -54,9 +54,11 @@ async function renderEbayOrders() {
     <div class="list">${open.map(card).join("") || `<div class="empty"><div class="em">📭</div>Nothing waiting. When something you listed sells, it shows up here and you get an email.</div>`}</div>
     ${done.length ? `<h3 style="margin:14px 2px 6px">Last 30 days</h3><div class="list">${done.map(card).join("")}</div>` : ""}
     <div id="slowBox"></div>
-    <div id="checkBox"></div>`;
+    <div id="checkBox"></div>
+    <div id="watchBox"></div>`;
   slowSellers($("#slowBox"));
   priceCheckBox($("#checkBox"));
+  watchersBox($("#watchBox"));
   if ($("#reEbay")) $("#reEbay").onclick = () => connectEbay();
   wireLabels(app, renderEbayOrders);
   app.querySelectorAll("[data-trk]").forEach(inp => inp.oninput = () => {
@@ -212,6 +214,35 @@ async function slowSellers(box) {
   });
 }
 
+// ---------- offers to interested buyers: eBay's watchers, one tap ----------
+async function watchersBox(box) {
+  if (!box) return;
+  let d; try { d = await api("/ebay/interested"); } catch { box.innerHTML = ""; return; }
+  if (!d.listings.length) {
+    box.innerHTML = `<h3 style="margin:14px 2px 6px">Interested buyers</h3><div class="muted" style="font-size:.82rem;margin:0 2px">Nobody is watching your listings right now. When someone does, you can send them a discount from here.</div>`;
+    return;
+  }
+  const pcts = l => [5, 10, 15, 20, 25, 30].filter(p => p <= l.max_pct);
+  box.innerHTML = `<h3 style="margin:14px 2px 6px">Interested buyers</h3>
+    <div class="muted" style="font-size:.8rem;margin:0 2px 6px">These listings have people watching them. Send them a discount: eBay messages each one, and the offer lasts 2 days.</div>
+    <div class="list">${d.listings.map(l => `<div class="li" style="align-items:flex-start"><div style="min-width:0;flex:1">
+      <div class="nm"><a href="${esc(l.listing_url || "#")}" target="_blank" rel="noopener" style="color:inherit">${esc(l.title)}</a></div>
+      <div class="muted" style="font-size:.8rem">${money(l.price_cents)}${l.min_cents ? ` · never below ${money(l.min_cents)}` : ""}${l.last_offer_at ? ` · last sent ${l.last_offer_pct}% off on ${esc(String(l.last_offer_at).slice(0, 10))}` : ""}</div>
+      ${l.wait_days ? `<div class="muted" style="font-size:.8rem;margin-top:4px">You can send another in ${l.wait_days} day${l.wait_days === 1 ? "" : "s"}.</div>`
+        : pcts(l).length ? `<div class="row" style="gap:6px;margin-top:6px;align-items:center">
+        <select data-w-pct="${esc(l.id)}" style="width:auto">${pcts(l).map(p => `<option value="${p}"${p === 10 ? " selected" : ""}>${p}% off → ${money(Math.round(l.price_cents * (100 - p) / 100))}</option>`).join("")}</select>
+        <button class="btn sm" data-w-send="${esc(l.id)}">Send offer</button></div>`
+        : `<div class="muted" style="font-size:.8rem;margin-top:4px">Already at the lowest price you'd take.</div>`}
+    </div></div>`).join("")}</div>`;
+  box.querySelectorAll("[data-w-send]").forEach(b => b.onclick = async () => {
+    const id = b.dataset.wSend, pct = Number(box.querySelector(`[data-w-pct="${CSS.escape(id)}"]`).value);
+    if (!confirm(`Send ${pct}% off to everyone watching this listing? eBay messages them now.`)) return;
+    b.disabled = true;
+    try { const r = await api(`/ebay/listings/${encodeURIComponent(id)}/watcher-offer`, { method: "POST", body: JSON.stringify({ pct }) });
+      toast(`Offer sent to ${r.sent} interested buyer${r.sent === 1 ? "" : "s"} ✓`); watchersBox(box); }
+    catch (e) { toast(e.message); b.disabled = false; }
+  });
+}
 // ---------- price check: live listings vs what the same thing sold for on eBay ----------
 // On demand, not on every visit: each listing can cost up to three sold-price lookups.
 function priceCheckBox(box) {
@@ -310,7 +341,7 @@ async function renderProfit(range) {
         ${tile("Your cost", m(t.cost_cents), t.missing_cost ? `${t.missing_cost} without a cost` : "")}
       </div>
       ${t.missing_cost ? `<div class="muted" style="font-size:.75rem;margin-top:6px">Profit counts items with no cost as free. Add "What you paid" on those items to make it exact.</div>` : ""}
-      <a class="btn sec sm" href="/api/profit/csv?${qs}" style="text-decoration:none;margin-top:10px;display:inline-block">⬇ Download CSV</a>
+      <a class="btn sec sm" href="/api/profit/csv?${qs}" style="text-decoration:none;margin-top:10px;display:inline-block">⬇ Download CSV</a> <a class="btn sec sm" href="/tax-summary?year=${range === "last" ? y - 1 : y}" target="_blank" rel="noopener" style="text-decoration:none;margin-top:10px;display:inline-block">🧾 Tax-time summary</a>
     </div>
     <div class="card"><b>Still on the shelf</b>
       <div class="muted" style="font-size:.85rem;margin-top:4px">${inv.items} item${inv.items === 1 ? "" : "s"} not sold · ${inv.priced} priced at about <b>${money(inv.estimate_cents)}</b> in all${inv.cost_cents ? ` · cost you ${money(inv.cost_cents)}` : ""}</div></div>
@@ -388,4 +419,44 @@ async function renderBulk() {
       renderHome();
     };
   }
+}
+
+// ---------- cross-post kit: Facebook Marketplace, Mercari, OfferUp ----------
+// None of them has a listing API for individual sellers, so this is copy-and-paste: the listing
+// trimmed to each site's limits, the price, and the photos to save. Nothing is posted for you.
+const XPOST = {
+  facebook: { name: "Facebook Marketplace", title: 100, desc: 5000, url: "https://www.facebook.com/marketplace/create/item" },
+  mercari: { name: "Mercari", title: 80, desc: 1000, url: "https://www.mercari.com/sell/" },
+  offerup: { name: "OfferUp", title: 50, desc: 5000, url: "https://offerup.com/post" },
+};
+const clip = (s, n) => { s = String(s || "").trim(); return s.length <= n ? s : s.slice(0, n - 1).replace(/\s+\S*$/, "") + "…"; };
+async function renderCrosspost(id) {
+  state.view = "crosspost"; setChrome(); backTo(() => renderItemDetail(id));
+  ctx.textContent = "Cross-post";
+  let b; try { b = await api("/items/" + id); } catch (e) { return toast(e.message); }
+  const r = b.appraisal && b.appraisal.result, L = (r && r.listing) || {};
+  const title = L.title || b.item.ai_title || b.item.name || "";
+  const desc = String(L.description || b.item.description || "").replace(/\s+\n/g, "\n").trim();
+  const cond = L.condition_grade ? `Condition: ${L.condition_grade}.` : "";
+  const price = b.item.price_cents ? (b.item.price_cents / 100).toFixed(0) : r && r.price_range && r.price_range.suggested_retail ? Math.round(r.price_range.suggested_retail) : "";
+  const block = (site) => { const S = XPOST[site];
+    const t = clip(title, S.title), d = clip([desc, cond].filter(Boolean).join("\n\n"), S.desc);
+    return `<div class="card"><div class="row" style="justify-content:space-between;align-items:center"><b>${esc(S.name)}</b>
+      <a class="btn sec sm" href="${S.url}" target="_blank" rel="noopener" style="text-decoration:none">Open ${esc(S.name)} ↗</a></div>
+      <div class="muted" style="font-size:.75rem;margin-top:6px">Title (${t.length}/${S.title})</div>
+      <div class="row" style="gap:6px;align-items:flex-start"><div style="flex:1;font-size:.9rem">${esc(t)}</div><button class="btn sec sm" data-copy="${esc(t)}">Copy</button></div>
+      <div class="muted" style="font-size:.75rem;margin-top:6px">Price</div>
+      <div class="row" style="gap:6px;align-items:center"><div style="flex:1;font-size:.9rem">$${esc(String(price))}</div><button class="btn sec sm" data-copy="${esc(String(price))}">Copy</button></div>
+      <div class="muted" style="font-size:.75rem;margin-top:6px">Description (${d.length}/${S.desc})</div>
+      <div class="row" style="gap:6px;align-items:flex-start"><div style="flex:1;font-size:.82rem;white-space:pre-wrap;max-height:8em;overflow:auto">${esc(d)}</div><button class="btn sec sm" data-copy="${esc(d)}">Copy</button></div></div>`; };
+  app.innerHTML = `<h1 class="h1">Cross-post</h1>
+    <div class="muted" style="font-size:.85rem;margin-bottom:8px">Copy each piece into the site's listing form and add the photos below. When it sells anywhere, mark it sold here (or scan its sticker) so it comes off eBay too.</div>
+    <div class="card"><b>Photos</b><div class="muted" style="font-size:.78rem">Tap a photo to open it full size, then save it.</div>
+      <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:8px">${(b.photos || []).map((p, n) => `<a href="${esc(p.url)}" download="item-${n + 1}.jpg" target="_blank" rel="noopener"><img src="${esc(p.url)}" alt="" style="width:76px;height:76px;object-fit:cover;border-radius:8px"></a>`).join("") || `<span class="muted">No photos.</span>`}</div></div>
+    ${block("facebook")}${block("mercari")}${block("offerup")}
+    <div class="muted" style="font-size:.72rem;margin:6px 2px 20px">These sites don't let other apps post for you, so nothing here is sent anywhere. eBay listings may also show on Facebook Marketplace through eBay's own partnership with Meta.</div>`;
+  app.querySelectorAll("[data-copy]").forEach(btn => btn.onclick = async () => {
+    try { await navigator.clipboard.writeText(btn.dataset.copy); toast("Copied ✓"); }
+    catch { toast("Couldn't copy - press and hold to select it instead"); }
+  });
 }

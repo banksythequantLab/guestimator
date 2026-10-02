@@ -18,6 +18,8 @@ import { priceCheck } from "./pricecheck.js";
 import * as weekly from "./weekly.js";
 import { packageFor, flatRateFits } from "./packing.js";
 import * as stickers from "./stickers.js";
+import * as watchers from "./watchers.js";
+import * as tax from "./tax.js";
 // Every Guestimator item lives in one hidden per-user `sales` row (the schema is Bottle Tree's).
 const GUESS_BUCKET = "Guestimator";
 // The Android app's URL scheme (strings.xml custom_url_scheme; AndroidManifest intent-filter).
@@ -181,7 +183,15 @@ export default {
       // ---------- PUBLIC: garage / estate sale pages ----------
       if (parts[0] === "sale" && parts[1] && m === "GET")
         return await garage.salePages(request, env, url, parts, await currentUser(request, db));
-      // ---------- inventory stickers (signed-in seller only; printable page) ----------
+      // ---------- tax-time summary (signed-in seller only; printable page) ----------
+      if (parts[0] === "tax-summary" && parts.length === 1 && m === "GET") {
+        const uidT = await currentUser(request, db);
+        if (!uidT) return Response.redirect((env.PUBLIC_ORIGIN || url.origin) + "/", 302);
+        const yr = Math.min(2100, Math.max(2000, Number(url.searchParams.get("year")) || new Date().getUTCFullYear()));
+        const me = await db.prepare("SELECT email FROM users WHERE id=?").bind(uidT).first();
+        return new Response(tax.taxPage(await tax.taxSummary(db, uidT, yr), me?.email || ""),
+          { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      }      // ---------- inventory stickers (signed-in seller only; printable page) ----------
       if (parts[0] === "stickers" && parts.length === 1 && m === "GET") {
         const uidS = await currentUser(request, db);
         if (!uidS) return Response.redirect((env.PUBLIC_ORIGIN || url.origin) + "/", 302);
@@ -545,6 +555,16 @@ export default {
         return J({ sent: !!r.sent, why: r.why || null, subject: mail.subject, listings: sum.listings.length, sold: sum.sold.length });
       }
 
+      // ---------- offers to interested buyers (eBay watchers) ----------
+      if (parts[1] === "ebay" && parts[2] === "interested" && m === "GET") {
+        try { const r = await watchers.interested(env, db, userId); return J(r.error ? { error: r.error, needs_connect: r.needs_connect } : r, r.status); }
+        catch (e) { return J({ error: String(e.message || e) }, 502); }
+      }
+      if (parts[1] === "ebay" && parts[2] === "listings" && parts[4] === "watcher-offer" && m === "POST") {
+        const b = await readJson(request);
+        try { const r = await watchers.sendOffer(env, db, userId, parts[3], b.pct, { message: b.message }); return J(r.error ? { error: r.error } : r, r.status); }
+        catch (e) { return J({ error: String(e.message || e) }, 502); }
+      }
       // ---------- price-drop nudges for slow eBay listings ----------
       if (parts[1] === "ebay" && parts[2] === "slow") {
         if (parts.length === 3 && m === "GET")
