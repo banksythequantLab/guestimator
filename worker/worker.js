@@ -27,6 +27,7 @@ import * as owner from "./owner.js";
 import * as ebaycare from "./ebaycare.js";
 import * as onboard from "./onboard.js";
 import * as growth from "./growth.js";
+import * as priceguide from "./priceguide.js";
 
 // The Shippo account that paid for a label: the seller's own (OAuth) or the house token.
 const shipEnvFor = (env, db) => async l => l.payer === "seller" ? ((await shippoauth.labelEnv(env, db, l.user_id, false)) || {}).env || null : (env.SHIPPO_API_TOKEN ? env : null);
@@ -201,6 +202,18 @@ export default {
         try { await shippoauth.saveToken(env, db, who, await shippoauth.exchange(env, url.searchParams.get("code"))); }
         catch (e) { await owner.opsFail(db, "shippo oauth failed", e); console.log("shippo oauth failed", String(e.message || e)); return Response.redirect(origin + "/?shippo=failed#ebay-orders", 302); }
         return Response.redirect(origin + "/?shippo=connected#ebay-orders", 302);
+      }
+      // ---------- public price guide, sitemap and robots (priceguide.js) ----------
+      if (m === "GET" && (url.pathname === "/prices" || url.pathname.startsWith("/price/") || url.pathname === "/sitemap.xml" || url.pathname === "/robots.txt")) {
+        const origin = env.PUBLIC_ORIGIN || url.origin, pub = { "cache-control": "public, max-age=3600" };
+        if (url.pathname === "/robots.txt") return new Response(priceguide.robots(origin), { headers: { "content-type": "text/plain; charset=utf-8", ...pub } });
+        if (url.pathname === "/sitemap.xml") return new Response(priceguide.sitemap(await priceguide.allGuides(db), origin), { headers: { "content-type": "application/xml; charset=utf-8", ...pub } });
+        if (url.pathname === "/prices") return new Response(priceguide.indexPage(await priceguide.allGuides(db), origin), { headers: { "content-type": "text/html; charset=utf-8", ...pub } });
+        const idm = url.pathname.match(/^\/price\/(?:[a-z0-9-]*-)?(\d{6,20})\/?$/);
+        const g = idm && await priceguide.guideById(db, idm[1]);
+        if (!g) return new Response(`<!doctype html><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width"><p style="font-family:system-ui;padding:24px">That price page isn't here. <a href="/prices">See the price guide</a>.</p>`, { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
+        if (url.pathname !== priceguide.pagePath(g)) return Response.redirect(origin + priceguide.pagePath(g), 301);
+        return new Response(priceguide.guidePage(g, origin), { headers: { "content-type": "text/html; charset=utf-8", ...pub } });
       }
       // ---------- share target without the service worker (first visit, or SW not installed yet):
       // the photos can't be kept, so just open the app rather than showing an error ----------
