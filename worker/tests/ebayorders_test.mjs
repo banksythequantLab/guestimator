@@ -65,7 +65,8 @@ const env = {
   PHOTOS: { put: async () => {}, get: async () => null, delete: async () => {} },
   PUBLIC_ORIGIN: "https://g.test",
   EBAY_CLIENT_ID: "cid", EBAY_CLIENT_SECRET: "csec", EBAY_RUNAME: "R", EBAY_TOKEN_KEY: Buffer.from(Array.from({ length: 32 }, (_, i) => i)).toString("base64"),
-  EMAIL: { send: async m => { mails.push(m); return { messageId: "m" + mails.length }; } },
+  EMAIL: { send: async m => { if (/^Welcome to Guestimator/.test(m.subject)) return { messageId: "w" };   // sign-up welcome isn't what this test checks
+    mails.push(m); return { messageId: "m" + mails.length }; } },
 };
 let cookie = "";
 const pending = [];

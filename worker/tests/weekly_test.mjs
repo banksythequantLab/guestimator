@@ -21,7 +21,8 @@ const mails = [];
 const env = { DB: db, ASSETS: { fetch: async () => new Response("a") }, PHOTOS: { put: async () => {}, get: async () => null, delete: async () => {} },
   PUBLIC_ORIGIN: "https://g.test", EBAY_CLIENT_ID: "c", EBAY_CLIENT_SECRET: "s", EBAY_RUNAME: "R",
   EBAY_TOKEN_KEY: Buffer.from(Array.from({ length: 32 }, (_, i) => i * 5)).toString("base64"),
-  EMAIL: { send: async m => { mails.push(m); return { messageId: "m" }; } } };
+  EMAIL: { send: async m => { if (/^Welcome to Guestimator/.test(m.subject)) return { messageId: "w" };   // sign-up welcome isn't what this test checks
+    mails.push(m); return { messageId: "m" }; } } };
 let cookie = "";
 const call = async (method, path, body) => {
   const r = await worker.fetch(new Request("https://g.test" + path, { method, headers: { "content-type": "application/json", cookie }, body: body === undefined ? undefined : JSON.stringify(body) }), env, { waitUntil() {} });

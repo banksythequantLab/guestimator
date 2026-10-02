@@ -93,7 +93,7 @@ function loadGis() {
 async function signInWithGoogleToken(credential) {
   try {
     const r = await api("/auth/google", { method: "POST", body: JSON.stringify({ credential }) });
-    user = r.email; billingInit = false; toast("Signed in"); renderHome();
+    user = r.email; billingInit = false; toast("Signed in"); await afterSignIn(); renderHome();
   } catch (e) { toast(e.message); }
 }
 async function nativeGoogleSignIn(btn) {
@@ -136,16 +136,39 @@ async function mountGoogle() {
 }
 
 // ---------- Auth ----------
+// ---------- onboarding: a first visit sees what Guestimator does and the sign-up form; a share
+// link with ?code=XYZ is remembered and applied right after sign-in ----------
+const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} };
+(function grabCode() {
+  const c = new URLSearchParams(location.search).get("code");
+  if (c && /^[A-Za-z0-9_-]{3,32}$/.test(c)) lsSet("gs_code", c.toUpperCase());
+})();
+const firstAuthMode = () => (lsGet("gs_had_account") ? "login" : "register");
+async function afterSignIn() {
+  lsSet("gs_had_account", "1");
+  const code = lsGet("gs_code"); if (!code) return;
+  lsSet("gs_code", null);
+  try { const r = await api("/me/redeem", { method: "POST", body: JSON.stringify({ code }) }); toast(`Code ${code} applied: ${r.credits_added} free credits ✓`); }
+  catch (e) { toast(`Code ${code}: ${e.message}`); }
+}
+const PITCH_STEPS = [["📷", "Snap a few photos", "Front, back, labels, maker's marks"], ["💲", "Get a Guestimate", "Priced from what's actually selling now"], ["🛒", "List it on eBay", "On your own account. You check it first"]];
+const pitchHtml = () => `<div class="card" style="padding:14px 16px">
+  ${PITCH_STEPS.map(([i, t, d]) => `<div class="row" style="gap:12px;align-items:center;margin:6px 0"><div style="font-size:1.5rem;width:32px;text-align:center">${i}</div><div><b>${t}</b><div class="muted" style="font-size:.85rem">${d}</div></div></div>`).join("")}
+  <div class="muted" style="font-size:.8rem;margin-top:10px;border-top:1px solid var(--line, #e0d2b4);padding-top:8px"><b>Free:</b> garage &amp; estate sale pages, QR price tags, online checkout for your buyers, and discounted shipping labels. Estimates and eBay listings use credits.</div></div>`;
+
 function renderAuth(mode) {
-  mode = mode || "login";
+  mode = mode || firstAuthMode();
   state.view = "auth"; state.saleId = null; state.detail = null; setChrome();
   ctx.textContent = "";
   const isLogin = mode === "login";
   app.innerHTML = `
     <div style="text-align:center;margin:34px 0 8px">
-      <div class="big" style="font-size:1.7rem">${isLogin ? "Welcome back" : "Create your account"}</div>
-      <div class="muted">${isLogin ? "Sign in to your items." : "Price it from what's selling now, then list it on eBay."}</div>
+      <div class="big" style="font-size:1.7rem">${isLogin ? "Welcome back" : "What's it worth? Sell it."}</div>
+      <div class="muted">${isLogin ? "Sign in to your items." : "Price anything from what's selling now, then list it on eBay in minutes."}</div>
     </div>
+    ${isLogin ? "" : pitchHtml()}
+    ${lsGet("gs_code") ? `<div class="card" style="padding:10px 14px;border-color:var(--cobalt);font-size:.88rem">🎁 Code <b>${esc(lsGet("gs_code"))}</b> will be applied when you ${isLogin ? "sign in" : "create your account"}.</div>` : ""}
     <div class="card">
       <label>Email</label>
       <input id="auEmail" type="email" autocomplete="email" placeholder="you@example.com" enterkeyhint="next">
@@ -166,7 +189,7 @@ function renderAuth(mode) {
     if (!email || !password) return toast("Email and password, please");
     try {
       await api("/auth/" + (isLogin ? "login" : "register"), { method: "POST", body: JSON.stringify({ email, password }) });
-      user = email; toast(isLogin ? "Signed in" : "Account created"); renderHome();
+      user = email; toast(isLogin ? "Signed in" : "Account created"); await afterSignIn(); renderHome();
     } catch (e) { toast(e.message); }
   };
   $("#auGo").onclick = go;
@@ -272,6 +295,7 @@ async function renderHome() {
       <button class="btn" id="aiAdd">📷 Guestimate something</button>
       <button class="btn sec" id="bulkAdd" style="margin-top:8px">🏠 Lots of items at once</button>
     </div>
+    <div id="startCard"></div>
     <div id="ebayCard"></div>
     <div class="card"><div class="row" style="justify-content:space-between;align-items:center;gap:10px">
       <div><b>Garage & estate sales</b><div class="muted" style="font-size:.82rem">Free sale page, price tags, holds, online buying</div></div>
@@ -299,6 +323,7 @@ async function renderHome() {
   let list = [];
   try { list = await api("/items"); } catch (e) { $("#itemList").innerHTML = `<div class="muted">${esc(e.message)}</div>`; return; }
   const el = $("#itemList");
+  startCard(list);
   if (!list.length) { el.innerHTML = `<div class="empty"><div class="em">🔎</div>Nothing yet. Tap <b>Guestimate something</b> to price your first item.</div>`; return; }
   const badge = i => i.ebay_status === "published" ? `<span class="pill" style="background:var(--cobalt);color:#fff">on eBay</span>`
     : i.appraisal_status === "pending" ? `<span class="pill">estimating…</span>`
@@ -316,6 +341,37 @@ async function renderHome() {
     clearTimeout(pollT);
     pollT = setTimeout(() => { if (state.view === "home") renderHome(); }, 6000);
   }
+}
+
+// ---------- first-run checklist: the three steps to a first eBay sale, until done or hidden ----------
+async function startCard(list) {
+  const box = $("#startCard");
+  if (!box || lsGet("gs_start_hidden")) return;
+  const es = ebayStatus || await loadEbayStatus();
+  const steps = [
+    { done: list.some(i => i.appraisal_status === "done"), t: "Guestimate your first item", d: "Uses 1 credit. <a href=\"#\" data-st=\"credits\">Get credits or enter a code</a>", go: "capture", btn: "Start" },
+    { done: !!(es && es.connected), t: "Connect your eBay account", d: "Listings go up on your own account.", go: "ebay", btn: "Connect", hide: !(es && es.configured) },
+    { done: list.some(i => i.ebay_status === "published"), t: "List it on eBay", d: "Open a priced item and tap <b>List it on eBay</b>. You check every word first.", go: null },
+  ].filter(s => !s.hide);
+  const left = steps.filter(s => !s.done).length;
+  if (!left) { box.innerHTML = ""; return; }
+  if (state.view !== "home") return;
+  box.innerHTML = `<div class="card" style="border-color:var(--green);padding:12px 16px">
+    <div class="row" style="justify-content:space-between;align-items:center"><b>Get your first sale</b><a href="#" data-st="hide" class="muted" style="font-size:.78rem">Hide</a></div>
+    ${steps.map((s, n) => `<div class="row" style="gap:10px;align-items:center;margin:8px 0;${s.done ? "opacity:.6" : ""}">
+      <div style="width:24px;height:24px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:800;${s.done ? "background:var(--green);color:#fff" : "border:2px solid var(--green)"}">${s.done ? "✓" : n + 1}</div>
+      <div style="flex:1;min-width:0"><div style="font-weight:700;${s.done ? "text-decoration:line-through" : ""}">${s.t}</div>${s.done ? "" : `<div class="muted" style="font-size:.8rem">${s.d}</div>`}</div>
+      ${!s.done && s.go ? `<button class="btn sec sm" data-st="${s.go}" style="white-space:nowrap">${s.btn}</button>` : ""}</div>`).join("")}
+    <div class="muted" style="font-size:.78rem;margin-top:4px">Selling in person instead? <a href="#" data-st="sales" style="font-weight:700">Start a free garage sale page</a></div></div>`;
+  box.querySelectorAll("[data-st]").forEach(x => x.onclick = e => {
+    e.preventDefault();
+    const k = x.dataset.st;
+    if (k === "hide") { lsSet("gs_start_hidden", "1"); box.innerHTML = ""; }
+    else if (k === "capture") renderCapture();
+    else if (k === "credits") { if (window.BTBilling) BTBilling.open(); }
+    else if (k === "sales") renderSales();
+    else if (k === "ebay") { const b = $("#ebayOn"); if (b) b.click(); else toast("Use the eBay card below to connect"); }
+  });
 }
 
 // ---------- eBay: the listing card on an item, and the review screen ----------
@@ -1344,7 +1400,7 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
   try {
     const me = await fetch("/api/auth/me", { credentials: "same-origin" });
     if (me.ok) {
-      const d = await me.json(); user = d.email; state.owner = !!d.owner;
+      const d = await me.json(); user = d.email; state.owner = !!d.owner; afterSignIn();
       // Back from eBay's sign-in in a browser tab: the callback redirected to /?ebay=connected.
       const fromEbay = new URLSearchParams(location.search).get("ebay") === "connected";
       // Back from connecting a Shippo account (labels billed to the seller).
@@ -1372,6 +1428,6 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
       else if (!(await afterStripeReturn())) await renderHome();
       if (fromEbay) afterEbayReturn(true);
     }
-    else renderAuth("login");
-  } catch { renderAuth("login"); }
+    else renderAuth();
+  } catch { renderAuth(); }
 })();

@@ -25,6 +25,7 @@ import * as labelpay from "./labelpay.js";
 import * as shipops from "./shipops.js";
 import * as owner from "./owner.js";
 import * as ebaycare from "./ebaycare.js";
+import * as onboard from "./onboard.js";
 
 // The Shippo account that paid for a label: the seller's own (OAuth) or the house token.
 const shipEnvFor = (env, db) => async l => l.payer === "seller" ? ((await shippoauth.labelEnv(env, db, l.user_id, false)) || {}).env || null : (env.SHIPPO_API_TOKEN ? env : null);
@@ -358,6 +359,7 @@ export default {
           // and no welcome row, so the ledger still accounts for exactly what the wallet holds.
           await db.prepare("INSERT INTO users (id,email,pw_hash,pw_salt,created_at,credits) VALUES (?,?,?,?,?,?)")
             .bind(id, email, h, salt, ts, SIGNUP_CREDITS).run();
+          ctx.waitUntil(onboard.welcomeEmail(env, email, env.PUBLIC_ORIGIN || url.origin).catch(e => console.log("welcome email", e)));
           return J({ email }, 200, { "Set-Cookie": sessionCookie(await newSession(db, id)) });
         }
         if (act === "login" && m === "POST") {
@@ -389,6 +391,7 @@ export default {
             await db.prepare("INSERT INTO users (id,email,pw_hash,pw_salt,google_sub,created_at,credits) VALUES (?,?,'','',?,?,?)")
               .bind(id, g.email, g.sub, ts, SIGNUP_CREDITS).run();
             u = { id, email: g.email };
+            ctx.waitUntil(onboard.welcomeEmail(env, g.email, env.PUBLIC_ORIGIN || url.origin).catch(e => console.log("welcome email", e)));
           }
           return J({ email: u.email }, 200, { "Set-Cookie": sessionCookie(await newSession(db, u.id)) });
         }
