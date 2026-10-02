@@ -105,8 +105,9 @@ async function wireLabels(root, after) {
     const kind = b.dataset.labelKind, id = b.dataset.labelId;
     const box = root.querySelector(`[data-label-box="${CSS.escape(id)}"]`);
     try {   // already bought? offer the print link instead
-      const { label } = await api(`/labels/for?kind=${kind}&order=${encodeURIComponent(id)}`);
-      if (label) { b.remove(); box.innerHTML = labelDone(label); return; }
+      const { label, voided } = await api(`/labels/for?kind=${kind}&order=${encodeURIComponent(id)}`);
+      if (label) { b.remove(); box.innerHTML = labelDone(label); wireDone(box, kind, id, label, after); return; }
+      if (voided) box.innerHTML = voidedLine(voided);
     } catch {}
     b.onclick = () => { b.remove(); labelPanel(kind, id, box, after); };
   });
@@ -115,7 +116,48 @@ async function wireLabels(root, after) {
 const paperPref = () => { try { return localStorage.getItem("gs_paper") || "PDF"; } catch { return "PDF"; } };
 const labelDone = l => `<div style="margin-top:6px;font-size:.82rem"><a class="btn sm" href="${esc(l.label_url)}" target="_blank" rel="noopener" style="text-decoration:none">🖨 Print label</a>
   <span class="muted">${esc(l.service || l.carrier || "")} · ${money(l.amount_cents)}${l.tracking ? ` · ${esc(l.tracking)}` : ""}</span>
-  <div class="muted" style="font-size:.72rem;margin-top:4px">Regular printer: print at <b>Actual size / 100%</b>, not "Fit to page" (a shrunk barcode may not scan). Cut on the line and tape all four edges with clear tape, keeping tape off the barcode.</div></div>`;
+  <div class="muted" style="font-size:.72rem;margin-top:4px">Regular printer: print at <b>Actual size / 100%</b>, not "Fit to page" (a shrunk barcode may not scan). Cut on the line and tape all four edges with clear tape, keeping tape off the barcode.</div>
+  <div data-pickup-box>${l.pickup && l.pickup.status !== "ERROR" ? pickupLine(l.pickup) : l.carrier === "USPS" ? `<button class="btn sec sm" data-pickup style="margin-top:6px">📦 Schedule free USPS pickup</button>` : ""}</div>
+  ${l.can_void ? `<button class="btn sec sm" data-void style="margin-top:6px">Void label</button>` : ""}</div>`;
+const pickupLine = p => `<div style="margin-top:6px;font-size:.82rem">📦 USPS pickup booked for <b>${esc(p.date)}</b>${p.location ? ` (${esc(p.location)})` : ""}${p.confirmation ? ` · confirmation ${esc(p.confirmation)}` : ""}. Have it out before your mail carrier's usual time.</div>`;
+const voidedLine = v => `<div class="muted" style="font-size:.78rem;margin-top:6px">Earlier label voided${v.tracking ? ` (${esc(v.tracking)})` : ""}: ${
+  v.void_status === "SUCCESS" ? "refunded" : v.void_status === "ERROR" ? "Shippo refused the refund" : "refund pending with Shippo"}${v.payer === "paid" && v.card_refund_id && v.card_refund_id !== "none" ? ", card refunded" : ""}.</div>`;
+
+// Void / pickup buttons on a bought label.
+function wireDone(box, kind, id, label, after) {
+  const v = box.querySelector("[data-void]");
+  if (v) v.onclick = async () => {
+    if (!confirm("Void this label? Only void a label that hasn't been used or scanned.\n\n" +
+      (label.payer === "paid" ? "Your card is refunded for the label once Shippo confirms (card processing isn't refundable).\n\n" : "") +
+      (kind === "ebay" ? "eBay keeps the tracking number already sent - update it on eBay if you ship with a new label." : "The order reopens so you can buy a new label."))) return;
+    v.disabled = true; v.textContent = "Voiding…";
+    try {
+      const r = await api("/labels/void", { method: "POST", body: JSON.stringify({ kind, order_id: id }) });
+      toast(r.note || "Label voided ✓");
+      box.innerHTML = voidedLine({ void_status: r.void_status, payer: label.payer, card_refund_id: r.card_refund ? r.card_refund.id : null, tracking: label.tracking });
+      if (r.reopened && after) setTimeout(after, 1200);
+    } catch (e) { toast(e.message); v.disabled = false; v.textContent = "Void label"; }
+  };
+  const p = box.querySelector("[data-pickup]");
+  if (p) p.onclick = async () => {
+    const pb = box.querySelector("[data-pickup-box]");
+    let d; try { d = await api("/labels/pickup-days"); } catch (e) { toast(e.message); return; }
+    const cfg = await labelSettings(), fmt = s => new Date(s + "T12:00:00Z").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+    pb.innerHTML = `<div class="card" style="margin:8px 0;padding:10px;font-size:.85rem"><b>Free USPS pickup</b>
+      <div class="muted" style="font-size:.75rem;margin-bottom:6px">The carrier collects it from your return address during their normal route.</div>
+      <div class="row" style="gap:6px"><select data-pk="date">${d.days.map(x => `<option value="${x}">${fmt(x)}</option>`).join("")}</select>
+        <select data-pk="location">${d.locations.map(x => `<option>${esc(x)}</option>`).join("")}</select></div>
+      <div class="row" style="gap:6px;margin-top:6px"><input data-pk="instructions" placeholder="Note for the carrier (needed for Other)" maxlength="100" style="flex:2">
+        <input data-pk="phone" type="tel" placeholder="Phone" value="${esc((cfg.ship_from && cfg.ship_from.phone) || "")}" style="flex:1"></div>
+      <button class="btn sm" data-pk-go style="margin-top:8px">Book pickup</button></div>`;
+    pb.querySelector("[data-pk-go]").onclick = async ev => {
+      const body = { kind, order_id: id }; pb.querySelectorAll("[data-pk]").forEach(x => body[x.dataset.pk] = x.value);
+      ev.target.disabled = true; ev.target.textContent = "Booking…";
+      try { const r = await api("/labels/pickup", { method: "POST", body: JSON.stringify(body) }); pb.innerHTML = pickupLine(r.pickup); toast("Pickup booked ✓"); }
+      catch (e) { toast(e.message); ev.target.disabled = false; ev.target.textContent = "Book pickup"; }
+    };
+  };
+}
 
 function fromForm(f) {
   f = f || {};
@@ -177,7 +219,8 @@ async function labelPanel(kind, id, box, after, over) {
       buy.disabled = true; buy.textContent = "Buying…";
       try {
         const r = await api("/labels/buy", { method: "POST", body: JSON.stringify({ kind, order_id: id, rate_id: s.value, amount_cents: Number(s.dataset.cents), file_type: box.querySelector("[data-paper]").value }) });
-        box.innerHTML = labelDone(r.label) + (r.shipped ? "" : `<div style="color:var(--rust);font-size:.8rem">Label bought, but not marked shipped: ${esc(r.shipped_error || "")}. Mark it shipped with the tracking number above.</div>`);
+        r.label.can_void = true; box.innerHTML = labelDone(r.label) + (r.shipped ? "" : `<div style="color:var(--rust);font-size:.8rem">Label bought, but not marked shipped: ${esc(r.shipped_error || "")}. Mark it shipped with the tracking number above.</div>`);
+        wireDone(box, kind, id, r.label, after);
         window.open(r.label.label_url, "_blank", "noopener");
         toast("Label bought ✓"); if (after) setTimeout(after, 1500);
       } catch (e) { toast(e.message); buy.disabled = false; label(); }

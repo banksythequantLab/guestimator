@@ -136,3 +136,6 @@ export async function buyLabel(env, db, userId, kind, orderId, rateId, expectCen
   }
   return { status: 200, label, shipped: !!shipped.ok, shipped_error: shipped.ok ? null : shipped.error };
 }
+
+/** Raw Shippo call for other modules (void, pickup). */
+export const shippoApi = (env, method, path, body) => shippo(env, method, path, body);

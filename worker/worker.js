@@ -22,6 +22,10 @@ import * as watchers from "./watchers.js";
 import * as tax from "./tax.js";
 import * as shippoauth from "./shippoauth.js";
 import * as labelpay from "./labelpay.js";
+import * as shipops from "./shipops.js";
+
+// The Shippo account that paid for a label: the seller's own (OAuth) or the house token.
+const shipEnvFor = (env, db) => async l => l.payer === "seller" ? ((await shippoauth.labelEnv(env, db, l.user_id, false)) || {}).env || null : (env.SHIPPO_API_TOKEN ? env : null);
 // Every Guestimator item lives in one hidden per-user `sales` row (the schema is Bottle Tree's).
 const GUESS_BUCKET = "Guestimator";
 // The Android app's URL scheme (strings.xml custom_url_scheme; AndroidManifest intent-filter).
@@ -535,14 +539,33 @@ export default {
             return J(r.error ? { error: r.error, label: r.label || null } : r, r.status);
           } catch (e) { return J({ error: String(e.message || e) }, e.status || 502); }
         }
+        // Void a label / book a USPS pickup (shipops.js). The Shippo account that paid does the work.
+        const envFor = shipEnvFor(env, db);
+        if (parts[2] === "void" && m === "POST") {
+          try { const r = await shipops.voidLabel(env, db, userId, String(b.kind || ""), String(b.order_id || ""), envFor, garage.stripe); return J(r, r.status); }
+          catch (e) { return J({ error: String(e.message || e) }, 502); }
+        }
+        if (parts[2] === "pickup-days" && m === "GET") return J({ days: shipops.pickupDays(), locations: shipops.LOCATIONS });
+        if (parts[2] === "pickup" && m === "POST") {
+          const l = await shipops.labelFor(db, userId, String(b.kind || ""), String(b.order_id || ""));
+          if (!l) return J({ error: "No label for this order." }, 404);
+          const se = await envFor(l);
+          if (!se) return J({ error: "Reconnect your Shippo account first." }, 409);
+          try { const r = await shipops.bookPickup(se, db, userId, String(b.kind), String(b.order_id), b, from, me?.email); return J(r, r.status); }
+          catch (e) { return J({ error: String(e.message || e) }, 502); }
+        }
         if (parts[2] === "for" && m === "GET") {
           // Paid but never came back from Stripe? Finish it now.
           const pend = await db.prepare("SELECT id FROM label_payments WHERE user_id=? AND kind=? AND order_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1")
             .bind(userId, url.searchParams.get("kind") || "", url.searchParams.get("order") || "").first();
           if (pend) { try { await labelpay.finishPay(env, db, userId, pend.id, garage.stripe, buyFor(userId)); } catch (e) { console.log("label finish", String(e.message || e)); } }
-          const l = await db.prepare("SELECT kind, order_id, carrier, service, amount_cents, tracking, label_url, created_at FROM shipping_labels WHERE user_id=? AND kind=? AND order_id=?")
-            .bind(userId, url.searchParams.get("kind") || "", url.searchParams.get("order") || "").first();
-          return J({ label: l || null });
+          const k = url.searchParams.get("kind") || "", o = url.searchParams.get("order") || "";
+          const l = await db.prepare("SELECT kind, order_id, carrier, service, amount_cents, tracking, label_url, created_at, payer, pickup FROM shipping_labels WHERE user_id=? AND kind=? AND order_id=?")
+            .bind(userId, k, o).first();
+          if (l) { l.can_void = shipops.canVoid(l); try { l.pickup = l.pickup ? JSON.parse(l.pickup) : null; } catch { l.pickup = null; } }
+          const v = await db.prepare("SELECT service, amount_cents, tracking, voided_at, void_status, payer, card_refund_id FROM shipping_labels WHERE user_id=? AND kind=? AND void_of=? ORDER BY voided_at DESC LIMIT 1")
+            .bind(userId, k, o).first();
+          return J({ label: l || null, voided: v || null });
         }
         return J({ error: "not found" }, 404);
       }
@@ -1108,6 +1131,10 @@ export default {
       } catch (e) { console.log("label sweep failed", String(e && e.message || e)); }
     }
     // Monday selling summary (no-op outside the window; once a week per seller).
+    // Shipping ops: follow voids, ship-by reminders, money-safety alerts to the house.
+    try { await shipops.checkVoids(env, db, shipEnvFor(env, db), garage.stripe); } catch (e) { console.log("void check failed", String(e && e.message || e)); }
+    try { await shipops.shipReminders(env, db, origin); } catch (e) { console.log("ship reminders failed", String(e && e.message || e)); }
+    try { await shipops.moneyAlerts(env, db); } catch (e) { console.log("money alerts failed", String(e && e.message || e)); }
     try { await weekly.emailWeekly(env, db, origin); } catch (e) { console.log("weekly summary failed", String(e && e.message || e)); }
   },
 
