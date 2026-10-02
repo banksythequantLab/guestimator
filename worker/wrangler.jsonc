@@ -45,6 +45,12 @@
     // Accounts allowed to BUY shipping labels. Labels are charged to the Shippo account behind
     // SHIPPO_API_TOKEN (Derek's), so this stays his alone until sellers pay for their own.
     "LABEL_USERS": "dj@soltis.info",
+    // Everyone else pays for each label by card (Stripe) before it's bought on the house Shippo
+    // account (labelpay.js). Cap = labels/month the Shippo plan allows (free plan: 30); raise it
+    // after upgrading. LABEL_FEE_CENTS is Guestimator's own markup per label (card fee is separate).
+    "LABEL_PAY": "on",
+    "SHIPPO_MONTHLY_CAP": "30",
+    "LABEL_FEE_CENTS": "0",
     "NEBIUS_BASE_URL": "https://api.tokenfactory.nebius.com/v1/",
     "TEXT_MODEL": "nvidia/nemotron-3-super-120b-a12b",
     "VISION_MODEL": "google/gemma-3-27b-it",

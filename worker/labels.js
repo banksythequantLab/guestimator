@@ -93,6 +93,14 @@ export async function labelRates(env, from, to, parcel, flat = []) {
   return { rates, note: rates.length ? null : why || "No carrier returned a rate for that address and box." };
 }
 
+/** The live price of a Shippo rate in cents (null if the id is malformed or the rate is gone). */
+export async function rateCents(env, rateId) {
+  if (!/^[a-f0-9]{32}$/i.test(String(rateId || ""))) return null;
+  const rate = await shippo(env, "GET", `/rates/${rateId}`);
+  const c = Math.round(Number(rate.amount) * 100);
+  return c > 0 ? { cents: c, service: rate.servicelevel?.name ? `${rate.provider} ${rate.servicelevel.name}` : rate.provider } : null;
+}
+
 /**
  * Buy the label for `rateId`. `expectCents` is the price the seller saw: if Shippo's rate says
  * otherwise, nothing is bought. Returns the saved label; marks the order shipped.

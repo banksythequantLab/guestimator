@@ -1351,6 +1351,19 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
       const shippoBack = new URLSearchParams(location.search).get("shippo");
       if (shippoBack) { history.replaceState(null, "", "/" + location.hash); setTimeout(() => toast(shippoBack === "connected" ? "Shippo connected ✓ You can buy labels now." : "Shippo wasn't connected. Try again from a sale."), 600); }
       if (fromEbay) history.replaceState(null, "", "/");
+      // Back from paying for a shipping label (Stripe Checkout): buy it now, then show the order.
+      const lp = new URLSearchParams(location.search), labelPaid = lp.get("labelpaid");
+      if (labelPaid) {
+        history.replaceState(null, "", "/");
+        if (lp.get("cancelled")) setTimeout(() => toast("Label not bought - checkout was cancelled."), 600);
+        else {
+          try {
+            const r = await api("/labels/paid", { method: "POST", body: JSON.stringify({ id: labelPaid }) });
+            toast("Label bought ✓ Print it from the order.");
+            if (r.label && r.label.kind === "ebay") { await renderEbayOrders(); return; }
+          } catch (e) { setTimeout(() => toast(e.message), 600); }
+        }
+      }
       // #ebay-orders: the link in a "Sold on eBay" email.
       // #item-<id>: the QR on an inventory sticker.
       const itemHash = (location.hash.match(/^#item-([0-9a-f-]{36})$/) || [])[1];

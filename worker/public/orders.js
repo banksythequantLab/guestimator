@@ -152,21 +152,27 @@ async function labelPanel(kind, id, box, after, over) {
     ${q.package ? `<div style="font-size:.82rem;margin-bottom:6px">📦 Pack it in a <b>${esc(q.package.name)}</b>${q.package.kind === "mailer" ? "" : ", with padding all round"}.</div>` : ""}
     ${parcelInputs(p)}
     ${q.rates.length ? `<div style="margin-top:8px">${q.rates.map((r, n) => `<label class="row" style="gap:8px;font-weight:400;font-size:.88rem;margin:4px 0">
-        <input type="radio" name="rate-${esc(id)}" value="${esc(r.rate_id)}" data-cents="${Math.round(r.amount * 100)}" ${n === 0 ? "checked" : ""} style="width:auto">
-        <span style="flex:1">${esc(r.service)}${r.days ? ` <span class="muted">· ${r.days} day${r.days === 1 ? "" : "s"}</span>` : ""}</span><b>$${r.amount.toFixed(2)}</b></label>`).join("")}</div>
+        <input type="radio" name="rate-${esc(id)}" value="${esc(r.rate_id)}" data-cents="${Math.round(r.amount * 100)}" data-pay="${r.pay ? r.pay.total : ""}" ${n === 0 ? "checked" : ""} style="width:auto">
+        <span style="flex:1">${esc(r.service)}${r.days ? ` <span class="muted">· ${r.days} day${r.days === 1 ? "" : "s"}</span>` : ""}</span><b>$${r.pay ? (r.pay.total / 100).toFixed(2) : r.amount.toFixed(2)}</b></label>`).join("")}</div>
       <div class="row" style="gap:6px;margin-top:6px;align-items:center"><select data-paper style="width:auto"><option value="PDF">Letter paper (regular printer)</option><option value="PDF_4x6" ${paperPref() === "PDF_4x6" ? "selected" : ""}>4×6 label printer</option></select>
         <button class="btn sm" data-buy style="flex:1">Buy label</button></div>
-      <div class="muted" style="font-size:.72rem;margin-top:4px">Charged to the Shippo account on file. Buying marks the order shipped and sends the tracking number${kind === "ebay" ? " to eBay" : " to the buyer"}.</div>`
+      <div class="muted" style="font-size:.72rem;margin-top:4px">${cfg.payer === "paid" ? "You pay by card (Stripe): the label price plus card processing. The label is bought the moment payment clears; if it can't be bought, you're refunded in full." : "Charged to the Shippo account on file."}${cfg.house_month ? ` House Shippo account: ${cfg.house_month.used} of ${cfg.house_month.cap} labels used this month.` : ""} Buying marks the order shipped and sends the tracking number${kind === "ebay" ? " to eBay" : " to the buyer"}.</div>`
     : `<div class="muted" style="font-size:.82rem;margin-top:6px">${esc(q.note || "No rates.")}</div>`}</div>`;
   wireParcel();
   const buy = box.querySelector("[data-buy]");
   if (buy) {
     const sel = () => box.querySelector(`input[name="rate-${CSS.escape(id)}"]:checked`);
-    const label = () => { const s = sel(); buy.textContent = s ? `Buy label · $${(s.dataset.cents / 100).toFixed(2)}` : "Buy label"; };
+    const label = () => { const s = sel(); buy.textContent = !s ? "Buy label" : s.dataset.pay ? `Pay $${(s.dataset.pay / 100).toFixed(2)} & buy label` : `Buy label · $${(s.dataset.cents / 100).toFixed(2)}`; };
     box.querySelectorAll(`input[name="rate-${CSS.escape(id)}"]`).forEach(x => x.onchange = label); label();
     box.querySelector("[data-paper]").onchange = ev => { try { localStorage.setItem("gs_paper", ev.target.value); } catch {} };
     buy.onclick = async () => {
       const s = sel(); if (!s) return;
+      if (s.dataset.pay) {   // pay first: off to Stripe Checkout, back to /?labelpaid=<id>
+        buy.disabled = true; buy.textContent = "Opening checkout…";
+        try { const r = await api("/labels/pay", { method: "POST", body: JSON.stringify({ kind, order_id: id, rate_id: s.value, amount_cents: Number(s.dataset.cents), file_type: box.querySelector("[data-paper]").value }) }); location.href = r.url; }
+        catch (e) { toast(e.message); buy.disabled = false; label(); }
+        return;
+      }
       if (!confirm(`Buy this label for $${(s.dataset.cents / 100).toFixed(2)}? It's charged right away.`)) return;
       buy.disabled = true; buy.textContent = "Buying…";
       try {

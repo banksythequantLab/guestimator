@@ -21,6 +21,7 @@ import * as stickers from "./stickers.js";
 import * as watchers from "./watchers.js";
 import * as tax from "./tax.js";
 import * as shippoauth from "./shippoauth.js";
+import * as labelpay from "./labelpay.js";
 // Every Guestimator item lives in one hidden per-user `sales` row (the schema is Bottle Tree's).
 const GUESS_BUCKET = "Guestimator";
 // The Android app's URL scheme (strings.xml custom_url_scheme; AndroidManifest intent-filter).
@@ -473,9 +474,13 @@ export default {
         let from = null; try { from = set?.ship_from ? JSON.parse(set.ship_from) : null; } catch {}
         // Whose Shippo account pays: the seller's own (connected by OAuth), else the house account
         // for LABEL_USERS. Anyone else connects their Shippo account first.
-        const le = await shippoauth.labelEnv(env, db, userId, on);
+        let le = await shippoauth.labelEnv(env, db, userId, on);
+        // Anyone else pays by card first; the label is then bought on the house account (labelpay.js).
+        if (!le && labelpay.payOn(env)) le = { env, payer: "paid" };
         if (parts[2] === "settings" && m === "GET")
-          return J({ enabled: !!le, payer: le ? le.payer : null, connected: !!(le && le.payer === "seller"), can_connect: shippoauth.oauthReady(env), ship_from: from });
+          return J({ enabled: !!le, payer: le ? le.payer : null, connected: !!(le && le.payer === "seller"), can_connect: shippoauth.oauthReady(env), ship_from: from,
+                     // The house account owner sees how close the Shippo plan is to its monthly cap.
+                     house_month: le && le.payer === "house" ? { used: await labelpay.monthCount(db), cap: labelpay.houseCap(env) } : null });
         if (parts[2] === "connect" && m === "GET") {
           if (!shippoauth.oauthReady(env)) return J({ error: "Connecting a Shippo account isn't switched on yet." }, 503);
           return J({ url: shippoauth.authorizeUrl(env, await shippoauth.makeState(env, userId)) });
@@ -500,17 +505,41 @@ export default {
           const parcel = labels.parcelFor(est, b);
           if (!parcel) return J({ error: "Enter the box size and weight.", needs_parcel: true }, 409);
           const pkg = b.box_in ? null : packageFor(est);
-          try { return J({ ...(await labels.labelRates(le.env, from, t.to, parcel, b.box_in ? [] : flatRateFits(est))), parcel, package: pkg }); }
+          try {
+            const q = await labels.labelRates(le.env, from, t.to, parcel, b.box_in ? [] : flatRateFits(est));
+            // Pay-by-card sellers see what they'll actually be charged (label + card processing).
+            if (le.payer === "paid") q.rates = q.rates.map(r => ({ ...r, pay: labelpay.priceLabel(Math.round(r.amount * 100), labelpay.feeCents(env)) }));
+            return J({ ...q, parcel, package: pkg });
+          }
           catch (e) { return J({ error: String(e.message || e) }, e.status || 502); }
         }
+        // Pay-then-ship: card first (Stripe Checkout), label bought on the house account after.
+        const buyFor = uid => row => labels.buyLabel(env, db, uid, row.kind, row.order_id, row.rate_id, row.label_cents, row.file_type,
+                                                   env.PUBLIC_ORIGIN || url.origin, ctx, buyerShippedEmail);
+        if (parts[2] === "pay" && m === "POST") {
+          if (le.payer !== "paid") return J({ error: "Labels on this account are bought directly." }, 400);
+          try { const r = await labelpay.startPay(env, db, userId, b, env.PUBLIC_ORIGIN || url.origin, garage.stripe); return J(r, r.status); }
+          catch (e) { return J({ error: "Checkout didn't open: " + String(e.message || e) }, 502); }
+        }
+        if (parts[2] === "paid" && m === "POST") {
+          try { const r = await labelpay.finishPay(env, db, userId, b.id, garage.stripe, buyFor(userId)); return J(r, r.status); }
+          catch (e) { return J({ error: String(e.message || e) }, 502); }
+        }
         if (parts[2] === "buy" && m === "POST") {
+          if (le.payer === "paid") return J({ error: "Pay for the label first.", needs_payment: true }, 402);
           try {
             const r = await labels.buyLabel(le.env, db, userId, b.kind, String(b.order_id || ""), b.rate_id, b.amount_cents, b.file_type,
                                             env.PUBLIC_ORIGIN || url.origin, ctx, buyerShippedEmail);
+            // Bought on the seller's own Shippo account: doesn't count toward the house cap.
+            if (!r.error && le.payer === "seller") await db.prepare("UPDATE shipping_labels SET payer='seller' WHERE id=?").bind(r.label.id).run();
             return J(r.error ? { error: r.error, label: r.label || null } : r, r.status);
           } catch (e) { return J({ error: String(e.message || e) }, e.status || 502); }
         }
         if (parts[2] === "for" && m === "GET") {
+          // Paid but never came back from Stripe? Finish it now.
+          const pend = await db.prepare("SELECT id FROM label_payments WHERE user_id=? AND kind=? AND order_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1")
+            .bind(userId, url.searchParams.get("kind") || "", url.searchParams.get("order") || "").first();
+          if (pend) { try { await labelpay.finishPay(env, db, userId, pend.id, garage.stripe, buyFor(userId)); } catch (e) { console.log("label finish", String(e.message || e)); } }
           const l = await db.prepare("SELECT kind, order_id, carrier, service, amount_cents, tracking, label_url, created_at FROM shipping_labels WHERE user_id=? AND kind=? AND order_id=?")
             .bind(userId, url.searchParams.get("kind") || "", url.searchParams.get("order") || "").first();
           return J({ label: l || null });
@@ -1070,6 +1099,14 @@ export default {
     }
     // Price-drop nudges, after the order read so a listing that just sold is not nudged.
     try { await nudges.emailNudges(env, db, origin); } catch (e) { console.log("price nudges failed", String(e && e.message || e)); }
+    // Labels paid for by card where the seller never came back from Stripe: buy them now.
+    if (labelpay.payOn(env)) {
+      try {
+        const buyFor = uid => row => labels.buyLabel(env, db, uid, row.kind, row.order_id, row.rate_id, row.label_cents, row.file_type, origin, ctx, buyerShippedEmail);
+        const done = await labelpay.sweep(env, db, garage.stripe, buyFor);
+        if (done.length) console.log("label sweep", JSON.stringify(done.map(d => ({ id: d.id, status: d.status, error: d.error }))));
+      } catch (e) { console.log("label sweep failed", String(e && e.message || e)); }
+    }
     // Monday selling summary (no-op outside the window; once a week per seller).
     try { await weekly.emailWeekly(env, db, origin); } catch (e) { console.log("weekly summary failed", String(e && e.message || e)); }
   },

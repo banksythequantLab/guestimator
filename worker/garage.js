@@ -117,7 +117,7 @@ export const stripeReady = env => !!(env.STRIPE_SECRET_KEY && (env.STRIPE_CONNEC
 
 // ---------------------------------------------------------------- Stripe (raw REST, no SDK)
 
-async function stripe(env, method, path, params, account) {
+export async function stripe(env, method, path, params, account) {
   const init = { method, headers: { authorization: `Bearer ${env.STRIPE_SECRET_KEY}` } };
   if (account) init.headers["stripe-account"] = account;
   let url = `https://api.stripe.com${path}`;
