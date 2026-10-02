@@ -23,6 +23,7 @@ import * as tax from "./tax.js";
 import * as shippoauth from "./shippoauth.js";
 import * as labelpay from "./labelpay.js";
 import * as shipops from "./shipops.js";
+import * as owner from "./owner.js";
 
 // The Shippo account that paid for a label: the seller's own (OAuth) or the house token.
 const shipEnvFor = (env, db) => async l => l.payer === "seller" ? ((await shippoauth.labelEnv(env, db, l.user_id, false)) || {}).env || null : (env.SHIPPO_API_TOKEN ? env : null);
@@ -195,8 +196,16 @@ export default {
         const who = await shippoauth.readState(env, url.searchParams.get("state"));
         if (!who || !url.searchParams.get("code") || !shippoauth.oauthReady(env)) return Response.redirect(origin + "/?shippo=failed#ebay-orders", 302);
         try { await shippoauth.saveToken(env, db, who, await shippoauth.exchange(env, url.searchParams.get("code"))); }
-        catch (e) { console.log("shippo oauth failed", String(e.message || e)); return Response.redirect(origin + "/?shippo=failed#ebay-orders", 302); }
+        catch (e) { await owner.opsFail(db, "shippo oauth failed", e); console.log("shippo oauth failed", String(e.message || e)); return Response.redirect(origin + "/?shippo=failed#ebay-orders", 302); }
         return Response.redirect(origin + "/?shippo=connected#ebay-orders", 302);
+      }
+      // ---------- owner dashboard (owner only; everyone else gets a 404) ----------
+      if (parts[0] === "owner" && parts.length === 1 && m === "GET") {
+        const uidO = await currentUser(request, db);
+        const meO = uidO ? await db.prepare("SELECT email FROM users WHERE id=?").bind(uidO).first() : null;
+        if (!meO || !owner.isOwner(env, meO.email)) return new Response("Not found", { status: 404 });
+        return new Response(owner.ownerPage(await owner.ownerStats(db, env)),
+          { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
       }
       // ---------- tax-time summary (signed-in seller only; printable page) ----------
       if (parts[0] === "tax-summary" && parts.length === 1 && m === "GET") {
@@ -391,7 +400,7 @@ export default {
           const uidv = await currentUser(request, db);
           if (!uidv) return J({ error: "not authenticated" }, 401);
           const u = await db.prepare("SELECT email, shop_slug, shop_name, shop_blurb FROM users WHERE id=?").bind(uidv).first();
-          return J(u || {});
+          return J(u ? { ...u, owner: owner.isOwner(env, u.email) || undefined } : {});
         }
         // Public: the web client ID is not a secret; the app needs it to render the Google button.
         if (act === "config" && m === "GET")
@@ -1118,24 +1127,24 @@ export default {
       try {
         const r = await ebayOrders.syncOrders(env, db, user_id);
         for (const id of r.new || []) await ebaySoldAlert(db, env, id, origin).catch(e => console.log("ebaySoldAlert", e));
-      } catch (e) { console.log("ebay order sync failed", user_id, String(e && e.message || e)); }
+      } catch (e) { await owner.opsFail(db, "ebay order sync failed", e); console.log("ebay order sync failed", user_id, String(e && e.message || e)); }
     }
     // Price-drop nudges, after the order read so a listing that just sold is not nudged.
-    try { await nudges.emailNudges(env, db, origin); } catch (e) { console.log("price nudges failed", String(e && e.message || e)); }
+    try { await nudges.emailNudges(env, db, origin); } catch (e) { await owner.opsFail(db, "price nudges failed", e); console.log("price nudges failed", String(e && e.message || e)); }
     // Labels paid for by card where the seller never came back from Stripe: buy them now.
     if (labelpay.payOn(env)) {
       try {
         const buyFor = uid => row => labels.buyLabel(env, db, uid, row.kind, row.order_id, row.rate_id, row.label_cents, row.file_type, origin, ctx, buyerShippedEmail);
         const done = await labelpay.sweep(env, db, garage.stripe, buyFor);
         if (done.length) console.log("label sweep", JSON.stringify(done.map(d => ({ id: d.id, status: d.status, error: d.error }))));
-      } catch (e) { console.log("label sweep failed", String(e && e.message || e)); }
+      } catch (e) { await owner.opsFail(db, "label sweep failed", e); console.log("label sweep failed", String(e && e.message || e)); }
     }
-    // Monday selling summary (no-op outside the window; once a week per seller).
     // Shipping ops: follow voids, ship-by reminders, money-safety alerts to the house.
-    try { await shipops.checkVoids(env, db, shipEnvFor(env, db), garage.stripe); } catch (e) { console.log("void check failed", String(e && e.message || e)); }
-    try { await shipops.shipReminders(env, db, origin); } catch (e) { console.log("ship reminders failed", String(e && e.message || e)); }
-    try { await shipops.moneyAlerts(env, db); } catch (e) { console.log("money alerts failed", String(e && e.message || e)); }
-    try { await weekly.emailWeekly(env, db, origin); } catch (e) { console.log("weekly summary failed", String(e && e.message || e)); }
+    try { await shipops.checkVoids(env, db, shipEnvFor(env, db), garage.stripe); } catch (e) { await owner.opsFail(db, "void check failed", e); console.log("void check failed", String(e && e.message || e)); }
+    try { await shipops.shipReminders(env, db, origin); } catch (e) { await owner.opsFail(db, "ship reminders failed", e); console.log("ship reminders failed", String(e && e.message || e)); }
+    try { await shipops.moneyAlerts(env, db); } catch (e) { await owner.opsFail(db, "money alerts failed", e); console.log("money alerts failed", String(e && e.message || e)); }
+    // Monday selling summary (no-op outside the window; once a week per seller).
+    try { await weekly.emailWeekly(env, db, origin); } catch (e) { await owner.opsFail(db, "weekly summary failed", e); console.log("weekly summary failed", String(e && e.message || e)); }
   },
 
   // An appraisal takes ~2 minutes of waiting on Token Factory. ctx.waitUntil() only buys 30s after the

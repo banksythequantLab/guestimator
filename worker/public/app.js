@@ -278,7 +278,7 @@ async function renderHome() {
       <button class="btn sec sm" id="toSales" style="white-space:nowrap">Your sales <span id="salesBadge"></span></button></div></div>
     <div class="card" style="padding:12px 16px"><div class="row" style="justify-content:space-between;align-items:center;gap:10px">
       <div><b>Profit &amp; inventory</b><div class="muted" style="font-size:.82rem">What you've made, and what's still on the shelf</div></div>
-      <div class="row" style="gap:6px"><a class="btn sec sm" href="/stickers" target="_blank" rel="noopener" style="white-space:nowrap;text-decoration:none" title="A small label for each unsold item: code, name, price and a QR that opens it here">🏷 Stickers</a>
+      <div class="row" style="gap:6px">${state.owner ? `<a class="btn sec sm" href="/owner" target="_blank" rel="noopener" style="white-space:nowrap;text-decoration:none" title="Owner dashboard">📊 Owner</a>` : ""}<a class="btn sec sm" href="/stickers" target="_blank" rel="noopener" style="white-space:nowrap;text-decoration:none" title="A small label for each unsold item: code, name, price and a QR that opens it here">🏷 Stickers</a>
       <button class="btn sec sm" id="toProfit" style="white-space:nowrap">Report</button></div></div></div>
     <div class="row" style="justify-content:space-between;margin:14px 2px 6px"><h3>Your items</h3></div>
     <div id="itemList" class="list"><div class="muted" style="padding:10px">Loading…</div></div>`;
@@ -1344,7 +1344,7 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
   try {
     const me = await fetch("/api/auth/me", { credentials: "same-origin" });
     if (me.ok) {
-      const d = await me.json(); user = d.email;
+      const d = await me.json(); user = d.email; state.owner = !!d.owner;
       // Back from eBay's sign-in in a browser tab: the callback redirected to /?ebay=connected.
       const fromEbay = new URLSearchParams(location.search).get("ebay") === "connected";
       // Back from connecting a Shippo account (labels billed to the seller).
