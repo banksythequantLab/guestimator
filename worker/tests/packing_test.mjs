@@ -26,6 +26,28 @@ ok("no estimate -> nothing", packageFor(null) === null && packageFor({ box_in: [
 ok("label parcel uses the stock package", parcelFor(ram, null).length === "10" && parcelFor(ram, null).height === "1");
 ok("the seller's own measurements still win", parcelFor(ram, { box_in: [8, 6, 4], weight_lb: 0.5 }).length === "8");
 
+// ---------- USPS Flat Rate ----------
+import("../packing.js");
+const { flatRateFits } = await import("../packing.js");
+const nick = shippingEstimate({ item_weight_lb: 2.2, item_in: [4.5, 1.2, 1.2], fragile: false });
+ok("a coin roll fits a Small Flat Rate Box", flatRateFits(nick).some(f => f.template === "USPS_SmallFlatRateBox"), flatRateFits(nick));
+ok("a RAM stick: a Flat Rate envelope, never more than 2 options", flatRateFits(ram).length <= 2 && /Envelope/.test(flatRateFits(ram)[0].name), flatRateFits(ram));
+ok("fragile never goes in an envelope", !flatRateFits(vase).some(f => /Envelope/.test(f.name)));
+ok("too big for any Flat Rate -> none", flatRateFits({ box_in: [40, 30, 30], item_weight_lb: 20 }).length === 0);
+{
+  const sent = [];
+  globalThis.fetch = async (u, init) => { const b = JSON.parse(init.body); sent.push(b);
+    const flat = !!b.parcels[0].template;
+    return new Response(JSON.stringify({ rates: flat ? [{ object_id: "r-flat", amount: "11.35", currency: "USD", provider: "USPS", servicelevel: { token: "usps_priority" } }]
+      : [{ object_id: "r-ga", amount: "14.10", currency: "USD", provider: "USPS", servicelevel: { token: "usps_ground_advantage" } }] }), { status: 200 }); };
+  const { quoteShipping } = await import("../shipping.js");
+  const q = await quoteShipping({ SHIPPO_API_TOKEN: "t" }, "07086", nick);
+  ok("quote includes Flat Rate, priced from the template parcel", q.flat_rate.length >= 1 && q.flat_rate[0].amount === 11.35 && sent.some(b => b.parcels[0].template === "USPS_SmallFlatRateBox"), q.flat_rate);
+  const { labelRates } = await import("../labels.js");
+  const lr = await labelRates({ SHIPPO_API_TOKEN: "t" }, { name: "D", street1: "1 A St", city: "X", state: "NJ", zip: "07086" }, { zip: "64106" },
+    parcelFor(nick, null), flatRateFits(nick));
+  ok("label screen offers the Flat Rate box too, cheapest first", !!lr.rates[0].flat_rate && lr.rates.some(r => /Small Flat Rate Box/.test(r.service)) && lr.rates[lr.rates.length - 1].token === "usps_ground_advantage", lr.rates);
+}
 // ---------- stickers ----------
 ok("item code", itemCode("ccedf352-c38a-4c67-8964-c748e8b493d1") === "G-CCEDF3");
 globalThis.fetch = async () => new Response("{}", { status: 404 });

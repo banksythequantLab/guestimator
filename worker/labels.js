@@ -75,9 +75,20 @@ export async function orderFor(db, userId, kind, orderId) {
 }
 
 /** Real rates to this buyer's address, cheapest first. */
-export async function labelRates(env, from, to, parcel) {
+export async function labelRates(env, from, to, parcel, flat = []) {
   const j = await shippo(env, "POST", "/shipments/", { address_from: fromAddress(from), address_to: to, parcels: [parcel], async: false });
-  const rates = Object.values(pickRates(j.rates)).sort((a, b) => a.amount - b.amount);
+  const rates = Object.values(pickRates(j.rates));
+  // USPS Flat Rate options the item fits (packing.flatRateFits): each is its own shipment, and its
+  // Priority rate is the Flat Rate price. A failed one is just left out.
+  for (const f of flat || []) {
+    try {
+      const fj = await shippo(env, "POST", "/shipments/", { address_from: fromAddress(from), address_to: to, async: false,
+        parcels: [{ template: f.template, weight: String(f.weight_lb), mass_unit: "lb" }] });
+      const pr = pickRates(fj.rates).usps_priority;
+      if (pr) rates.push({ ...pr, service: `USPS Priority Mail ${f.name}`, flat_rate: f.template });
+    } catch {}
+  }
+  rates.sort((a, b) => a.amount - b.amount);
   const why = (j.messages || []).map(m => m.text).filter(Boolean).slice(0, 2).join(" ");
   return { rates, note: rates.length ? null : why || "No carrier returned a rate for that address and box." };
 }

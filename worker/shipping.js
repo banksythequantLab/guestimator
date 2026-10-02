@@ -1,4 +1,4 @@
-import { packageFor } from "./packing.js";
+import { packageFor, flatRateFits } from "./packing.js";
 // Live shipping quotes through Shippo, for the box and weight the appraisal estimated.
 //
 // A quote is needed before there is a buyer, so there is no destination address. Three are used
@@ -76,7 +76,14 @@ export async function quoteShipping(env, fromZipRaw, est, service = "ground") {
     { label: "Across the country", zip: farZip(from) },
   ];
   const zones = await Promise.all(spots.map(async s => ({ ...s, rates: await rate(env, from, s.zip, parcel) })));
-  return { from, parcel: { box_in: [L, W, H], weight_lb: Number(parcel.weight) }, package: pk, zones, ...suggest(zones, service) };
+  // USPS Flat Rate, when it fits: one price to any distance, so one quote (to the far zone) is enough.
+  const flat_rate = (await Promise.all(flatRateFits(est).map(async f => {
+    try {
+      const r = await rate(env, from, farZip(from), { template: f.template, weight: String(f.weight_lb), mass_unit: "lb" });
+      return r.usps_priority ? { name: f.name, template: f.template, amount: r.usps_priority.amount } : null;
+    } catch { return null; }
+  }))).filter(Boolean);
+  return { from, parcel: { box_in: [L, W, H], weight_lb: Number(parcel.weight) }, package: pk, zones, flat_rate, ...suggest(zones, service) };
 }
 
 // The eBay listing ships one USPS service at one flat price (Ground Advantage unless the seller

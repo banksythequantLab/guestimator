@@ -820,6 +820,8 @@ export function shippingEstimate(raw, lot) {
     billable_lb: Math.max(Math.ceil(packed), dimLb),
     dim_weight_lb: dimLb,
     box_in: box,
+    // The item's own size (largest first), so packing can fit stock boxes without guessing it back from the padded box.
+    item_in: item.map(d => Math.round(d * 10) / 10),
     fragile,
     basis: String(raw.basis || "").slice(0, 160),
   };

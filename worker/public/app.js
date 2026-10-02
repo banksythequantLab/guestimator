@@ -1067,6 +1067,7 @@ async function getShipQuote(itemId, fromZip, btn, out, priceInput, service = "gr
         <tr><th style="text-align:left;padding:3px 6px 3px 0">Service</th>${q.zones.map(z => `<th style="text-align:right;padding:3px 0 3px 6px;white-space:nowrap">${esc(z.label)}<div class="muted" style="font-weight:400">${esc(z.zip)}</div></th>`).join("")}</tr>
         ${svc.map(t => `<tr style="border-top:1px solid var(--line)"><td style="padding:3px 6px 3px 0">${esc(name(t))}</td>${q.zones.map(z => `<td style="text-align:right;padding:3px 0 3px 6px">${cell(z, t)}</td>`).join("")}</tr>`).join("")}
       </table></div>
+      ${(q.flat_rate || []).length ? `<div style="font-size:.78rem;margin-top:6px">📮 <b>USPS Flat Rate</b> (same price to any distance): ${q.flat_rate.map(f => `${esc(f.name)} <b>$${f.amount.toFixed(2)}</b>`).join(" · ")}${q.zones.some(z => Object.values(z.rates).some(r => r.amount > Math.min(...q.flat_rate.map(f => f.amount)))) ? " — cheaper than some rates above." : "."}</div>` : ""}
       ${q.suggested != null ? `<div style="font-size:.8rem;margin-top:6px"><b>Suggested: $${q.suggested}</b> — ${esc(q.basis)}.</div>` : ""}
       <div class="muted" style="font-size:.72rem;margin-top:3px">Live retail rates for a ${esc(q.parcel.box_in.join(" × "))} in box at ${q.parcel.weight_lb} lb, which is our estimate. Weigh it to be sure.</div>`
       : `<div class="muted" style="font-size:.8rem;margin-top:6px">No carrier returned a rate for that box. Check the ZIP, or weigh and measure it and enter a price yourself.</div>`;

@@ -16,7 +16,7 @@ import * as nudges from "./nudges.js";
 import * as profit from "./profit.js";
 import { priceCheck } from "./pricecheck.js";
 import * as weekly from "./weekly.js";
-import { packageFor } from "./packing.js";
+import { packageFor, flatRateFits } from "./packing.js";
 import * as stickers from "./stickers.js";
 // Every Guestimator item lives in one hidden per-user `sales` row (the schema is Bottle Tree's).
 const GUESS_BUCKET = "Guestimator";
@@ -471,7 +471,7 @@ export default {
           const parcel = labels.parcelFor(est, b);
           if (!parcel) return J({ error: "Enter the box size and weight.", needs_parcel: true }, 409);
           const pkg = b.box_in ? null : packageFor(est);
-          try { return J({ ...(await labels.labelRates(env, from, t.to, parcel)), parcel, package: pkg }); }
+          try { return J({ ...(await labels.labelRates(env, from, t.to, parcel, b.box_in ? [] : flatRateFits(est))), parcel, package: pkg }); }
           catch (e) { return J({ error: String(e.message || e) }, e.status || 502); }
         }
         if (parts[2] === "buy" && m === "POST") {
