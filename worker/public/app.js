@@ -910,7 +910,11 @@ async function renderItemDetail(id) {
     </div>` : ""}
     ${ebayPanelHtml(b, !!(r && !nc && appraisal.status === "done"))}
     ${r && !nc && appraisal.status === "done" ? salePanelHtml() : ""}
-    <div class="card" style="padding:12px 16px"><div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+    ${item.listing_status !== "sold" ? `<div class="card" id="soldCard" style="padding:12px 16px${state.fromSticker === id ? ";border-color:var(--green)" : ""}"><div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+      <div style="flex:1;min-width:140px"><b style="font-size:.9rem">Sold it in person?</b><div class="muted" style="font-size:.75rem">Takes it off eBay and counts it in your profit report.</div></div>
+      <input id="soldIn" inputmode="decimal" placeholder="$0.00" value="${item.price_cents ? (item.price_cents / 100).toFixed(2) : r && r.price_range && r.price_range.suggested_retail ? Number(r.price_range.suggested_retail).toFixed(2) : ""}" style="width:90px">
+      <button class="btn sm" id="soldGo">Mark sold</button></div></div>`
+      : b.finance && b.finance.sold_cents != null ? `<div class="card" style="padding:12px 16px"><b style="font-size:.9rem">Sold in person</b> for <b>${money(b.finance.sold_cents)}</b><span class="muted" style="font-size:.8rem"> · ${esc(String(b.finance.sold_at || "").slice(0, 10))}</span></div>` : ""}    <div class="card" style="padding:12px 16px"><div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
       <div style="flex:1;min-width:140px"><b style="font-size:.9rem">What you paid</b><div class="muted" style="font-size:.75rem">For your profit report. Only you see it.</div></div>
       <input id="costIn" inputmode="decimal" placeholder="$0.00" value="${b.finance && b.finance.cost_cents != null ? (b.finance.cost_cents / 100).toFixed(2) : ""}" style="width:90px">
       <button class="btn sec sm" id="costSave">Save</button></div></div>
@@ -957,6 +961,18 @@ async function renderItemDetail(id) {
   // has seen what it was taken for and which listings it was compared with, and that is exactly
   // when they know what to add — a sharper marks photo, "it's the cobalt one", a size.
   if ($("#reappraise")) $("#reappraise").onclick = () => { clearTimeout(pollT); renderRefine(id, b); };
+  if ($("#soldGo")) $("#soldGo").onclick = async () => {
+    const v = $("#soldIn").value.trim();
+    if (!v) { $("#soldIn").focus(); return toast("What did it sell for?"); }
+    if (!confirm(`Mark sold for $${Number(v.replace(/[$,]/g, "")).toFixed(2)}? If it's listed on eBay, the listing is ended.`)) return;
+    $("#soldGo").disabled = true;
+    try {
+      const res = await api(`/items/${id}/sold`, { method: "POST", body: JSON.stringify({ price: v }) });
+      toast(res.ebay && res.ebay.ended ? "Sold ✓ and taken off eBay" : res.ebay && res.ebay.why && res.ebay.why !== "not on eBay" ? `Sold ✓ but eBay didn't end it: ${res.ebay.why}` : "Sold ✓");
+      state.fromSticker = null; renderItemDetail(id);
+    } catch (e) { toast(e.message); $("#soldGo").disabled = false; }
+  };
+  if (state.fromSticker === id && $("#soldCard")) $("#soldCard").scrollIntoView({ block: "center" });
   if ($("#costSave")) $("#costSave").onclick = async () => {
     try { await api(`/items/${id}/cost`, { method: "PUT", body: JSON.stringify({ cost: $("#costIn").value }) }); toast("Saved"); }
     catch (e) { toast(e.message); }
@@ -1333,7 +1349,7 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
       // #ebay-orders: the link in a "Sold on eBay" email.
       // #item-<id>: the QR on an inventory sticker.
       const itemHash = (location.hash.match(/^#item-([0-9a-f-]{36})$/) || [])[1];
-      if (itemHash && !fromEbay) await renderItemDetail(itemHash);
+      if (itemHash && !fromEbay) { state.fromSticker = itemHash; await renderItemDetail(itemHash); }
       else if (location.hash === "#ebay-orders" && !fromEbay) await renderEbayOrders();
       else if (!(await afterStripeReturn())) await renderHome();
       if (fromEbay) afterEbayReturn(true);

@@ -58,7 +58,9 @@ ok("stripeReady with only the Connect webhook secret", G.stripeReady({ STRIPE_SE
   ok("pickup receipt: title, signature line, escaped buyer, no shipping row",
      p.includes("Pickup receipt") && p.includes("Picked up by") && p.includes("Pat &lt;b&gt;") && !p.includes(">Shipping<") && p.includes("ABCDEF12"));
   const s = G.slipHtml(sale, { id: "x1", fulfilment: "ship", status: "refund_needed", item_cents: 2500, ship_cents: 0, total_cents: 2500, ship_address: "{}" }, "Crock", { box_in: [10, 8, 6], packed_weight_lb: 2.1 });
-  ok("refund-due slip warns, free shipping shown, box note in the screen bar", s.includes("REFUND DUE") && s.includes(">Free<") && /class="bar"[^]*10 × 8 × 6[^]*<\/div><div class="pg">/.test(s));
+  ok("refund-due slip warns, free shipping shown, packing checklist in the screen bar", s.includes("REFUND DUE") && s.includes(">Free<") && /class="bar"[^]*Packing checklist[^]*10×8×6 in box[^]*<\/div><div class="pg">/.test(s));
+  ok("checklist prints only when asked", s.includes('class="ckp"') && /body\.withck \.ckp\{display:block\}/.test(s) && /\.ckp\{display:none/.test(s));
+  ok("fragile checklist says so", /Fragile:/.test(G.packingChecklist({ box_in: [16, 12, 12], item_in: [10, 6, 6], item_weight_lb: 2, packed_weight_lb: 3, fragile: true })));
   ok("shipToLines", G.shipToLines('{"name":"R B","phone":"555","address":{"line1":"1 A St","city":"Austin","state":"TX","postal_code":"78701","country":"US"}}').join("|") === "R B|1 A St|Austin, TX 78701|Phone 555"
      && G.shipToLines("bad").length === 0);
 }

@@ -160,7 +160,7 @@ async function itemBundle(db, itemId) {
   if (ap) appraisal = { id: ap.id, status: ap.status, error: ap.error, created_at: ap.created_at, completed_at: ap.completed_at,
                         result: ap.result_json ? JSON.parse(ap.result_json) : null };
   const el = await db.prepare("SELECT status, listing_url, listing_id, error, updated_at FROM ebay_listings WHERE item_id=? ORDER BY created_at DESC LIMIT 1").bind(itemId).first();
-  const fin = await db.prepare("SELECT cost_cents, note FROM item_finance WHERE item_id=?").bind(itemId).first();
+  const fin = await db.prepare("SELECT cost_cents, note, sold_cents, sold_at FROM item_finance WHERE item_id=?").bind(itemId).first();
   return { item, photos: photos.map(p => ({ ...p, url: `/p/${p.r2_key}` })), appraisal, ebay: el || null, finance: fin || null };
 }
 
@@ -879,6 +879,27 @@ export default {
           let est = null; try { est = ap?.result_json ? JSON.parse(ap.result_json).shipping : null; } catch {}
           try { return J(await quoteShipping(env, url.searchParams.get("from"), est, url.searchParams.get("service") === "priority" ? "priority" : "ground")); }
           catch (e) { return J({ error: String(e.message || e) }, e.status || 502); }
+        }
+
+        // Sold in person (scanned its sticker at a sale or the shop): record the price, take it off
+        // eBay, and count it in the profit report. On a sale page it is marked sold there instead,
+        // so the sale page and the report agree.
+        if (parts[3] === "sold" && m === "POST") {
+          const b = await readJson(request);
+          const cents = Math.round(Number(String(b.price ?? "").replace(/[$,\s]/g, "")) * 100);
+          if (!(cents >= 0 && cents < 1e9) || String(b.price ?? "").trim() === "") return J({ error: "Enter what it sold for, like 25 or 12.50" }, 400);
+          if (item.listing_status === "sold") return J({ error: "This item is already marked sold." }, 409);
+          const onEbaySold = await db.prepare("SELECT 1 FROM ebay_orders WHERE item_id=? AND status<>'CANCELLED' LIMIT 1").bind(iid).first();
+          if (onEbaySold) return J({ error: "This item already sold on eBay." }, 409);
+          const ts = now();
+          const gi = await db.prepare("SELECT gi.sale_id FROM garage_sale_items gi JOIN garage_sales g ON g.id=gi.sale_id WHERE gi.item_id=? AND g.user_id=? AND gi.status<>'sold' LIMIT 1").bind(iid, userId).first();
+          if (gi) await db.prepare("UPDATE garage_sale_items SET status='sold', price_cents=?, sold_at=? WHERE item_id=? AND sale_id=?").bind(cents, ts, iid, gi.sale_id).run();
+          else await db.prepare("INSERT INTO item_finance (item_id,user_id,sold_cents,sold_at,updated_at) VALUES (?,?,?,?,?) " +
+                                "ON CONFLICT(item_id) DO UPDATE SET sold_cents=excluded.sold_cents, sold_at=excluded.sold_at, updated_at=excluded.updated_at")
+            .bind(iid, userId, cents, ts, ts).run();
+          await db.prepare("UPDATE items SET listing_status='sold' WHERE id=?").bind(iid).run();
+          const eb = await ebayOrders.endEbayListing(env, db, iid, "sold in person");
+          return J({ ok: true, sold_cents: cents, on_sale_page: !!gi, ebay: eb });
         }
 
         // What the seller paid for it (for the profit report). Blank clears it.

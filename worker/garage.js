@@ -11,6 +11,7 @@
 import { startingPrice } from "./ebay.js";
 import { holdAlert, orderAlert, buyerOrderEmail, buyerShippedEmail } from "./notify.js";
 import { endEbayListing } from "./ebayorders.js";
+import { packageFor, flatRateFits } from "./packing.js";
 
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
@@ -613,7 +614,22 @@ export function shipToLines(json) {
 // One printable page per online order: a packing slip to drop in the box, or a receipt to hand
 // over (and have signed) at pickup. Money shown is what the buyer paid; the platform fee is the
 // seller's business and stays off a page the buyer sees.
-export function slipHtml(sale, o, title, ship) {
+export function packingChecklist(ship) {
+  const pk = ship ? packageFor(ship) : null;
+  const flat = ship ? flatRateFits(ship) : [];
+  const li = t => `<li><label><input type="checkbox"> ${t}</label></li>`;
+  const items = [
+    pk ? `Pack it in ${pk.kind === "mailer" ? "a" : "a"} <b>${esc(pk.name)}</b>${pk.weight_lb ? `, about ${esc(String(pk.weight_lb))} lb packed` : ""}` : "Pick a box with room for padding on every side",
+    ship && ship.fragile ? "<b>Fragile:</b> wrap it, 3 in of padding all round, or box it inside a second box; mark the box FRAGILE"
+      : pk && pk.kind === "mailer" ? "Wrap it in a sleeve or bubble wrap before it goes in the mailer" : "2 in of padding all round, nothing loose when you shake it",
+    "Put this slip in with the item",
+    "Seal it, then weigh it: if it's heavier than above, re-price before buying the label",
+    "Label flat on the biggest side; cover or remove any old labels and barcodes",
+  ];
+  return `<div style="font-size:.85rem;margin-top:8px;opacity:.95"><b>Packing checklist</b>${flat.length ? ` · also fits a USPS ${flat.map(f => esc(f.name)).join(" or ")} (one price to anywhere)` : ""}
+<ul class="ck" style="list-style:none;padding:0;margin:4px 0 0">${items.map(li).join("")}</ul>
+<label style="font-size:.8rem"><input type="checkbox" onchange="document.body.classList.toggle('withck',this.checked)"> Print the checklist on the slip too</label></div>`;
+}export function slipHtml(sale, o, title, ship) {
   const isShip = o.fulfilment === "ship";
   const to = shipToLines(o.ship_address);
   const from = [sale.title, sale.street, [sale.city, [sale.state, sale.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")].filter(Boolean);
@@ -621,15 +637,15 @@ export function slipHtml(sale, o, title, ship) {
   const ref = o.ref || String(o.id).slice(0, 8).toUpperCase();
   const ebayOrder = o.channel === "ebay";
   const row = (k, v) => `<tr><td>${esc(k)}</td><td class="r">${esc(v)}</td></tr>`;
-  const box = isShip && ship && Array.isArray(ship.box_in)
-    // In the on-screen bar only (hidden when printed): it's a note for the seller, not the buyer.
-    ? `<div style="font-size:.85rem;margin-top:4px;opacity:.9">Estimated ${esc(ship.box_in.join(" × "))} in box, about ${esc(String(ship.packed_weight_lb))} lb packed${ship.fragile ? ", fragile" : ""}. Weigh it before buying a label.</div>` : "";
+  // Packing checklist for the seller: on screen above the slip, and left off the printed slip
+  // (it's for whoever packs, not the buyer) unless they ask for it.
+  const box = isShip ? packingChecklist(ship) : "";
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${isShip ? "Packing slip" : "Pickup receipt"} ${esc(ref)}</title>
 <style>@page{size:letter;margin:.6in}body{font-family:system-ui,sans-serif;color:#1d2521;margin:0}.bar{padding:12px;background:#0f6b59;color:#fff}.bar button{font:600 1rem system-ui;padding:8px 14px;border-radius:8px;border:0;margin-left:8px}
 .pg{max-width:7in;margin:0 auto;padding:.3in}h1{font:700 1.6rem Georgia,serif;margin:0}.cols{display:flex;gap:.4in;margin:.25in 0}.cols div{flex:1}.lb{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#6b7772}
 .addr{font-size:1.05rem;line-height:1.4}table{width:100%;border-collapse:collapse;margin:.15in 0}td{padding:6px 0;border-bottom:1px solid #ddd}.r{text-align:right}.tot td{font-weight:700;border-bottom:2px solid #1d2521}
-.m{color:#6b7772;font-size:.85rem}.sig{margin-top:.5in;display:flex;gap:.4in}.sig div{flex:1;border-top:1px solid #1d2521;padding-top:4px;font-size:.8rem;color:#6b7772}@media print{.bar{display:none}}</style></head>
+.m{color:#6b7772;font-size:.85rem}.sig{margin-top:.5in;display:flex;gap:.4in}.sig div{flex:1;border-top:1px solid #1d2521;padding-top:4px;font-size:.8rem;color:#6b7772}@media print{.bar{display:none}body.withck .ckp{display:block}}.ckp{display:none;margin-top:.3in;font-size:.85rem;border-top:1px dashed #999;padding-top:.1in}</style></head>
 <body><div class="bar">${isShip ? "Packing slip — put it in the box." : "Pickup receipt — hand it over when they collect."}<button onclick="print()">Print</button>${box}</div><div class="pg">
 <h1>${isShip ? "Packing slip" : "Pickup receipt"}</h1><div class="m">Order ${esc(ref)} · paid online ${esc(day)}${o.status === "refund_needed" ? " · <b>REFUND DUE: do not send</b>" : ""}</div>
 <div class="cols"><div><div class="lb">From</div><div class="addr">${from.map(esc).join("<br>")}</div></div>
@@ -638,7 +654,7 @@ export function slipHtml(sale, o, title, ship) {
 ${o.tracking ? `<p><b>Tracking:</b> ${esc(o.tracking)}</p>` : ""}
 ${isShip ? `<p class="m">${ebayOrder ? "Sold on eBay. Questions about this order? Message the seller through eBay." : "Questions about this order? Reply to your order email and it reaches the seller."}</p>`
   : `<p class="m">Paid in full online. Pickup at ${esc(from.slice(1).join(", ") || sale.city)} · ${esc(whenText(sale))}.</p><div class="sig"><div>Picked up by (signature)</div><div>Date</div></div>`}
-</div></body></html>`;
+${isShip ? `<div class="ckp">${box}</div>` : ""}</div></body></html>`;
 }
 
 export async function salePages(request, env, url, parts, viewer) {
@@ -664,7 +680,7 @@ export async function salePages(request, env, url, parts, viewer) {
     return H(`<!doctype html><html><head><meta charset="utf-8"><title>Price tags · ${esc(sale.title)}</title><script src="/vendor/qrcode.js"></script>
 <style>@page{size:letter;margin:.4in}body{font-family:system-ui,sans-serif;margin:0}.bar{padding:12px;background:#0f6b59;color:#fff}.bar button{font:600 1rem system-ui;padding:8px 14px;border-radius:8px;border:0}
 .sheet{display:grid;grid-template-columns:repeat(3,1fr);gap:.12in;padding:.1in}.tg{border:1.5px dashed #999;border-radius:8px;padding:.1in;display:flex;gap:.1in;align-items:center;height:1.55in;break-inside:avoid}
-.q svg,.q img{width:1.1in;height:1.1in}.tp{font:800 26px Georgia,serif}.tt{font-size:11px;line-height:1.25;margin-top:4px;max-height:4em;overflow:hidden}@media print{.bar{display:none}}</style></head>
+.q svg,.q img{width:1.1in;height:1.1in}.tp{font:800 26px Georgia,serif}.tt{font-size:11px;line-height:1.25;margin-top:4px;max-height:4em;overflow:hidden}@media print{.bar{display:none}body.withck .ckp{display:block}}.ckp{display:none;margin-top:.3in;font-size:.85rem;border-top:1px dashed #999;padding-top:.1in}</style></head>
 <body><div class="bar">${rows.length} tags for ${esc(sale.title)}. Each QR opens that item's page. <button onclick="print()">Print</button></div><div class="sheet">${tags}</div>
 <script>document.querySelectorAll('.q').forEach(function(el){var q=qrcode(0,'M');q.addData(el.dataset.u);q.make();el.innerHTML=q.createSvgTag({cellSize:3,margin:0});});</script></body></html>`);
   }

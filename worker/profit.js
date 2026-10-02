@@ -45,6 +45,16 @@ export async function profitRows(db, userId, { from = "", to = "" } = {}) {
     channel: "At the sale", ref: r.item_id, item_id: r.item_id, title: r.title, at: r.at,
     sale_cents: r.price_cents, ship_paid_cents: 0, fee_cents: 0, fee_note: "tag price, cash or card in person", label_cents: null });
 
+  // Sold in person off a sticker (not on a sale page, not on eBay).
+  const sp = (await db.prepare(
+    `SELECT f.item_id, f.sold_at AS at, f.sold_cents, ${title} AS title
+       FROM item_finance f LEFT JOIN items i ON i.id=f.item_id
+      WHERE f.user_id=? AND f.sold_cents IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM ebay_orders e WHERE e.item_id=f.item_id AND e.status<>'CANCELLED')
+        AND NOT EXISTS (SELECT 1 FROM garage_sale_items gi WHERE gi.item_id=f.item_id AND gi.status='sold')`).bind(userId).all()).results;
+  for (const r of sp) rows.push({
+    channel: "In person", ref: r.item_id, item_id: r.item_id, title: r.title, at: r.at,
+    sale_cents: r.sold_cents, ship_paid_cents: 0, fee_cents: 0, fee_note: "sold in person", label_cents: null });
   const costs = new Map((await db.prepare("SELECT item_id, cost_cents FROM item_finance WHERE user_id=?").bind(userId).all()).results
     .map(c => [c.item_id, c.cost_cents]));
   const out = rows.filter(r => r.at && inRange(r.at, from, to)).map(r => {
