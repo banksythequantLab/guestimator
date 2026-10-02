@@ -24,6 +24,7 @@ import * as shippoauth from "./shippoauth.js";
 import * as labelpay from "./labelpay.js";
 import * as shipops from "./shipops.js";
 import * as owner from "./owner.js";
+import * as ebaycare from "./ebaycare.js";
 
 // The Shippo account that paid for a label: the seller's own (OAuth) or the house token.
 const shipEnvFor = (env, db) => async l => l.payer === "seller" ? ((await shippoauth.labelEnv(env, db, l.user_id, false)) || {}).env || null : (env.SHIPPO_API_TOKEN ? env : null);
@@ -479,6 +480,21 @@ export default {
         }
       }
 
+      // ---------- owner tools: check what the eBay after-sale APIs answer for the owner's account ----------
+      if (parts[1] === "owner" && parts[2] === "ebay-probe" && m === "GET") {
+        const meP = await db.prepare("SELECT email FROM users WHERE id=?").bind(userId).first();
+        if (!owner.isOwner(env, meP?.email)) return J({ error: "not found" }, 404);
+        const t = await ebay.userToken(env, db, userId);
+        if (!t) return J({ error: "no eBay token" }, 409);
+        const out = {};
+        for (const [kind, path, pick] of ebaycare.SEARCHES) {
+          const r = await ebaycare.postOrder(t.token, path);
+          out[kind] = { status: r.status, scheme: r.scheme, count: r.ok ? pick(r.json || {}).length : null, error: r.ok ? null : JSON.stringify(r.json).slice(0, 300) };
+        }
+        const mr = await ebay.call(env, t.token, "GET", "/commerce/message/v1/conversation?conversation_type=FROM_MEMBERS&limit=1");
+        out.messages = { status: mr.status, total: mr.ok ? mr.json?.total ?? null : null, error: mr.ok ? null : JSON.stringify(mr.json).slice(0, 300) };
+        return J(out);
+      }
       // ---------- shipping labels (Shippo; switched on per account, see labels.js) ----------
       if (parts[1] === "labels") {
         const me = await db.prepare("SELECT email FROM users WHERE id=?").bind(userId).first();
@@ -1143,6 +1159,8 @@ export default {
     try { await shipops.checkVoids(env, db, shipEnvFor(env, db), garage.stripe); } catch (e) { await owner.opsFail(db, "void check failed", e); console.log("void check failed", String(e && e.message || e)); }
     try { await shipops.shipReminders(env, db, origin); } catch (e) { await owner.opsFail(db, "ship reminders failed", e); console.log("ship reminders failed", String(e && e.message || e)); }
     try { await shipops.moneyAlerts(env, db); } catch (e) { await owner.opsFail(db, "money alerts failed", e); console.log("money alerts failed", String(e && e.message || e)); }
+    // eBay returns / not-received / cases (and buyer messages when that scope is on).
+    try { await ebaycare.careSweep(env, db, origin); } catch (e) { await owner.opsFail(db, "ebay care failed", e); console.log("ebay care failed", String(e && e.message || e)); }
     // Monday selling summary (no-op outside the window; once a week per seller).
     try { await weekly.emailWeekly(env, db, origin); } catch (e) { await owner.opsFail(db, "weekly summary failed", e); console.log("weekly summary failed", String(e && e.message || e)); }
   },

@@ -185,7 +185,8 @@ export function consentUrl(env, state) {
   u.searchParams.set("client_id", env.EBAY_CLIENT_ID);
   u.searchParams.set("redirect_uri", env.EBAY_RUNAME);   // the RuName, not a URL - eBay's rule
   u.searchParams.set("response_type", "code");
-  u.searchParams.set("scope", SCOPES.join(" "));
+  // Buyer-message alerts need commerce.message; asked for only once the app keyset has it (EBAY_MESSAGE_SCOPE).
+  u.searchParams.set("scope", (env.EBAY_MESSAGE_SCOPE === "on" ? [...SCOPES, "https://api.ebay.com/oauth/api_scope/commerce.message"] : SCOPES).join(" "));
   u.searchParams.set("state", state);
   return u.toString();
 }
