@@ -521,6 +521,19 @@ export default {
         }
       }
 
+      // ---------- owner tools: which wallets (Apple Pay / Google Pay) Stripe Checkout will offer ----------
+      if (parts[1] === "owner" && parts[2] === "stripe-probe" && m === "GET") {
+        const meS = await db.prepare("SELECT email, connect_account_id FROM users WHERE id=?").bind(userId).first();
+        if (!owner.isOwner(env, meS?.email)) return J({ error: "not found" }, 404);
+        const pick = c => ({ name: c.name, is_default: c.is_default, active: c.active, livemode: c.livemode, parent: c.parent || null,
+          ...Object.fromEntries(["card", "apple_pay", "google_pay", "link"].map(k => [k, c[k] ? { available: c[k].available, value: c[k].display_preference?.value } : null])) });
+        const out = {};
+        try { out.platform = ((await garage.stripe(env, "GET", "/v1/payment_method_configurations", { limit: 20 })).data || []).map(pick); } catch (e) { out.platform_error = String(e.message || e); }
+        // A connected seller (the owner's own, else any) shows what garage-sale checkouts will offer.
+        const acct = meS?.connect_account_id || (await db.prepare("SELECT connect_account_id FROM users WHERE connect_account_id IS NOT NULL LIMIT 1").first())?.connect_account_id;
+        if (acct) { try { out.connected = ((await garage.stripe(env, "GET", "/v1/payment_method_configurations", { limit: 20 }, acct)).data || []).map(pick); } catch (e) { out.connected_error = String(e.message || e); } }
+        return J(out);
+      }
       // ---------- owner tools: check what the eBay after-sale APIs answer for the owner's account ----------
       if (parts[1] === "owner" && parts[2] === "ebay-probe" && m === "GET") {
         const meP = await db.prepare("SELECT email FROM users WHERE id=?").bind(userId).first();
