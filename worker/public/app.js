@@ -330,7 +330,7 @@ async function renderHome() {
       <button class="btn sec sm" id="toSales" style="white-space:nowrap">Your sales <span id="salesBadge"></span></button></div></div>
     <div class="card" style="padding:12px 16px"><div class="row" style="justify-content:space-between;align-items:center;gap:10px">
       <div><b>Profit &amp; inventory</b><div class="muted" style="font-size:.82rem">What you've made, and what's still on the shelf</div></div>
-      <div class="row" style="gap:6px">${state.owner ? `<a class="btn sec sm" href="/owner" target="_blank" rel="noopener" style="white-space:nowrap;text-decoration:none" title="Owner dashboard">📊 Owner</a>` : ""}<a class="btn sec sm" href="/stickers" target="_blank" rel="noopener" style="white-space:nowrap;text-decoration:none" title="A small label for each unsold item: code, name, price and a QR that opens it here">🏷 Stickers</a>
+      <div class="row" style="gap:6px"><a class="btn sec sm" href="/prices" target="_blank" rel="noopener" style="white-space:nowrap;text-decoration:none" title="What things are actually worth: the public price guide">📈 Prices</a>${state.owner ? `<a class="btn sec sm" href="/owner" target="_blank" rel="noopener" style="white-space:nowrap;text-decoration:none" title="Owner dashboard">📊 Owner</a>` : ""}<a class="btn sec sm" href="/stickers" target="_blank" rel="noopener" style="white-space:nowrap;text-decoration:none" title="A small label for each unsold item: code, name, price and a QR that opens it here">🏷 Stickers</a>
       <button class="btn sec sm" id="toProfit" style="white-space:nowrap">Report</button></div></div></div>
     <div class="row" style="justify-content:space-between;margin:14px 2px 6px"><h3>Your items</h3></div>
     <div id="itemList" class="list"><div class="muted" style="padding:10px">Loading…</div></div>`;
@@ -426,7 +426,7 @@ function ebayPanelHtml(b, canList) {
   const el = b.ebay;
   if (el && el.status === "published")
     return `<div class="card" style="border-color:var(--cobalt)"><b>Listed on eBay ✓</b>
-      <div style="height:8px"></div><a class="btn" style="display:block;text-align:center;text-decoration:none;background:var(--cobalt)" href="${esc(el.listing_url || "#")}" target="_blank" rel="noopener">View on eBay ↗</a></div>`;
+      <div style="height:8px"></div><a class="btn" style="display:block;text-align:center;text-decoration:none;background:var(--cobalt)" href="${esc(el.listing_url || "#")}" target="_blank" rel="noopener">View on eBay ↗</a><div id="guideBox" style="margin-top:10px;font-size:.82rem"></div></div>`;
   if (!canList) return "";
   if (ebayStatus && !ebayStatus.configured) return "";
   return `<div class="card" style="border-color:var(--cobalt)">
@@ -1137,7 +1137,22 @@ async function renderItemDetail(id) {
   };
   if ($("#retry")) $("#retry").onclick = () => rerun();
   state.view = "item"; state.itemId = id;
+  if ($("#guideBox")) guideBox(id);
   if (pending) pollT = setTimeout(() => { if (state.view === "item") renderItemDetail(id); }, 4000);
+}
+
+// Public price guide (/price/...): the item's page link, and the seller's switch to keep it off.
+async function guideBox(id) {
+  const box = $("#guideBox"); if (!box) return;
+  let g; try { g = await api(`/items/${id}/guide`); } catch { return; }
+  if (!g.eligible) { box.innerHTML = ""; return; }
+  box.innerHTML = `<label class="row" style="gap:8px;align-items:center;font-weight:400;margin:0"><input type="checkbox" id="guideOn" ${g.hidden ? "" : "checked"} style="width:auto">
+    <span>Show in the public <a href="/prices" target="_blank" rel="noopener" style="color:var(--cobalt)">price guide</a>${g.url ? ` · <a href="${esc(g.url)}" target="_blank" rel="noopener" style="color:var(--cobalt)">see its page ↗</a>` : ""}</span></label>
+    <div class="muted" style="font-size:.74rem;margin-top:2px">Shows the price range and comparables, never your name or location. Helps buyers find your listing.</div>`;
+  $("#guideOn").onchange = async e => {
+    try { await api(`/items/${id}/guide`, { method: "POST", body: JSON.stringify({ hidden: !e.target.checked }) }); toast(e.target.checked ? "On the price guide" : "Hidden from the price guide"); guideBox(id); }
+    catch (err) { toast(err.message); e.target.checked = !e.target.checked; }
+  };
 }
 
 // eBay Partner Network: links out to other people's eBay listings carry Guestimator's campaign

@@ -3,6 +3,8 @@
 // everything shown is already public on eBay - and never shows who the seller is, where they
 // are, their photos, or comparable sellers' usernames. Each page ends with "Guestimate yours".
 
+import { epn } from "./epn.js";
+
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const dollars = n => "$" + Math.round(Number(n)).toLocaleString("en-US");
 const day = s => s ? String(s).slice(0, 10) : "";
@@ -19,6 +21,7 @@ const BASE = `SELECT l.listing_id, l.listing_url, l.status, l.price_cents, l.sol
   JOIN appraisals a ON a.id=(SELECT id FROM appraisals x WHERE x.item_id=l.item_id AND x.status='done' ORDER BY x.created_at DESC LIMIT 1)
   WHERE l.listing_id IS NOT NULL AND l.status<>'draft' AND l.status<>'error'
     AND l.created_at=(SELECT MAX(created_at) FROM ebay_listings y WHERE y.item_id=l.item_id AND y.listing_id IS NOT NULL)`;
+const SHOWN = " AND COALESCE(i.guide_hidden,0)=0";
 
 /** Turns a row into what a page may show. Nothing about the seller survives this. */
 export function guideOf(row) {
@@ -27,7 +30,8 @@ export function guideOf(row) {
   const range = pr.low > 0 && pr.high > 0 ? { low: pr.low, high: pr.high } : mk.low > 0 && mk.high > 0 ? { low: mk.low, high: mk.high } : null;
   if (!range) return null;
   const comps = (Array.isArray(r.comparables) ? r.comparables : []).filter(c => c && c.title && Number(c.price) > 0).slice(0, 8)
-    .map(c => ({ title: String(c.title).slice(0, 140), price: Number(c.price), condition: c.condition || null, sold: !!c.sold }));
+    .map(c => ({ title: String(c.title).slice(0, 140), price: Number(c.price), condition: c.condition || null, sold: !!c.sold,
+                 url: /^https:\/\/(www\.)?ebay\.com\/itm\//i.test(String(c.url || "")) ? String(c.url).split("?")[0] : null }));
   const live = row.status === "published" && row.listing_status !== "sold" && !row.sold_here;
   return {
     listing_id: String(row.listing_id), title: String(row.title || id.name || "Item").slice(0, 120),
@@ -41,12 +45,20 @@ export function guideOf(row) {
 }
 
 export async function allGuides(db, limit = 5000) {
-  const { results } = await db.prepare(`${BASE} ORDER BY l.updated_at DESC LIMIT ?`).bind(limit).all();
+  const { results } = await db.prepare(`${BASE}${SHOWN} ORDER BY l.updated_at DESC LIMIT ?`).bind(limit).all();
   return (results || []).map(guideOf).filter(Boolean);
 }
 export async function guideById(db, listingId) {
-  const row = await db.prepare(`${BASE} AND l.listing_id=?`).bind(String(listingId)).first();
+  const row = await db.prepare(`${BASE}${SHOWN} AND l.listing_id=?`).bind(String(listingId)).first();
   return row ? guideOf(row) : null;
+}
+
+/** For the seller's own item screen: is it on the price guide, hidden, or not eligible yet? */
+export async function guideStatus(db, itemId, origin) {
+  const row = await db.prepare(`${BASE} AND l.item_id=?`).bind(itemId).first();
+  const hidden = !!(await db.prepare("SELECT guide_hidden FROM items WHERE id=?").bind(itemId).first())?.guide_hidden;
+  const g = row ? guideOf(row) : null;
+  return { eligible: !!g, hidden, url: g && !hidden ? origin + pagePath(g) : null };
 }
 
 const CSS = `:root{--bg:#f4ecdc;--card:#fbf6ea;--ink:#241b10;--mut:#6a5b44;--line:#e0d2b4;--acc:#0f6b59}
@@ -65,7 +77,7 @@ const shell = (title, desc, canonical, body, jsonld) => `<!doctype html><html la
 <meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}"><meta property="og:type" content="website"><meta property="og:url" content="${esc(canonical)}">
 <link rel="icon" href="/icon.svg">${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld).replace(/</g, "\\u003c")}</script>` : ""}
 <style>${CSS}</style></head><body><div class="w"><header><a href="/prices">Guestimator price guide</a></header>${body}
-<p class="m" style="margin-top:28px">Guestimates are market estimates from public eBay data at the date shown, not certified appraisals. Prices change; check before you buy or sell.</p></div></body></html>`;
+<p class="m" style="margin-top:28px">Guestimates are market estimates from public eBay data at the date shown, not certified appraisals. Prices change; check before you buy or sell. As an eBay Partner, Guestimator may be paid a commission when you buy through links on this page.</p></div></body></html>`;
 
 export function guidePage(g, origin) {
   const url = origin + pagePath(g), r = g.range;
@@ -79,10 +91,10 @@ export function guidePage(g, origin) {
 ${g.sold ? `<div style="margin-top:6px"><b>Recently sold on eBay:</b> median ${dollars(g.sold.median)} across ${g.sold.count} sales <span class="m">(checked ${esc(day(g.sold.as_of))})</span></div>` : ""}
 ${g.market ? `<div style="margin-top:4px"><b>Asking now:</b> ${dollars(g.market.low)}–${dollars(g.market.high)} across ${g.market.count} comparable listings, median ${dollars(g.market.median)}</div>` : ""}
 ${g.sold_on_ebay ? `<div style="margin-top:6px">✓ One of these sold on eBay through Guestimator.</div>` : ""}</div>
-${g.live ? `<div class="card"><b>This one is for sale:</b> ${dollars(g.live.price)} on eBay. <a href="${esc(g.live.url)}" rel="nofollow noopener" target="_blank">See the listing ↗</a></div>` : ""}
+${g.live ? `<div class="card"><b>This one is for sale:</b> ${dollars(g.live.price)} on eBay. <a href="${esc(epn(g.live.url, "gs-guide"))}" rel="sponsored nofollow noopener" target="_blank">See the listing ↗</a></div>` : ""}
 ${about.length ? `<h2>About it</h2><div>${about.map(esc).join(" · ")}</div>` : ""}
 ${g.comps.length ? `<h2>Comparable listings we priced it against</h2><table><thead><tr><th>Listing</th><th>Condition</th><th class="r">Price</th></tr></thead><tbody>
-${g.comps.map(c => `<tr><td>${esc(c.title)}${c.sold ? " <b>(sold)</b>" : ""}</td><td>${esc(c.condition || "")}</td><td class="r">${dollars(c.price)}</td></tr>`).join("")}</tbody></table>` : ""}
+${g.comps.map(c => `<tr><td>${c.url ? `<a href="${esc(epn(c.url, "gs-guide-comp"))}" rel="sponsored nofollow noopener" target="_blank">${esc(c.title)}</a>` : esc(c.title)}${c.sold ? " <b>(sold)</b>" : ""}</td><td>${esc(c.condition || "")}</td><td class="r">${dollars(c.price)}</td></tr>`).join("")}</tbody></table>` : ""}
 <div class="card" style="margin-top:22px"><h2 style="margin-top:0">Have one to sell?</h2><p>Snap 2–4 photos and Guestimator prices yours from what's selling now, then lists it on your own eBay account. You check every word first.</p>
 <a class="cta" href="/?utm_source=price_guide">Guestimate mine</a></div>`;
   return shell(title, desc, url, body, jsonld);

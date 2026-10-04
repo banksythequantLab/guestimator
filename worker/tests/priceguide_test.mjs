@@ -56,5 +56,19 @@ ok("sitemap", r.type.startsWith("application/xml") && r.text.includes(`<loc>http
 r = await get("/robots.txt");
 ok("robots: API and private pages out, sitemap in", r.text.includes("Disallow: /api/") && r.text.includes("Disallow: /owner") && r.text.includes("Sitemap: https://g.test/sitemap.xml"));
 
+// ---------- eBay Partner Network + seller's hide switch ----------
+r = await get(path);
+ok("live listing link carries the EPN campaign", /https:\/\/www\.ebay\.com\/itm\/117372168537\?[^"]*campid=5339215150[^"]*customid=gs-guide/.test(r.text.replace(/&amp;/g, "&")) && r.text.includes('rel="sponsored nofollow noopener"'));
+ok("comparable links tagged too, query stripped first", r.text.replace(/&amp;/g, "&").includes("https://www.ebay.com/itm/1?mkcid=1"));
+ok("commission disclosed", r.text.includes("may be paid a commission"));
+let st = await P.guideStatus(db, "i1", "https://g.test");
+ok("status: on the guide with its URL", st.eligible && !st.hidden && st.url === "https://g.test" + path, st);
+db.raw.prepare("UPDATE items SET guide_hidden=1 WHERE id='i1'").run();
+st = await P.guideStatus(db, "i1", "https://g.test");
+ok("hidden: off the page, the index and the sitemap", st.hidden && !st.url && (await get(path)).status === 404 && !(await get("/prices")).text.includes(path) && !(await get("/sitemap.xml")).text.includes(path), st);
+ok("draft item isn't eligible", !(await P.guideStatus(db, "i2", "https://g.test")).eligible);
+db.raw.prepare("UPDATE items SET guide_hidden=NULL WHERE id='i1'").run();
+ok("shown again", (await get(path)).status === 200);
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

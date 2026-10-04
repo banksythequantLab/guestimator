@@ -878,6 +878,13 @@ export default {
         if (!item) return J({ error: "not found" }, 404);
 
         if (parts.length === 3 && m === "GET") return J(await itemBundle(db, iid));
+        // Public price guide: is this item on it, and the seller's switch to keep it off.
+        if (parts[3] === "guide" && m === "GET") return J(await priceguide.guideStatus(db, iid, env.PUBLIC_ORIGIN || url.origin));
+        if (parts[3] === "guide" && m === "POST") {
+          const b = await readJson(request);
+          await db.prepare("UPDATE items SET guide_hidden=? WHERE id=?").bind(b.hidden ? 1 : null, iid).run();
+          return J(await priceguide.guideStatus(db, iid, env.PUBLIC_ORIGIN || url.origin));
+        }
         if (parts.length === 3 && m === "DELETE") {
           if (item.status !== "available") return J({ error: "sold items can't be deleted" }, 400);
           const ps = (await db.prepare("SELECT r2_key FROM photos WHERE item_id=?").bind(iid).all()).results;
