@@ -14,6 +14,19 @@ import ee.forgr.capacitor.social.login.SocialLoginPlugin;
 // The social-login plugin needs the activity to forward Google's result intent back to it.
 public class MainActivity extends BridgeActivity implements ModifiedMainActivityForSocialLoginPlugin {
 
+  // The share-target plugin only reads shares that arrive while the app is already running
+  // (onNewIntent). When a share launches the app cold, hand the launch intent to the bridge the
+  // same way, so the plugin sees it too (it keeps the event until the web app starts listening).
+  @Override
+  protected void onCreate(android.os.Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    Intent launch = getIntent();
+    if (savedInstanceState == null && launch != null
+        && (Intent.ACTION_SEND.equals(launch.getAction()) || Intent.ACTION_SEND_MULTIPLE.equals(launch.getAction()))) {
+      getBridge().onNewIntent(launch);
+    }
+  }
+
   @Override
   public void onActivityResult(int requestCode, int resultCode, Intent data) {
     super.onActivityResult(requestCode, resultCode, data);

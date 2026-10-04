@@ -1,5 +1,5 @@
 // Minimal service worker — enables install; network-first, caches app shell.
-const CACHE = "gs-v47";
+const CACHE = "gs-v48";
 const SHELL = ["/", "/app.js", "/sales.js", "/orders.js", "/billing.js", "/rc-sdk.js", "/manifest.webmanifest", "/icon.svg"];
 // Share target (manifest share_target): photos shared from the phone's gallery arrive as a POST
 // to /share-target. They're parked in the "gs-share" cache and the app picks them up at /?shared=N.
@@ -19,7 +19,7 @@ async function receiveShare(req) {
 self.addEventListener("fetch", e => {
   const url = new URL(e.request.url);
   if (e.request.method === "POST" && url.pathname === "/share-target") { e.respondWith(receiveShare(e.request)); return; }
-  if (e.request.method !== "GET" || /^\/(api|p|sale)\//.test(url.pathname)) return; // never cache API, photos or live sale pages
+  if (e.request.method !== "GET" || /^\/(api|p|sale|_capacitor_[a-z]+_)\//.test(url.pathname)) return; // never cache API, photos or live sale pages
   e.respondWith(
     fetch(e.request).then(r => { const cp = r.clone(); caches.open(CACHE).then(c => c.put(e.request, cp)); return r; })
       .catch(() => caches.match(e.request).then(m => m || caches.match("/")))

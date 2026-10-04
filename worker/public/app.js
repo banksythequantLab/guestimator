@@ -292,6 +292,7 @@ document.addEventListener("visibilitychange", async () => {
 
 // Photos shared into the app from the phone (manifest share_target -> sw.js -> "gs-share" cache).
 async function takeShared() {
+  if (state.nativeShare) { const s = state.nativeShare; state.nativeShare = null; return s; }   // Android app share
   const out = { files: [], text: "" };
   try {
     const c = await caches.open("gs-share");
@@ -304,6 +305,24 @@ async function takeShared() {
   } catch {}
   return out;
 }
+// Android app (Capacitor): "Share -> Guestimator" arrives through @capgo/capacitor-share-target.
+// The plugin copies each photo into the app's cache; the WebView serves it at convertFileSrc(path).
+(function nativeShareTarget() {
+  const C = window.Capacitor, P = C && C.Plugins && C.Plugins.CapacitorShareTarget;
+  if (!P || !P.addListener) return;
+  P.addListener("shareReceived", async ev => {
+    const files = [];
+    for (const f of (ev && ev.files) || []) {
+      if (!/^image\//.test(f.mimeType || "image/")) continue;
+      try { const b = await (await fetch(C.convertFileSrc(f.uri))).blob(); files.push(new File([b], f.name || "photo.jpg", { type: f.mimeType || b.type || "image/jpeg" })); }
+      catch (e) { console.log("shared photo unreadable", f.uri, e); }
+    }
+    if (!files.length) { toast("Couldn't open the shared photo. Add it from Guestimate something instead."); return; }
+    state.nativeShare = { files: files.slice(0, 8), text: [ev.title, ...(ev.texts || [])].filter(Boolean).join(" ").trim().slice(0, 500) };
+    state.pendingShare = true;
+    if (user) renderHome();   // signed out: picked up right after sign-in
+  });
+})();
 async function renderHome() {
   if (state.pendingShare) {
     state.pendingShare = false;
