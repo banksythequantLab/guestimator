@@ -965,8 +965,10 @@ export function summarise(listings, source = "eBay active listings") {
 // API (Marketplace Insights) is closed to new apps, so this comes from SoldComps, which collects
 // eBay's sold listings. It is optional: no key, a quota hit or an outage just means the estimate
 // is made from asking prices as before, with a note saying so.
-let _soldFail = null;
+let _soldFail = null, _soldLookups = 0;
 export const soldFailure = () => _soldFail;
+// How many SoldComps requests the last ebaySold() made (each is one rung of the ladder below).
+export const soldLookups = () => _soldLookups;
 export function mapSold(items, query) {
   return dedupeOffers((Array.isArray(items) ? items : []).map(i => ({
     title: String(i.title || "").slice(0, 160),
@@ -994,7 +996,7 @@ export function packOf(title) {
   return Math.max(m ? Number(m[1]) : 1, n ? Number(n[1]) : 1, lot && lot.count > 1 ? lot.count : 1);
 }
 export async function ebaySold(env, query, limit = 30, maxLookups = 3) {
-  _soldFail = null;
+  _soldFail = null; _soldLookups = 0;
   if (!env.SOLDCOMPS_API_KEY) { _soldFail = "sold prices are not switched on"; return null; }
   const base = cleanForEbay(query) || String(query);
   const since = new Date(Date.now() - 90 * 86400e3).toISOString().slice(0, 10);
@@ -1010,6 +1012,7 @@ export async function ebaySold(env, query, limit = 30, maxLookups = 3) {
     u.searchParams.set("soldAfter", since);
     const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), 20000);
+    _soldLookups++;
     try {
       const r = await fetch(u, { headers: { authorization: `Bearer ${env.SOLDCOMPS_API_KEY}` }, signal: ac.signal });
       if (!r.ok) {
@@ -1839,12 +1842,16 @@ export async function appraise(env, req) {
   const q = compsQuery({ ...ident, name: searchName });
   // eBay first: it is the only live, free, permitted price feed we have. Tavily backfills the
   // categories eBay is thin on, and covers us entirely when no eBay keys are configured.
-  const [live, sold] = await Promise.all([ebayActive(env, q), ebaySold(env, q)]);
+  // Each search's own finish time, so a slow one is visible (the step as a whole ran 18-20s).
+  const timed = (k, p) => p.finally(() => { marks[k] = Date.now() - t0; });
+  const [live, sold] = await Promise.all([timed("ebay_active", ebayActive(env, q)), timed("ebay_sold", ebaySold(env, q))]);
+  marks.sold_lookups = soldLookups();
   mark("comps");
   // Sold first: what buyers paid is the strongest evidence, and the repricer reads top-down.
   const soldHits = (sold || []).slice(0, 8);
   const hits = [...soldHits, ...(live || []),
                 ...((live && live.length >= 3) || soldHits.length >= 3 ? [] : await searchComps(env, q))];
+  mark("web_search");
   // Only the Browse API produces a market range. See the note above searchComps for why search
   // hits do not get one.
   const market = (live && live.length) ? summarise(live) : null;
