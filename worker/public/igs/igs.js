@@ -70,7 +70,11 @@ async function mountGoogle() {
   try {
     await new Promise((res, rej) => { if (window.google?.accounts?.id) return res(); const s = document.createElement("script");
       s.src = "https://accounts.google.com/gsi/client"; s.async = true; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
-    google.accounts.id.initialize({ client_id: cfg.google_client_id, ux_mode: "popup", callback: async r => {
+    // iPhone/iPad Safari: the popup fails ("400. That's an error"), so use Google's redirect mode
+    // there once it's switched on server-side (cfg.google_redirect).
+    const appleTouch = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+    if (cfg.google_redirect && appleTouch) google.accounts.id.initialize({ client_id: cfg.google_client_id, ux_mode: "redirect", login_uri: location.origin + "/api/auth/google/redirect" });
+    else google.accounts.id.initialize({ client_id: cfg.google_client_id, ux_mode: "popup", callback: async r => {
       try { await api("/auth/google", { method: "POST", body: JSON.stringify({ credential: r.credential }) }); await start(); } catch (e) { toast(e.message); } } });
     $("#gWrap").hidden = false;
     google.accounts.id.renderButton($("#gBtn"), { theme: "outline", size: "large", text: "continue_with", shape: "pill", width: 280 });

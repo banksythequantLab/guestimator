@@ -79,6 +79,9 @@ async function getAuthCfg() {
   try { authCfg = await api("/auth/config"); } catch { authCfg = { google_client_id: null }; }
   return authCfg;
 }
+let gisInited = false;
+// iPhone, iPod, and iPad (which reports itself as a Mac with a touch screen).
+const appleTouch = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 function loadGis() {
   if (gisReady) return gisReady;
   gisReady = new Promise((res, rej) => {
@@ -124,11 +127,15 @@ async function mountGoogle() {
   }
   try {
     await loadGis();
-    google.accounts.id.initialize({
-      client_id: cfg.google_client_id,
-      callback: r => signInWithGoogleToken(r.credential),
-      ux_mode: "popup"
-    });
+    // iPhone/iPad Safari: Google's popup opens as a new tab and comes back "400. That's an
+    // error" (Derek's iPad, 2026-10-05), so there the whole page goes to Google and Google posts
+    // the sign-in back to /api/auth/google/redirect - once that URI is authorized (google_redirect).
+    if (!gisInited) {
+      google.accounts.id.initialize(cfg.google_redirect && appleTouch()
+        ? { client_id: cfg.google_client_id, ux_mode: "redirect", login_uri: location.origin + "/api/auth/google/redirect" }
+        : { client_id: cfg.google_client_id, callback: r => signInWithGoogleToken(r.credential), ux_mode: "popup" });
+      gisInited = true;
+    }
     google.accounts.id.renderButton($("#gBtn"), {
       theme: "outline", size: "large", text: "continue_with", shape: "rectangular", width: 300
     });
@@ -1560,6 +1567,11 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
 
 // boot: check session, then show your items or the sign-in screen
 (async function init() {
+  // Back from Google's redirect sign-in (iPhone/iPad) without a session: say so.
+  if (new URLSearchParams(location.search).get("google") === "failed") {
+    history.replaceState(null, "", "/");
+    setTimeout(() => toast("Google sign-in didn't go through. Try again, or use email and password."), 800);
+  }
   try {
     const me = await fetch("/api/auth/me", { credentials: "same-origin" });
     if (me.ok) {

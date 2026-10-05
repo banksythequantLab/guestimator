@@ -432,11 +432,24 @@ export default {
           return J({ email }, 200, { "Set-Cookie": sessionCookie(await newSession(db, u.id)) });
         }
         if (act === "google" && m === "POST") {
-          if (!env.GOOGLE_CLIENT_ID) return J({ error: "Google sign-in is not configured" }, 503);
-          const b = await readJson(request);
+          // Two ways in. The app's popup posts JSON here. /api/auth/google/redirect is Google's
+          // redirect mode (used on iPhone/iPad Safari, where the popup fails with Google's "400.
+          // That's an error"): Google POSTs a form with the token, and the answer is a redirect home.
+          const viaRedirect = parts[3] === "redirect";
+          const home = (ok, cookie) => new Response(null, { status: 303, headers: { location: ok ? "/" : "/?google=failed", "cache-control": "no-store", ...(cookie ? { "Set-Cookie": cookie } : {}) } });
+          if (!env.GOOGLE_CLIENT_ID) return viaRedirect ? home(false) : J({ error: "Google sign-in is not configured" }, 503);
+          let b;
+          if (viaRedirect) {
+            const fd = await request.formData().catch(() => null);
+            b = { credential: fd?.get("credential") };
+            // Google's double-submit token: the same value in a cookie and in the form. Safari may
+            // not send the cookie on Google's cross-site POST; the signed ID token is still checked.
+            const ck = getCookie(request, "g_csrf_token"), bodyTok = fd?.get("g_csrf_token");
+            if (ck && ck !== bodyTok) return home(false);
+          } else b = await readJson(request);
           let g;
           try { g = await verifyGoogleIdToken(b.credential, env.GOOGLE_CLIENT_ID); }
-          catch (e) { return J({ error: "Could not verify that Google sign-in" }, 401); }
+          catch (e) { return viaRedirect ? home(false) : J({ error: "Could not verify that Google sign-in" }, 401); }
           // Match on sub first (email can change), then fall back to email to link an existing password account.
           let u = await db.prepare("SELECT * FROM users WHERE google_sub=?").bind(g.sub).first();
           if (!u) {
@@ -454,6 +467,7 @@ export default {
           {
             await growth.markGsUser(db, u.id);
           }
+          if (viaRedirect) return home(true, sessionCookie(await newSession(db, u.id)));
           return J({ email: u.email }, 200, { "Set-Cookie": sessionCookie(await newSession(db, u.id)) });
         }
         if (act === "logout" && m === "POST") {
@@ -469,7 +483,9 @@ export default {
         }
         // Public: the web client ID is not a secret; the app needs it to render the Google button.
         if (act === "config" && m === "GET")
-          return J({ google_client_id: env.GOOGLE_CLIENT_ID || null, referral_credits: growth.refCredits(env) });
+          return J({ google_client_id: env.GOOGLE_CLIENT_ID || null, referral_credits: growth.refCredits(env),
+                     // On once /api/auth/google/redirect is an authorized redirect URI in Google Cloud.
+                     google_redirect: String(env.GOOGLE_REDIRECT || "") === "on" });
         return J({ error: "not found" }, 404);
       }
 
