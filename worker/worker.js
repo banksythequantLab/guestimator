@@ -29,6 +29,7 @@ import * as onboard from "./onboard.js";
 import * as growth from "./growth.js";
 import * as priceguide from "./priceguide.js";
 import * as etsy from "./etsy.js";
+import * as site from "./site.js";
 
 // The Shippo account that paid for a label: the seller's own (OAuth) or the house token.
 const shipEnvFor = (env, db) => async l => l.payer === "seller" ? ((await shippoauth.labelEnv(env, db, l.user_id, false)) || {}).env || null : (env.SHIPPO_API_TOKEN ? env : null);
@@ -186,6 +187,16 @@ export default {
     const parts = p.split("/").filter(Boolean);
     const m = request.method;
     try {
+      // ---------- which site: Instant Garage Sale's own domain serves its own front page ----------
+      // ("/" and the manifest run through the Worker for this; on Guestimator they pass straight
+      // to the static files as before.)
+      if (m === "GET" && (p === "/" || p === "/index.html" || p === "/manifest.webmanifest")) {
+        if (site.isIgs(env, url)) {
+          const r = await env.ASSETS.fetch(new Request(url.origin + (p === "/manifest.webmanifest" ? "/igs/manifest.webmanifest" : "/igs/"), request));
+          return new Response(r.body, { status: r.status, headers: r.headers });
+        }
+        return env.ASSETS.fetch(request);
+      }
       // ---------- PUBLIC: photos from R2 ----------
       if (parts[0] === "p" && parts.length >= 2 && m === "GET") {
         const obj = await env.PHOTOS.get(parts.slice(1).join("/"));
@@ -404,7 +415,7 @@ export default {
           // and no welcome row, so the ledger still accounts for exactly what the wallet holds.
           await db.prepare("INSERT INTO users (id,email,pw_hash,pw_salt,created_at,credits) VALUES (?,?,?,?,?,?)")
             .bind(id, email, h, salt, ts, SIGNUP_CREDITS).run();
-          ctx.waitUntil(onboard.welcomeEmail(env, email, env.PUBLIC_ORIGIN || url.origin).catch(e => console.log("welcome email", e)));
+          if (!site.isIgs(env, url)) ctx.waitUntil(onboard.welcomeEmail(env, email, env.PUBLIC_ORIGIN || url.origin).catch(e => console.log("welcome email", e)));
           await growth.markGsUser(db, id);
           return J({ email }, 200, { "Set-Cookie": sessionCookie(await newSession(db, id)) });
         }
@@ -438,7 +449,7 @@ export default {
             await db.prepare("INSERT INTO users (id,email,pw_hash,pw_salt,google_sub,created_at,credits) VALUES (?,?,'','',?,?,?)")
               .bind(id, g.email, g.sub, ts, SIGNUP_CREDITS).run();
             u = { id, email: g.email };
-            ctx.waitUntil(onboard.welcomeEmail(env, g.email, env.PUBLIC_ORIGIN || url.origin).catch(e => console.log("welcome email", e)));
+            if (!site.isIgs(env, url)) ctx.waitUntil(onboard.welcomeEmail(env, g.email, env.PUBLIC_ORIGIN || url.origin).catch(e => console.log("welcome email", e)));
           }
           {
             await growth.markGsUser(db, u.id);

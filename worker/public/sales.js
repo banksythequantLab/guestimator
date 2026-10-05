@@ -131,6 +131,8 @@ async function renderSale(id) {
         ${s.status !== "published" ? `<button class="btn sm" id="pub">Publish</button>` : `<button class="btn sm" id="share">Share link</button>`}
         <a class="btn sec sm" href="${esc(s.url)}" target="_blank" rel="noopener" style="text-decoration:none">View page</a>
         <a class="btn sec sm" href="/sale/${esc(s.slug)}/tags" target="_blank" rel="noopener" style="text-decoration:none">Print price tags</a>
+        ${typeof isNative !== "undefined" && isNative ? "" : `<a class="btn sec sm" href="/api/garage/sales/${esc(s.id)}/export.xlsx" download style="text-decoration:none">Export to Excel</a>
+        <a class="btn sec sm" href="/api/garage/sales/${esc(s.id)}/export.csv" download style="text-decoration:none">Export CSV</a>`}
         <button class="btn sec sm" id="edit">Edit details</button>
       </div>
     </div>

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F25C05">
+<title>Instant Garage Sale</title>
+<meta name="description" content="Put your garage sale online in minutes: snap each item, tag a price, share one link. Print QR price stickers and export your list to Excel.">
+<meta property="og:title" content="Instant Garage Sale">
+<meta property="og:description" content="Snap it, price it, share one link. Your garage sale online in minutes.">
+<link rel="manifest" href="/igs/manifest.webmanifest">
+<link rel="icon" href="/igs/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: one phone-width column; every price is a round orange "dot sticker" like the ones on a folding table. */
+:root{
+  --bg:#FFFBF2; --panel:#FFFFFF; --ink:#1C2333; --muted:#5B6478; --line:#E9E1CF; --soft:#FFF3D6;
+  --orange:#F25C05; --orange-ink:#FFFFFF; --yellow:#FFD23F; --green:#1E8A5A; --blue:#2F5FD0; --red:#C0392B;
+  --display:"Bricolage Grotesque",ui-rounded,system-ui,sans-serif; --body:"Figtree",system-ui,-apple-system,sans-serif;
+  --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#14161C;--panel:#1D2029;--ink:#F3EFE6;--muted:#A9B0C0;--line:#2E323D;--soft:#2A2618;--orange:#FF7A2E;--yellow:#F5C842;--green:#46C08A;--blue:#8DA8FF;--red:#FF7B6B;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#14161C;--panel:#1D2029;--ink:#F3EFE6;--muted:#A9B0C0;--line:#2E323D;--soft:#2A2618;--orange:#FF7A2E;--yellow:#F5C842;--green:#46C08A;--blue:#8DA8FF;--red:#FF7B6B;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.45 var(--body);-webkit-font-smoothing:antialiased;padding-bottom:calc(24px + var(--sab))}
+h1,h2,h3{font-family:var(--display);margin:0;line-height:1.08;text-wrap:balance}
+a{color:var(--blue)}
+button,input,select,textarea{font:inherit;color:inherit}
+.wrap{max-width:640px;margin:0 auto;padding-inline:16px}
+header.top{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding:calc(10px + var(--sat)) 0 10px}
+header.top .wrap{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.brand{display:flex;align-items:center;gap:8px;font:800 1.05rem var(--display);text-decoration:none;color:var(--ink)}
+.brand i{width:26px;height:26px;border-radius:50%;background:var(--orange);display:inline-grid;place-items:center;color:var(--orange-ink);font:800 .7rem var(--display);font-style:normal;transform:rotate(-12deg)}
+.link{background:none;border:0;color:var(--muted);font-size:.9rem;padding:6px;cursor:pointer}
+main{padding-block:18px}
+.stack{display:grid;gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+.muted{color:var(--muted)}
+.small{font-size:.86rem}
+label{display:block;font-weight:700;font-size:.88rem;margin:10px 0 4px}
+input[type=text],input[type=email],input[type=password],input[type=date],input[type=tel],input:not([type]),select,textarea{width:100%;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:var(--panel)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--orange)}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row>*{flex:1 1 140px;min-width:0}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;border-radius:12px;padding:13px 16px;font-weight:700;background:var(--orange);color:var(--orange-ink);cursor:pointer;text-decoration:none;width:100%}
+.btn.sec{background:var(--soft);color:var(--ink);border:1.5px solid var(--line)}
+.btn.sm{padding:8px 11px;font-size:.86rem;width:auto;border-radius:9px}
+.btn:disabled{opacity:.55;cursor:default}
+.btn:focus-visible,.link:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.check{display:flex;align-items:center;gap:8px;font-weight:600;margin-top:10px}
+.check input{width:20px;height:20px;accent-color:var(--orange)}
+/* the dot sticker */
+.dot{flex:none;width:62px;height:62px;border-radius:50%;background:var(--orange);color:var(--orange-ink);display:grid;place-items:center;font:800 .98rem var(--display);transform:rotate(-8deg);box-shadow:0 2px 0 rgba(0,0,0,.12);border:0;cursor:pointer;padding:0;font-variant-numeric:tabular-nums}
+.dot.sold{background:var(--green)}
+.hero{padding:22px 0 6px}
+.hero h1{font-size:clamp(2.2rem,9vw,3.4rem);font-weight:800;letter-spacing:-.01em}
+.hero h1 em{font-style:normal;background:var(--yellow);color:#1C2333;padding:0 .12em;border-radius:6px}
+.steps{display:grid;gap:10px;margin:18px 0}
+.step{display:flex;gap:12px;align-items:center}
+.step b{flex:none;width:34px;height:34px;border-radius:50%;background:var(--yellow);color:#1C2333;display:grid;place-items:center;font-family:var(--display)}
+.sale-row{display:flex;justify-content:space-between;align-items:center;gap:10px;color:inherit;cursor:pointer;width:100%;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px}
+.chip{display:inline-block;font-size:.74rem;font-weight:700;padding:3px 8px;border-radius:999px;background:var(--soft);border:1px solid var(--line);white-space:nowrap}
+.chip.live{background:var(--green);color:#fff;border-color:transparent}
+.chip.held{background:var(--yellow);color:#1C2333;border-color:transparent}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}
+.stats div{background:var(--soft);border-radius:10px;padding:8px 4px}
+.stats b{display:block;font:800 1.25rem var(--display);font-variant-numeric:tabular-nums}
+.stats span{font-size:.74rem;color:var(--muted)}
+.item{display:flex;gap:12px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.thumb{flex:none;width:58px;height:58px;border-radius:10px;object-fit:cover;background:var(--soft)}
+.item .body{flex:1;min-width:0}
+.item .name{font-weight:700;overflow-wrap:anywhere}
+.item .acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.guess{font-size:.82rem;color:var(--muted);margin-top:2px}
+.addbar{position:sticky;bottom:calc(10px + var(--sab));z-index:4}
+.addbar .btn{font-size:1.08rem;padding:16px;box-shadow:0 6px 18px rgba(242,92,5,.35)}
+dialog{border:0;border-radius:18px;padding:0;width:min(560px,calc(100vw - 24px));background:var(--panel);color:var(--ink)}
+dialog::backdrop{background:rgba(20,22,28,.55)}
+.sheet{padding:18px;display:grid;gap:4px}
+.photo{display:grid;place-items:center;height:170px;border:2px dashed var(--line);border-radius:14px;background:var(--soft);cursor:pointer;overflow:hidden;position:relative}
+.photo img{width:100%;height:100%;object-fit:cover}
+.photo span{font-weight:700;color:var(--muted);text-align:center;padding:8px}
+.photo input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.toast{position:fixed;left:50%;bottom:calc(90px + var(--sab));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;z-index:50;max-width:90vw;text-align:center}
+.foot{margin-top:28px;font-size:.78rem;color:var(--muted);text-align:center}
+.tools{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+@media (max-width:380px){.tools{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/" id="home"><i>$1</i>Instant Garage Sale</a><button class="link" id="signout" hidden>Sign out</button></div></header>
+<main class="wrap" id="app"><p class="muted">Loading…</p></main>
+<dialog id="sheet"></dialog>
+<script src="/igs/igs.js?v=1"></script>
+</body>
+</html>

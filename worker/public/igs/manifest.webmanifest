@@ -1,0 +1,11 @@
+{
+  "name": "Instant Garage Sale",
+  "short_name": "Garage Sale",
+  "description": "Put your garage sale online in minutes: photo, price, share one link.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FFFBF2",
+  "theme_color": "#F25C05",
+  "icons": [{ "src": "/igs/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

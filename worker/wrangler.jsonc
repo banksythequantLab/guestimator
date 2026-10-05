@@ -9,7 +9,7 @@
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*", "/p/*", "/sale/*"]
+    "run_worker_first": ["/api/*", "/p/*", "/sale/*", "/", "/index.html", "/manifest.webmanifest"]
   },
   // Shared with Bottle Tree on purpose: same accounts, same estimate credits, same photos.
   // Guestimator adds only its own ebay_* tables (migrations/0012_ebay.sql).

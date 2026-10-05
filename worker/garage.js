@@ -12,6 +12,8 @@ import { startingPrice } from "./ebay.js";
 import { holdAlert, orderAlert, buyerOrderEmail, buyerShippedEmail } from "./notify.js";
 import { endEbayListing } from "./ebayorders.js";
 import { packageFor, flatRateFits } from "./packing.js";
+import * as sheet from "./export.js";
+import { siteOrigin } from "./site.js";
 
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
@@ -176,6 +178,25 @@ async function saleItems(db, saleId) {
      FROM garage_sale_items gi JOIN items i ON i.id=gi.item_id WHERE gi.sale_id=? ORDER BY gi.sort, gi.added_at`).bind(saleId).all()).results;
 }
 
+/** One row per item for the spreadsheet export, with the latest guestimate's range. */
+export async function exportRows(db, sale, origin) {
+  const items = await saleItems(db, sale.id);
+  const out = [];
+  for (const i of items) {
+    const ap = await db.prepare("SELECT result_json FROM appraisals WHERE item_id=? AND status='done' ORDER BY created_at DESC LIMIT 1").bind(i.item_id).first();
+    let pr = null; try { pr = ap?.result_json ? JSON.parse(ap.result_json).price_range : null; } catch {}
+    const c = v => Number(v) > 0 ? Math.round(Number(v) * 100) : null;
+    out.push({
+      // Quick-added items carry their name as the description too; don't print it twice.
+      name: i.ai_title || i.name, description: [i.item_description, i.ai_description].find(d => d && d.trim() !== (i.ai_title || i.name).trim()) || "",
+      price_cents: i.price_cents, online_price_cents: i.online_price_cents, ship_cents: i.ship_cents,
+      status: i.status, sold_at: i.sold_at, guess_low_cents: c(pr?.low), guess_high_cents: c(pr?.high),
+      item_url: `${origin}/sale/${sale.slug}/item/${i.item_id}`, photo_url: i.thumb_key ? `${origin}/p/${i.thumb_key}` : "",
+    });
+  }
+  return out;
+}
+
 async function sellerStripe(db, userId) {
   return db.prepare("SELECT connect_account_id, stripe_payouts_ready, email FROM users WHERE id=?").bind(userId).first();
 }
@@ -189,7 +210,7 @@ function buyable(env, sale, seller) {
 
 export async function sellerApi(request, env, url, parts, userId, ctx) {
   const db = env.DB, m = request.method;
-  const origin = env.PUBLIC_ORIGIN || url.origin;
+  const origin = siteOrigin(env, url);
   const own = async sid => db.prepare("SELECT * FROM garage_sales WHERE id=? AND user_id=?").bind(sid, userId).first();
 
   // ----- Stripe Connect onboarding
@@ -254,7 +275,7 @@ export async function sellerApi(request, env, url, parts, userId, ctx) {
       // A shipped order tells the buyer it's on the way. A pickup marked done needs no email:
       // the buyer was standing there.
       if (o.fulfilment === "ship" && ctx && ctx.waitUntil)
-        ctx.waitUntil(buyerShippedEmail(db, env, o.id, env.PUBLIC_ORIGIN || url.origin).catch(e => console.log("buyerShippedEmail", e)));
+        ctx.waitUntil(buyerShippedEmail(db, env, o.id, siteOrigin(env, url)).catch(e => console.log("buyerShippedEmail", e)));
       return J({ ok: true });
     }
     return J({ error: "bad status" }, 400);
@@ -295,8 +316,15 @@ export async function sellerApi(request, env, url, parts, userId, ctx) {
       const holds = (await db.prepare("SELECT * FROM garage_holds WHERE sale_id=? ORDER BY created_at DESC LIMIT 200").bind(sid).all()).results;
       const orders = (await db.prepare("SELECT * FROM garage_orders WHERE sale_id=? AND status<>'pending' ORDER BY created_at DESC LIMIT 200").bind(sid).all()).results;
       const seller = await sellerStripe(db, userId);
+      // Each item's latest guestimate (status, and the range once done), for the item list.
+      const guess = new Map();
+      for (const a of (await db.prepare("SELECT a.item_id, a.status, a.result_json FROM appraisals a JOIN garage_sale_items gi ON gi.item_id=a.item_id " +
+                                        "WHERE gi.sale_id=? ORDER BY a.created_at").bind(sid).all()).results) {
+        let pr = null; try { pr = a.result_json ? JSON.parse(a.result_json).price_range : null; } catch {}
+        guess.set(a.item_id, { status: a.status, low: pr?.low ?? null, high: pr?.high ?? null });
+      }
       return J({ sale: { ...sale, url: `${origin}/sale/${sale.slug}`, phase: phase(sale) },
-                 items: items.map(i => ({ ...i, thumb: i.thumb_key ? `/p/${i.thumb_key}` : null })),
+                 items: items.map(i => ({ ...i, thumb: i.thumb_key ? `/p/${i.thumb_key}` : null, guess: guess.get(i.item_id) || null })),
                  holds, orders,
                  payments: { platform_on: stripeReady(env), connected: !!seller?.connect_account_id, ready: !!seller?.stripe_payouts_ready,
                              fee_bps: Number(env.GARAGE_FEE_BPS ?? 300) } });
@@ -330,6 +358,16 @@ export async function sellerApi(request, env, url, parts, userId, ctx) {
         db.prepare("DELETE FROM garage_sales WHERE id=?").bind(sid),
       ]);
       return J({ deleted: 1 });
+    }
+
+    // The sale's items as a spreadsheet (CSV or Excel), for the seller's own records.
+    if ((parts[4] === "export.csv" || parts[4] === "export.xlsx") && parts.length === 5 && m === "GET") {
+      const rows = await exportRows(db, sale, origin);
+      const xlsx = parts[4].endsWith(".xlsx");
+      const body = xlsx ? sheet.toXlsx(rows, { sheet: sale.title }) : sheet.toCsv(rows);
+      return new Response(body, { headers: {
+        "content-type": xlsx ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "text/csv; charset=utf-8",
+        "content-disposition": `attachment; filename="${sheet.exportName(sale, xlsx ? "xlsx" : "csv")}"`, "cache-control": "no-store" } });
     }
 
     // items in the sale
@@ -396,7 +434,7 @@ async function ipHash(request, env) {
 }
 
 export async function publicApi(request, env, url, parts, ctx) {
-  const db = env.DB, m = request.method, origin = env.PUBLIC_ORIGIN || url.origin;
+  const db = env.DB, m = request.method, origin = siteOrigin(env, url);
   const cors = { "access-control-allow-origin": "*" };
 
   // Feed for directory sites (EstateDirectory): published, not ended, city-level only - never the street.
@@ -658,7 +696,7 @@ ${isShip ? `<div class="ckp">${box}</div>` : ""}</div></body></html>`;
 }
 
 export async function salePages(request, env, url, parts, viewer) {
-  const db = env.DB, origin = env.PUBLIC_ORIGIN || url.origin;
+  const db = env.DB, origin = siteOrigin(env, url);
   const sale = await db.prepare("SELECT * FROM garage_sales WHERE slug=?").bind(parts[1] || "").first();
   // Drafts are visible only to their owner (the app previews them with the session cookie).
   if (!sale || (sale.status === "draft" && viewer !== sale.user_id)) return H(msgPage("Sale not found", "This sale doesn't exist or hasn't been published yet."), 404);
