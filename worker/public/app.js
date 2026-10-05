@@ -1005,8 +1005,13 @@ async function renderItemDetail(id) {
             <div class="muted" style="margin-top:6px;font-size:.78rem">Free. Unmarked pieces often can't be pinned to a maker — the price comes from similar items selling now.</div>` : ""}
           ${r.melt && r.melt.applied ? `<div class="muted" style="margin-top:8px;font-size:.8rem">What we do know: it holds <b>$${r.melt.value}</b> of ${esc(r.melt.metal)} at today's spot — but that figure assumes the identification too.</div>` : ""}
         </div>`
-      : `<div class="kpis" style="margin:12px 0">
-        <div class="kpi"><div class="n">$${Math.round(pr.low)}–$${Math.round(pr.high)}</div><div class="l">Price range</div></div>
+      : `${r.unknown ? `<div style="margin:12px 0 0;padding:10px 12px;border:1px solid var(--line);border-left:4px solid var(--gold,#B8862F);border-radius:10px;background:var(--bg)">
+          <b style="font-size:.95rem">Unknown item</b>
+          <div style="font-size:.85rem;margin-top:3px">After ${r.unknown.tries} tries, ${esc(r.unknown.reason)} (${Math.round((r.unknown.confidence || 0) * 100)}% sure). No more questions.</div>
+          <div class="muted" style="font-size:.8rem;margin-top:4px">The range below is a rough guess from similar items listed now. Set your own price if you know better, or add a clearer photo of any marks and re-run.</div>
+        </div>` : ""}
+      <div class="kpis" style="margin:12px 0">
+        <div class="kpi"><div class="n">$${Math.round(pr.low)}–$${Math.round(pr.high)}</div><div class="l">${r.unknown ? "Rough guess" : "Price range"}</div></div>
         <div class="kpi"><div class="n">$${Math.round(pr.suggested_retail)}</div><div class="l">Suggested · floor $${Math.round(pr.floor)}</div></div>
       </div>`}
       ${r.lot ? `<div style="margin:8px 0;padding:8px 10px;border-left:3px solid var(--amber,#b8860b);background:var(--bg);font-size:.82rem">

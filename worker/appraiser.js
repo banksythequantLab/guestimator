@@ -733,6 +733,16 @@ export function shouldGate(idConflict, confidence, corroborated, answeredRounds 
   return confidence < CONFIDENCE_FLOOR && !corroborated;
 }
 
+// After two tries, stop asking. Derek, 2026-10-05: "Need to come back with under 70% after 2
+// tries to mark it as unknown as the pictures and additional info are not enough to guess."
+// A second run that is still unsure (or still disagrees with the dealer) is marked unknown:
+// no more questions, the rough range from similar items shown as just that.
+export const UNKNOWN_BELOW = 0.70;
+export function isUnknown(idConflict, confidence, corroborated, tries) {
+  if (!(tries >= 2) || corroborated) return false;
+  return !!idConflict || confidence < UNKNOWN_BELOW;
+}
+
 // Questions the dealer can answer with a tap. The model is asked for these as {q, options}, but
 // a model that ignores a new field is a routine event, not an emergency — so the plain
 // questions_for_dealer strings are the fallback, and the card simply shows a text box for those.
@@ -2143,7 +2153,15 @@ export async function appraise(env, req) {
     // against a $132 median for four actual rolls. Withholding a price there would be asking a
     // dealer to confirm something the evidence had already settled — and a gate that fires when
     // it is not needed is how a gate gets ignored when it is.
-    needs_clarification: shouldGate(idConflict, clamp(first.confidence ?? 0.5), corroborated, Number(req.answered_rounds) || 0) ? {
+    // Second try and still unsure: unknown, not another round of questions.
+    unknown: isUnknown(idConflict, clamp(first.confidence ?? 0.5), corroborated, (Number(req.prior_tries) || 0) + 1) ? {
+      tries: (Number(req.prior_tries) || 0) + 1,
+      confidence: clamp(first.confidence ?? 0.5),
+      reason: idConflict ? "the photographs and your description still point to different things"
+        : "the photographs and details aren't enough to say exactly what this is",
+    } : null,
+    needs_clarification: !isUnknown(idConflict, clamp(first.confidence ?? 0.5), corroborated, (Number(req.prior_tries) || 0) + 1) &&
+      shouldGate(idConflict, clamp(first.confidence ?? 0.5), corroborated, Number(req.prior_tries) || 0) ? {
       reason: idConflict
         ? "your description and the photographs disagree about what this is"
         : `the photographs do not settle what this is (${Math.round(clamp(first.confidence ?? 0.5) * 100)}% confident)`,

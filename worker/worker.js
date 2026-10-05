@@ -134,9 +134,9 @@ async function runAppraisal(env, appraisalId, item, photos) {
       markings: item.markings || "",
       currency: "USD",
       photos: photos.map(p => ({ url: `${env.PUBLIC_ORIGIN}/p/${p.r2_key}`, kind: p.kind })),
-      // How many earlier runs on this item withheld the price to ask questions. After one round
-      // of answers the appraiser prices it instead of asking again (shouldGate).
-      answered_rounds: (await db.prepare("SELECT COUNT(*) AS n FROM appraisals WHERE item_id=? AND id<>? AND status='done' AND json_extract(result_json,'$.needs_clarification') IS NOT NULL")
+      // How many earlier runs on this item finished. A second unsure run is marked unknown
+      // instead of asking more questions (isUnknown / shouldGate in appraiser.js).
+      prior_tries: (await db.prepare("SELECT COUNT(*) AS n FROM appraisals WHERE item_id=? AND id<>? AND status='done'")
         .bind(item.id, appraisalId).first().catch(() => null))?.n || 0,
     };
     let result, text;
@@ -178,6 +178,19 @@ async function itemBundle(db, itemId) {
   let appraisal = null;
   if (ap) appraisal = { id: ap.id, status: ap.status, error: ap.error, created_at: ap.created_at, completed_at: ap.completed_at,
                         result: ap.result_json ? JSON.parse(ap.result_json) : null };
+  // Estimates made before the two-tries rule (2026-10-05) still carry their questions; apply the
+  // rule when they are read, so an item already in a question loop opens as "unknown" instead.
+  const res0 = appraisal?.result;
+  if (res0 && appraisal.status === "done" && !res0.unknown && !res0.accepted_uncertain && res0.needs_clarification) {
+    const tries = (await db.prepare("SELECT COUNT(*) AS n FROM appraisals WHERE item_id=? AND status='done'").bind(itemId).first())?.n || 0;
+    const conf = Number(res0.confidence ?? 0.5);
+    if (tries >= 2 && (conf < 0.7 || res0.needs_clarification.candidates)) {
+      res0.unknown = { tries, confidence: conf, reason: res0.needs_clarification.candidates
+        ? "the photographs and your description still point to different things"
+        : "the photographs and details aren't enough to say exactly what this is" };
+      res0.needs_clarification = null;
+    }
+  }
   const el = await db.prepare("SELECT status, listing_url, listing_id, error, updated_at FROM ebay_listings WHERE item_id=? ORDER BY created_at DESC LIMIT 1").bind(itemId).first();
   const fin = await db.prepare("SELECT cost_cents, note, sold_cents, sold_at FROM item_finance WHERE item_id=?").bind(itemId).first();
   return { item, photos: photos.map(p => ({ ...p, url: `/p/${p.r2_key}` })), appraisal, ebay: el || null, finance: fin || null };

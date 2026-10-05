@@ -1,6 +1,6 @@
 // Run:  node worker/tests/coherence_test.mjs
 // Melt per piece against the asking price per piece. Every figure below is from a real run.
-import { unitDisagreement, shouldGate, CONFIDENCE_FLOOR } from "../appraiser.js";
+import { unitDisagreement, shouldGate, isUnknown, CONFIDENCE_FLOOR } from "../appraiser.js";
 
 let pass = 0, fail = 0;
 const eq = (n, got, want) => {
@@ -56,6 +56,12 @@ eq("corroboration overrides low confidence", shouldGate(null, 0.5, true), false)
 eq("after one answered round, low confidence prices instead of asking again", shouldGate(null, 0.3, false, 1), false);
 eq("first time, low confidence still asks", shouldGate(null, 0.3, false, 0), true);
 eq("a conflict with the dealer still asks after answers", shouldGate(CONFLICT, 0.9, false, 3), true);
+// Two tries and still under 70%: unknown, no more questions.
+eq("first try never unknown", isUnknown(null, 0.3, false, 1), false);
+eq("second try under 70% is unknown", isUnknown(null, 0.69, false, 2), true);
+eq("second try at 70% is priced", isUnknown(null, 0.70, false, 2), false);
+eq("second try still in conflict is unknown", isUnknown(CONFLICT, 0.9, false, 2), true);
+eq("corroborated is never unknown", isUnknown(null, 0.4, true, 3), false);
 eq("corroboration is irrelevant when already confident", shouldGate(null, 0.9, true), false);
 
 console.log(`${pass} passed, ${fail} failed`);
