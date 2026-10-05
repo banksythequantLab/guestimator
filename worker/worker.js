@@ -7,6 +7,8 @@ import { planFor, consumeEstimate, refundEstimate, applyRevenueCatEvent, redeemP
 // CHANGED 2026-10-05: new accounts now get a few free estimates so trying it costs nothing and
 // using it becomes a habit before anyone pays (Derek: "3 to 5 ... if they don't like it they
 // wouldn't have spent money"). SIGNUP_CREDITS overrides; 0 restores pay-from-the-start.
+// The 30-second demo Short shown on the sign-up screen. Only an https YouTube link is passed through.
+const demoVideo = env => { const u = String(env.DEMO_VIDEO_URL || ""); return /^https:\/\/(www\.)?(youtube\.com|youtu\.be)\//.test(u) ? u : null; };
 const signupCredits = env => { const n = Number(env.SIGNUP_CREDITS ?? 3); return Number.isFinite(n) && n >= 0 ? Math.min(20, Math.floor(n)) : 3; };
 // A free estimate for rating how close one was; capped per calendar month.
 const ratingCredits = env => { const n = Number(env.RATING_CREDITS_PER_MONTH ?? 5); return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 5; };
@@ -515,7 +517,7 @@ export default {
         // Public: the web client ID is not a secret; the app needs it to render the Google button.
         if (act === "config" && m === "GET")
           return J({ google_client_id: env.GOOGLE_CLIENT_ID || null, referral_credits: growth.refCredits(env),
-                     signup_credits: signupCredits(env), rating_credits: ratingCredits(env),
+                     signup_credits: signupCredits(env), rating_credits: ratingCredits(env), demo_video: demoVideo(env),
                      // On once /api/auth/google/redirect is an authorized redirect URI in Google Cloud.
                      google_redirect: String(env.GOOGLE_REDIRECT || "") === "on" });
         return J({ error: "not found" }, 404);

@@ -168,9 +168,13 @@ async function afterSignIn() {
   catch (e) { toast(`Code ${code}: ${e.message}`); }
 }
 const PITCH_STEPS = [["📷", "Snap a few photos", "Front, back, labels, maker's marks"], ["💲", "Get a Guestimate", "Priced from what's actually selling now"], ["🛒", "List it on eBay", "On your own account. You check it first"]];
+// The config (with the demo link) loads lazily, so on a first visit the pitch draws before it arrives;
+// renderAuth fills #demoLink again once getAuthCfg() resolves.
+const demoLinkHtml = () => authCfg && authCfg.demo_video ? `<a href="${esc(authCfg.demo_video)}" target="_blank" rel="noopener" style="display:block;margin-top:10px;font-weight:800;font-size:.9rem;color:var(--cobalt);text-decoration:none">▶ Watch how it works (30 seconds)</a>` : "";
 const pitchHtml = () => `<div class="card" style="padding:14px 16px">
   ${PITCH_STEPS.map(([i, t, d]) => `<div class="row" style="gap:12px;align-items:center;margin:6px 0"><div style="font-size:1.5rem;width:32px;text-align:center">${i}</div><div><b>${t}</b><div class="muted" style="font-size:.85rem">${d}</div></div></div>`).join("")}
   <div style="margin-top:10px;padding:8px 10px;border-radius:10px;background:var(--bg);font-size:.9rem">🎁 <b>Your first ${(authCfg && authCfg.signup_credits) || 3} estimates are free.</b> No card needed. Rate an estimate and get another one free.</div>
+  <div id="demoLink">${demoLinkHtml()}</div>
   <div class="muted" style="font-size:.8rem;margin-top:10px;border-top:1px solid var(--line, #e0d2b4);padding-top:8px"><b>Free:</b> garage &amp; estate sale pages, QR price tags, online checkout for your buyers, and discounted shipping labels. After that, estimates and eBay listings use credits.</div></div>`;
 
 function renderAuth(mode) {
@@ -212,6 +216,7 @@ function renderAuth(mode) {
   $("#auGo").onclick = go;
   $("#auPw").addEventListener("keydown", e => { if (e.key === "Enter") go(); });
   $("#auToggle").onclick = e => { e.preventDefault(); renderAuth(isLogin ? "register" : "login"); };
+  getAuthCfg().then(() => { const d = document.getElementById("demoLink"); if (d) d.innerHTML = demoLinkHtml(); }).catch(() => {});
   mountGoogle();
 }
 async function logout() {

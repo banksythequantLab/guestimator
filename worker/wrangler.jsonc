@@ -51,6 +51,7 @@
     "LABEL_PAY": "on",
     // Google redirect sign-in on iPhone/iPad (authorized redirect URI added by Derek 2026-10-05)
     "GOOGLE_REDIRECT": "on",
+    "DEMO_VIDEO_URL": "https://youtube.com/shorts/i4Mi9YwJobE",
     "SHIPPO_MONTHLY_CAP": "30",
     "LABEL_FEE_CENTS": "0",
     "NEBIUS_BASE_URL": "https://api.tokenfactory.nebius.com/v1/",

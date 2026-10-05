@@ -33,5 +33,15 @@ mails.length = 0;
 await welcomeEmail({ ...env, SUPPORT_EMAIL: "help@theguestimator.com" }, "a@b.c", "https://g.test");
 ok("with SUPPORT_EMAIL: reply-to set and offered", mails[0].replyTo === "help@theguestimator.com" && /reply to this email/i.test(mails[0].text));
 
+ok("no demo link when DEMO_VIDEO_URL is unset", !/30 seconds/.test(mails[0].text));
+mails.length = 0;
+await welcomeEmail({ ...env, DEMO_VIDEO_URL: "https://youtube.com/shorts/i4Mi9YwJobE" }, "a@b.c", "https://g.test");
+ok("demo Short linked in text and html", mails[0].text.includes("See it work in 30 seconds: https://youtube.com/shorts/i4Mi9YwJobE") && mails[0].html.includes('href="https://youtube.com/shorts/i4Mi9YwJobE"'));
+mails.length = 0;
+await welcomeEmail({ ...env, DEMO_VIDEO_URL: "javascript:alert(1)" }, "a@b.c", "https://g.test");
+ok("a non-YouTube link is never sent", !/javascript:|30 seconds/.test(mails[0].text + mails[0].html));
+const cfg = await (await worker.fetch(new Request("https://g.test/api/auth/config"), { ...env, DEMO_VIDEO_URL: "https://youtube.com/shorts/i4Mi9YwJobE" }, { waitUntil() {} })).json();
+ok("config hands the app the demo link", cfg.demo_video === "https://youtube.com/shorts/i4Mi9YwJobE", cfg);
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
