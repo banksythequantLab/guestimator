@@ -170,7 +170,8 @@ async function afterSignIn() {
 const PITCH_STEPS = [["📷", "Snap a few photos", "Front, back, labels, maker's marks"], ["💲", "Get a Guestimate", "Priced from what's actually selling now"], ["🛒", "List it on eBay", "On your own account. You check it first"]];
 const pitchHtml = () => `<div class="card" style="padding:14px 16px">
   ${PITCH_STEPS.map(([i, t, d]) => `<div class="row" style="gap:12px;align-items:center;margin:6px 0"><div style="font-size:1.5rem;width:32px;text-align:center">${i}</div><div><b>${t}</b><div class="muted" style="font-size:.85rem">${d}</div></div></div>`).join("")}
-  <div class="muted" style="font-size:.8rem;margin-top:10px;border-top:1px solid var(--line, #e0d2b4);padding-top:8px"><b>Free:</b> garage &amp; estate sale pages, QR price tags, online checkout for your buyers, and discounted shipping labels. Estimates and eBay listings use credits.</div></div>`;
+  <div style="margin-top:10px;padding:8px 10px;border-radius:10px;background:var(--bg);font-size:.9rem">🎁 <b>Your first ${(authCfg && authCfg.signup_credits) || 3} estimates are free.</b> No card needed. Rate an estimate and get another one free.</div>
+  <div class="muted" style="font-size:.8rem;margin-top:10px;border-top:1px solid var(--line, #e0d2b4);padding-top:8px"><b>Free:</b> garage &amp; estate sale pages, QR price tags, online checkout for your buyers, and discounted shipping labels. After that, estimates and eBay listings use credits.</div></div>`;
 
 function renderAuth(mode) {
   mode = mode || firstAuthMode();
@@ -1054,6 +1055,7 @@ async function renderItemDetail(id) {
       ${(r.comparables.length || (r.live_listings || []).length || r.sold_market) ? `<div class="muted" style="font-size:.7rem;margin-top:8px">eBay links are affiliate links: Guestimator may earn a small commission if you buy through them, at no cost to you.</div>` : ""}
       <div class="muted" style="font-size:.72rem;margin-top:8px">${esc(r.models.text)} + ${esc(r.models.vision)} on Nebius</div>
     </div>` : ""}
+    ${r && !nc && appraisal.status === "done" ? rateCardHtml(appraisal.rating) : ""}
     ${ebayPanelHtml(b, !!(r && !nc && appraisal.status === "done"))}
     ${r && !nc && appraisal.status === "done" ? salePanelHtml() : ""}
     ${item.listing_status !== "sold" ? `<div class="card" id="soldCard" style="padding:12px 16px${state.fromSticker === id ? ";border-color:var(--green)" : ""}"><div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
@@ -1170,6 +1172,13 @@ async function renderItemDetail(id) {
     await answerWith(answered.join(". "), $("#clarifyGo"));
   };
   if ($("#retry")) $("#retry").onclick = () => rerun();
+  app.querySelectorAll("[data-star]").forEach(btn => btn.onclick = async () => {
+    try {
+      const res = await api(`/items/${id}/rating`, { method: "POST", body: JSON.stringify({ stars: +btn.dataset.star, note: ($("#rateNote") || {}).value || "" }) });
+      toast(res.credited ? "Thanks! +1 free estimate added" : "Thanks for rating it");
+      renderItemDetail(id);
+    } catch (e) { toast(e.message); }
+  });
   if ($("#acceptGuess")) $("#acceptGuess").onclick = async () => {
     try { await api(`/items/${id}/accept-estimate`, { method: "POST" }); renderItemDetail(id); } catch (e) { toast(e.message); }
   };
@@ -1183,6 +1192,18 @@ async function renderItemDetail(id) {
     GuessBot.mount($("#guessBot"), { start: (performance.now() - botStart[id]) / 1000, inApp: true });
   }
   if (pending) pollT = setTimeout(() => { if (state.view === "item") renderItemDetail(id); }, 4000);
+}
+
+// "How close was it?" Ratings are the appraiser's accuracy record, and the first rating of a paid
+// estimate earns a free one (capped monthly on the server).
+function rateCardHtml(rating) {
+  const stars = n => [1, 2, 3, 4, 5].map(i => `<button type="button" data-star="${i}" aria-label="${i} star${i > 1 ? "s" : ""}" style="background:none;border:0;font-size:1.7rem;padding:2px 4px;cursor:pointer;color:${rating && i <= rating.stars ? "var(--gold,#B8862F)" : "var(--line,#cdbf9f)"}">★</button>`).join("");
+  if (rating) return `<div class="card" style="padding:10px 14px"><div class="row" style="justify-content:space-between;align-items:center;gap:8px"><span style="font-size:.9rem"><b>You rated this estimate</b>${rating.credited ? " · +1 free estimate earned" : ""}</span><span>${stars()}</span></div></div>`;
+  return `<div class="card" style="padding:12px 14px">
+    <b>How close was this estimate?</b> <span class="muted" style="font-size:.82rem">Rate it and get a free estimate.</span>
+    <div style="margin:4px 0 2px">${stars()}</div>
+    <input id="rateNote" maxlength="500" placeholder="Optional: what did it really sell for, or what was off?" style="font-size:.85rem">
+  </div>`;
 }
 
 // Etsy cross-listing (vintage only): connect the shop, review, list; whichever sells first takes

@@ -4,7 +4,18 @@
 import { planFor, consumeEstimate, refundEstimate, applyRevenueCatEvent, redeemPromo, parsePromoCodes } from "./billing.js";
 // New Guestimator accounts start with nothing: every estimate is bought. Accounts that already
 // exist (including Bottle Tree ones signing in here) keep whatever balance they have.
-const SIGNUP_CREDITS = 0;
+// CHANGED 2026-10-05: new accounts now get a few free estimates so trying it costs nothing and
+// using it becomes a habit before anyone pays (Derek: "3 to 5 ... if they don't like it they
+// wouldn't have spent money"). SIGNUP_CREDITS overrides; 0 restores pay-from-the-start.
+const signupCredits = env => { const n = Number(env.SIGNUP_CREDITS ?? 3); return Number.isFinite(n) && n >= 0 ? Math.min(20, Math.floor(n)) : 3; };
+// A free estimate for rating how close one was; capped per calendar month.
+const ratingCredits = env => { const n = Number(env.RATING_CREDITS_PER_MONTH ?? 5); return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 5; };
+// The ledger accounts for the opening balance too.
+async function grantSignup(env, db, userId, ts) {
+  const n = signupCredits(env);
+  if (n > 0) await db.prepare("INSERT INTO billing_events (id,user_id,source,type,credits_delta,raw_json,created_at) VALUES (?,?,'admin','signup_free',?,?,?)")
+    .bind(crypto.randomUUID(), userId, n, JSON.stringify({ reason: "free estimates for new accounts" }), ts).run();
+}
 import { appraise, sizeOnly } from "./appraiser.js";
 import * as ebay from "./ebay.js";
 import * as garage from "./garage.js";
@@ -191,6 +202,7 @@ async function itemBundle(db, itemId) {
       res0.needs_clarification = null;
     }
   }
+  if (appraisal) appraisal.rating = (await db.prepare("SELECT stars, credited FROM estimate_ratings WHERE appraisal_id=?").bind(appraisal.id).first()) || null;
   const el = await db.prepare("SELECT status, listing_url, listing_id, error, updated_at FROM ebay_listings WHERE item_id=? ORDER BY created_at DESC LIMIT 1").bind(itemId).first();
   const fin = await db.prepare("SELECT cost_cents, note, sold_cents, sold_at FROM item_finance WHERE item_id=?").bind(itemId).first();
   return { item, photos: photos.map(p => ({ ...p, url: `/p/${p.r2_key}` })), appraisal, ebay: el || null, finance: fin || null };
@@ -427,11 +439,12 @@ export default {
           const exists = await db.prepare("SELECT id FROM users WHERE email=?").bind(email).first();
           if (exists) return J({ error: "That email is already registered" }, 409);
           const salt = randHex(16), h = await pbkdf2(pw, salt), id = uid(), ts = now();
-          // Guestimator has no free estimate (Derek, 2026-09-27). users.credits defaults to 1 in
-          // the shared schema because Bottle Tree still grants one, so 0 is written explicitly -
-          // and no welcome row, so the ledger still accounts for exactly what the wallet holds.
+          // Opening balance: signupCredits (free estimates, since 2026-10-05; was 0 from 2026-09-27).
+          // Written explicitly because users.credits defaults to Bottle Tree's 1, and recorded in
+          // the ledger so it still accounts for exactly what the wallet holds.
           await db.prepare("INSERT INTO users (id,email,pw_hash,pw_salt,created_at,credits) VALUES (?,?,?,?,?,?)")
-            .bind(id, email, h, salt, ts, SIGNUP_CREDITS).run();
+            .bind(id, email, h, salt, ts, signupCredits(env)).run();
+          await grantSignup(env, db, id, ts);
           if (!site.isIgs(env, url)) ctx.waitUntil(onboard.welcomeEmail(env, email, env.PUBLIC_ORIGIN || url.origin).catch(e => console.log("welcome email", e)));
           await growth.markGsUser(db, id);
           return J({ email }, 200, { "Set-Cookie": sessionCookie(await newSession(db, id)) });
@@ -475,9 +488,10 @@ export default {
           }
           if (!u) {
             const id = uid(), ts = now();
-            // Same opening balance (none) whichever door they came in by.
+            // Same opening balance whichever door they came in by.
             await db.prepare("INSERT INTO users (id,email,pw_hash,pw_salt,google_sub,created_at,credits) VALUES (?,?,'','',?,?,?)")
-              .bind(id, g.email, g.sub, ts, SIGNUP_CREDITS).run();
+              .bind(id, g.email, g.sub, ts, signupCredits(env)).run();
+            await grantSignup(env, db, id, ts);
             u = { id, email: g.email };
             if (!site.isIgs(env, url)) ctx.waitUntil(onboard.welcomeEmail(env, g.email, env.PUBLIC_ORIGIN || url.origin).catch(e => console.log("welcome email", e)));
           }
@@ -501,6 +515,7 @@ export default {
         // Public: the web client ID is not a secret; the app needs it to render the Google button.
         if (act === "config" && m === "GET")
           return J({ google_client_id: env.GOOGLE_CLIENT_ID || null, referral_credits: growth.refCredits(env),
+                     signup_credits: signupCredits(env), rating_credits: ratingCredits(env),
                      // On once /api/auth/google/redirect is an authorized redirect URI in Google Cloud.
                      google_redirect: String(env.GOOGLE_REDIRECT || "") === "on" });
         return J({ error: "not found" }, 404);
@@ -989,6 +1004,33 @@ export default {
           await db.prepare("DELETE FROM appraisals WHERE item_id=?").bind(iid).run();
           const r = await db.prepare("DELETE FROM items WHERE id=?").bind(iid).run();
           return J({ deleted: r.meta.changes });
+        }
+        // ---------- "How close was it?": rate the latest estimate, earn a free one ----------
+        // One rating per estimate (re-rating updates it). The first rating of a paid estimate
+        // earns 1 credit, up to RATING_CREDITS_PER_MONTH a month; free follow-ups earn nothing.
+        if (parts[3] === "rating" && m === "POST") {
+          const b = await readJson(request);
+          const stars = Math.round(Number(b.stars));
+          if (!(stars >= 1 && stars <= 5)) return J({ error: "Pick 1 to 5 stars" }, 400);
+          const ap = await db.prepare("SELECT id, funded_by FROM appraisals WHERE item_id=? AND status='done' ORDER BY created_at DESC LIMIT 1").bind(iid).first();
+          if (!ap) return J({ error: "estimate this item first" }, 409);
+          const note = String(b.note || "").trim().slice(0, 500) || null, ts = now();
+          const had = await db.prepare("SELECT credited FROM estimate_ratings WHERE appraisal_id=?").bind(ap.id).first();
+          if (had) {
+            await db.prepare("UPDATE estimate_ratings SET stars=?, note=COALESCE(?,note), updated_at=? WHERE appraisal_id=?").bind(stars, note, ts, ap.id).run();
+            return J({ ok: true, stars, credited: 0, already: true });
+          }
+          const monthStart = ts.slice(0, 7) + "-01";
+          const used = (await db.prepare("SELECT COALESCE(SUM(credited),0) AS n FROM estimate_ratings WHERE user_id=? AND created_at>=?").bind(userId, monthStart).first())?.n || 0;
+          const credit = ap.funded_by && used < ratingCredits(env) ? 1 : 0;
+          const stmts = [db.prepare("INSERT INTO estimate_ratings (appraisal_id,user_id,item_id,stars,note,credited,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)")
+            .bind(ap.id, userId, iid, stars, note, credit, ts, ts)];
+          if (credit) stmts.push(
+            db.prepare("UPDATE users SET credits=credits+1 WHERE id=?").bind(userId),
+            db.prepare("INSERT INTO billing_events (id,user_id,source,type,credits_delta,raw_json,created_at) VALUES (?,?,'usage','rating_reward',1,?,?)")
+              .bind(uid(), userId, JSON.stringify({ appraisal_id: ap.id, stars }), ts));
+          await db.batch(stmts);
+          return J({ ok: true, stars, credited: credit, left_this_month: Math.max(0, ratingCredits(env) - used - credit) });
         }
         // ---------- "Show the price anyway": the dealer accepts a low-confidence estimate ----------
         // Free - no new run. Only for low confidence; when the photos and the dealer's words name

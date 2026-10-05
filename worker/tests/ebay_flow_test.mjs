@@ -57,7 +57,7 @@ globalThis.fetch = async (u, init = {}) => {
 
 const { default: worker } = await import("../worker.js");
 const db = d1(join(here, "..", "migrations"));
-const env = {
+const env = { SIGNUP_CREDITS: "0",
   DB: db, ASSETS: { fetch: async () => new Response("asset") },
   PHOTOS: { put: async () => {}, get: async () => null, delete: async () => {} },
   PUBLIC_ORIGIN: "https://g.test",
@@ -78,8 +78,8 @@ const call = async (method, path, body) => {
 // ---------- account + an estimated item ----------
 ok("register", (await call("POST", "/api/auth/register", { email: "d@example.com", password: "password123" })).status === 200);
 const me = db.raw.prepare("SELECT id FROM users WHERE email='d@example.com'").get();
-// No free estimate in Guestimator, though the shared schema defaults credits to 1 for Bottle Tree.
-ok("new account starts with 0 credits", db.raw.prepare("SELECT credits FROM users WHERE id=?").get(me.id).credits === 0);
+// This flow runs with SIGNUP_CREDITS=0 (the paywall path); the free-estimates default is in onboard_test.
+ok("with SIGNUP_CREDITS=0, a new account starts with 0 credits", db.raw.prepare("SELECT credits FROM users WHERE id=?").get(me.id).credits === 0);
 ok("and no welcome grant on the ledger", db.raw.prepare("SELECT COUNT(*) n FROM billing_events WHERE user_id=?").get(me.id).n === 0);
 {
   const { json } = await call("POST", "/api/items", { name: "x", description: "a jug" });

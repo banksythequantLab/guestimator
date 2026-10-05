@@ -72,7 +72,7 @@ globalThis.fetch = async (u, init = {}) => {
 const { default: worker } = await import("../worker.js");
 const db = d1(join(here, "..", "migrations"));
 const mails = [];
-const env = { DB: db, EBAY_TOKEN_KEY: KEY, ETSY_API_KEY: "kstring", ETSY_SHARED_SECRET: "shh", EBAY_LISTING_CREDITS: "0",
+const env = { SIGNUP_CREDITS: "0", DB: db, EBAY_TOKEN_KEY: KEY, ETSY_API_KEY: "kstring", ETSY_SHARED_SECRET: "shh", EBAY_LISTING_CREDITS: "0",
   ASSETS: { fetch: async () => new Response("a") }, PUBLIC_ORIGIN: "https://g.test",
   PHOTOS: { put: async () => {}, delete: async () => {}, get: async k => ({ arrayBuffer: async () => new Uint8Array([255, 216, 255]).buffer, key: k }) },
   EMAIL: { send: async m => { if (!/^Welcome/.test(m.subject)) mails.push(m); return { messageId: "m" }; } }, ALERT_FROM: "a@g.test" };

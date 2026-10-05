@@ -13,7 +13,7 @@ globalThis.fetch = async () => new Response("{}", { status: 404 });
 const { default: worker } = await import("../worker.js");
 const db = d1(join(here, "..", "migrations"));
 const mails = [], pending = [];
-const env = { DB: db, ASSETS: { fetch: async () => new Response("asset") }, PHOTOS: { put: async () => {}, get: async () => null, delete: async () => {} },
+const env = { SIGNUP_CREDITS: "0", DB: db, ASSETS: { fetch: async () => new Response("asset") }, PHOTOS: { put: async () => {}, get: async () => null, delete: async () => {} },
   PUBLIC_ORIGIN: "https://g.test", EBAY_TOKEN_KEY: "k".repeat(32),
   EMAIL: { send: async m => { if (!/^Welcome to Guestimator/.test(m.subject)) mails.push(m); return { messageId: "m" }; } } };
 const jar = {}; let who = "amy";
