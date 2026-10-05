@@ -157,7 +157,9 @@ ok("row fulfilled, address dropped once shipped", row.status === "FULFILLED" && 
 orders = [rawOrder("12-400", skuFor(item), { lineItems: [{ lineItemId: "L9", sku: skuFor(item), title: "Cisco 32GB", quantity: 1 }] })];
 db.raw.prepare("UPDATE ebay_accounts SET orders_synced_at=? WHERE user_id=?").run(new Date(Date.now() - 20 * 60e3).toISOString(), me);
 await worker.scheduled({}, env, { waitUntil() {} });
-ok("cron picks up a new sale and emails", db.raw.prepare("SELECT COUNT(*) n FROM ebay_orders WHERE order_id='12-400'").get().n === 1 && mails.length === 1, mails.map(m => m.subject));
+// (On a Monday the cron also sends the weekly summary; that one is weekly_test's business.)
+const saleMails = mails.filter(m => !/^This week:/.test(m.subject));
+ok("cron picks up a new sale and emails", db.raw.prepare("SELECT COUNT(*) n FROM ebay_orders WHERE order_id='12-400'").get().n === 1 && saleMails.length === 1, mails.map(m => m.subject));
 const n0 = calls.length;
 await worker.scheduled({}, env, { waitUntil() {} });
 ok("cron skips accounts read in the last 10 minutes", calls.slice(n0).length === 0);

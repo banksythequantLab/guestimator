@@ -6,6 +6,7 @@
 // thin, and a failure is eBay's own words passed through.
 
 import * as ebay from "./ebay.js";
+import { endEtsyListing } from "./etsy.js";
 
 const cents = v => (v == null || v === "" || !Number.isFinite(Number(v))) ? null : Math.round(Number(v) * 100);
 
@@ -123,6 +124,8 @@ export async function syncOrders(env, db, userId, { nowMs = Date.now() } = {}) {
             db.prepare("UPDATE items SET listing_status='sold' WHERE id=?").bind(hit.item_id),
             db.prepare("UPDATE garage_sale_items SET status='sold' WHERE item_id=? AND status IN ('available','held')").bind(hit.item_id),
           ]);
+          // And off Etsy, if it was cross-listed there.
+          await endEtsyListing(env, db, hit.item_id, "sold on eBay");
           // Alert only for orders still to ship. The first read after connecting also finds
           // sales the seller already shipped; marking those sold is right, emailing is noise.
           if (o.status === "NOT_STARTED" || o.status === "IN_PROGRESS") fresh.push(id);
@@ -164,6 +167,9 @@ export async function markShipped(env, db, userId, rowId, tracking, carrierIn) {
  * Never throws: returns { ended, why } so the caller can report it.
  */
 export async function endEbayListing(env, db, itemId, reason = "sold elsewhere") {
+  // Every "sold somewhere else" path comes through here, so the Etsy copy is ended here too
+  // (a no-op when it is not on Etsy, or when Etsy is where it sold).
+  await endEtsyListing(env, db, itemId, reason);
   const l = await db.prepare("SELECT * FROM ebay_listings WHERE item_id=? AND status='published' AND offer_id IS NOT NULL ORDER BY created_at DESC LIMIT 1").bind(itemId).first();
   if (!l) return { ended: false, why: "not on eBay" };
   // Already sold on eBay itself (our order read saw it): nothing to end.

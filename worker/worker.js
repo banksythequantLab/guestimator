@@ -28,6 +28,7 @@ import * as ebaycare from "./ebaycare.js";
 import * as onboard from "./onboard.js";
 import * as growth from "./growth.js";
 import * as priceguide from "./priceguide.js";
+import * as etsy from "./etsy.js";
 
 // The Shippo account that paid for a label: the seller's own (OAuth) or the house token.
 const shipEnvFor = (env, db) => async l => l.payer === "seller" ? ((await shippoauth.labelEnv(env, db, l.user_id, false)) || {}).env || null : (env.SHIPPO_API_TOKEN ? env : null);
@@ -202,6 +203,24 @@ export default {
         try { await shippoauth.saveToken(env, db, who, await shippoauth.exchange(env, url.searchParams.get("code"))); }
         catch (e) { await owner.opsFail(db, "shippo oauth failed", e); console.log("shippo oauth failed", String(e.message || e)); return Response.redirect(origin + "/?shippo=failed#ebay-orders", 302); }
         return Response.redirect(origin + "/?shippo=connected#ebay-orders", 302);
+      }
+      // ---------- Etsy OAuth callback (PKCE): a seller connected their Etsy shop ----------
+      if (parts[0] === "etsy" && parts[1] === "callback" && m === "GET") {
+        const state = url.searchParams.get("state") || "";
+        const native = state.startsWith("n");
+        const back = ok => native ? `${APP_SCHEME}://etsy/${ok ? "connected" : "failed"}` : (ok ? "/?etsy=connected" : "/?etsy=failed");
+        const fail = msg => H(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Etsy was not connected</title>
+<body style="font-family:system-ui,sans-serif;background:#F4ECDC;color:#241B10;padding:24px"><h1 style="font-size:1.3rem;color:#B4552B">Etsy was not connected</h1><p>${esc(msg)}</p>
+<a href="${esc(back(false))}" style="display:inline-block;background:#0F6B59;color:#fff;padding:12px 18px;border-radius:10px;text-decoration:none;font-weight:700">Back to Guestimator</a>
+<p style="font-size:.75rem;color:#6b5d48;margin-top:24px">${esc(etsy.NOTICE)}</p></body>`, 400, "no-store");
+        const st = state ? await db.prepare("SELECT * FROM etsy_oauth_states WHERE state=?").bind(state).first() : null;
+        if (st) await db.prepare("DELETE FROM etsy_oauth_states WHERE state=?").bind(state).run();
+        if (!st || Date.now() - Date.parse(st.created_at) > 15 * 60e3) return fail("That link has expired. Go back to Guestimator and tap Connect Etsy again.");
+        const code = url.searchParams.get("code");
+        if (!code) return fail("You declined on Etsy, so nothing was linked. You can connect any time.");
+        try { await etsy.saveConnection(env, db, st.user_id, await etsy.exchangeCode(env, code, st.verifier)); }
+        catch (e) { await owner.opsFail(db, "etsy oauth failed", e); return fail(String(e.message || e)); }
+        return new Response(null, { status: 302, headers: { location: back(true), "cache-control": "no-store" } });
       }
       // ---------- public price guide, sitemap and robots (priceguide.js) ----------
       if (m === "GET" && (url.pathname === "/prices" || url.pathname.startsWith("/price/") || url.pathname === "/sitemap.xml" || url.pathname === "/robots.txt")) {
@@ -485,6 +504,26 @@ export default {
         const b = await readJson(request);
         const r = await redeemPromo(db, userId, b.code, parsePromoCodes(env.PROMO_CODES));
         return r.ok ? J(r) : J({ error: r.error }, r.status);
+      }
+
+      // ---------- the user's Etsy shop (cross-listing vintage items; etsy.js) ----------
+      if (parts[1] === "etsy" && parts.length === 3) {
+        if (parts[2] === "status" && m === "GET") {
+          const a = etsy.etsyReady(env) ? await db.prepare("SELECT shop_name, created_at FROM etsy_accounts WHERE user_id=?").bind(userId).first() : null;
+          return J({ configured: etsy.etsyReady(env), connected: !!a, shop_name: a?.shop_name || null, notice: etsy.NOTICE });
+        }
+        if (parts[2] === "connect" && m === "POST") {
+          if (!etsy.etsyReady(env)) return J({ error: "Etsy listing isn't switched on yet." }, 503);
+          const cb = await readJson(request);
+          const state = (cb.native ? "n" : "w") + randHex(24), verifier = etsy.newVerifier();
+          await db.prepare("DELETE FROM etsy_oauth_states WHERE created_at < ?").bind(new Date(Date.now() - 3600e3).toISOString()).run();
+          await db.prepare("INSERT INTO etsy_oauth_states (state,user_id,verifier,created_at) VALUES (?,?,?,?)").bind(state, userId, verifier, now()).run();
+          return J({ url: etsy.consentUrl(env, state, await etsy.challengeFor(verifier)) });
+        }
+        if (parts[2] === "connection" && m === "DELETE") {
+          const r = await db.prepare("DELETE FROM etsy_accounts WHERE user_id=?").bind(userId).run();
+          return J({ disconnected: r.meta?.changes || 0 });
+        }
       }
 
       // ---------- the user's eBay connection ----------
@@ -907,6 +946,23 @@ export default {
           const r = await db.prepare("DELETE FROM items WHERE id=?").bind(iid).run();
           return J({ deleted: r.meta.changes });
         }
+        // ---------- Etsy cross-listing: what can be offered, list it, take it down ----------
+        if (parts[3] === "etsy" && parts.length === 4 && m === "GET") {
+          const bundle = await itemBundle(db, iid);
+          return J(await etsy.plan(env, db, userId, { item, result: bundle.appraisal?.result || null }));
+        }
+        if (parts[3] === "etsy" && parts[4] === "publish" && m === "POST") {
+          if (!etsy.etsyReady(env)) return J({ error: "Etsy listing isn't switched on yet." }, 503);
+          const bundle = await itemBundle(db, iid);
+          const r = await etsy.publish(env, db, userId, { item, photos: bundle.photos, result: bundle.appraisal?.result || null },
+            await readJson(request), listingCredits(env), { consume: consumeEstimate, refund: refundEstimate });
+          if (r.body.paywall) r.body.plan = await planFor(db, userId);
+          return J(r.body, r.status);
+        }
+        if (parts[3] === "etsy" && parts[4] === "end" && m === "POST") {
+          const r = await etsy.endEtsyListing(env, db, iid, "taken down by the seller");
+          return J(r, r.ended ? 200 : 409);
+        }
         // ---------- eBay: build the draft a person reviews ----------
         if (parts[3] === "ebay" && parts[4] === "draft" && m === "POST") {
           if (!ebay.ebayConfigured(env)) return J({ error: "eBay listing isn't switched on yet." }, 503);
@@ -1206,6 +1262,11 @@ export default {
         for (const id of r.new || []) await ebaySoldAlert(db, env, id, origin).catch(e => console.log("ebaySoldAlert", e));
       } catch (e) { await owner.opsFail(db, "ebay order sync failed", e); console.log("ebay order sync failed", user_id, String(e && e.message || e)); }
     }
+    // Etsy cross-listings: a sale there ends the eBay copy and emails the seller.
+    try {
+      const sold = await etsy.pollSold(env, db, origin);
+      if (sold.length) console.log("etsy poll", JSON.stringify(sold));
+    } catch (e) { await owner.opsFail(db, "etsy poll failed", e); console.log("etsy poll failed", String(e && e.message || e)); }
     // Price-drop nudges, after the order read so a listing that just sold is not nudged.
     try { await nudges.emailNudges(env, db, origin); } catch (e) { await owner.opsFail(db, "price nudges failed", e); console.log("price nudges failed", String(e && e.message || e)); }
     // Labels paid for by card where the seller never came back from Stripe: buy them now.

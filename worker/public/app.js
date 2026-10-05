@@ -445,7 +445,7 @@ function ebayPanelHtml(b, canList) {
   const el = b.ebay;
   if (el && el.status === "published")
     return `<div class="card" style="border-color:var(--cobalt)"><b>Listed on eBay ✓</b>
-      <div style="height:8px"></div><a class="btn" style="display:block;text-align:center;text-decoration:none;background:var(--cobalt)" href="${esc(el.listing_url || "#")}" target="_blank" rel="noopener">View on eBay ↗</a><div id="guideBox" style="margin-top:10px;font-size:.82rem"></div></div>`;
+      <div style="height:8px"></div><a class="btn" style="display:block;text-align:center;text-decoration:none;background:var(--cobalt)" href="${esc(el.listing_url || "#")}" target="_blank" rel="noopener">View on eBay ↗</a><div id="guideBox" style="margin-top:10px;font-size:.82rem"></div><div id="etsyBox"></div></div>`;
   if (!canList) return "";
   if (ebayStatus && !ebayStatus.configured) return "";
   return `<div class="card" style="border-color:var(--cobalt)">
@@ -1157,7 +1157,80 @@ async function renderItemDetail(id) {
   if ($("#retry")) $("#retry").onclick = () => rerun();
   state.view = "item"; state.itemId = id;
   if ($("#guideBox")) guideBox(id);
+  if ($("#etsyBox")) etsyBox(id);
   if (pending) pollT = setTimeout(() => { if (state.view === "item") renderItemDetail(id); }, 4000);
+}
+
+// Etsy cross-listing (vintage only): connect the shop, review, list; whichever sells first takes
+// it off the other. Hidden entirely until Etsy is switched on server-side.
+const ERA_LABEL = v => v === "before_1700" ? "Before 1700" : v.replace("_", "–");
+async function connectEtsy() {
+  try {
+    const native = !!inAppBrowser();
+    const { url } = await api("/etsy/connect", { method: "POST", body: JSON.stringify({ native }) });
+    toast("Opening Etsy…");
+    if (native) await capPlugin("Browser").open({ url }); else location.href = url;
+  } catch (e) { toast(e.message); }
+}
+if (inAppBrowser()) {
+  capPlugin("App").addListener("appUrlOpen", ev => {
+    const u = String(ev && ev.url || "");
+    if (!/^ai\.banksy\.bottletree:\/\/etsy\//.test(u)) return;
+    capPlugin("Browser").close().catch(() => {});
+    toast(/\/failed/.test(u) ? "Etsy wasn't connected — try again" : "Etsy connected ✓");
+    if (state.view === "item" && state.itemId) renderItemDetail(state.itemId);
+  });
+}
+async function etsyBox(id) {
+  const box = $("#etsyBox"); if (!box) return;
+  let p; try { p = await api(`/items/${id}/etsy`); } catch { return; }
+  if (!p.configured) { box.innerHTML = ""; return; }
+  const notice = `<div class="muted" style="font-size:.68rem;margin-top:8px">${esc(p.notice || "")}</div>`;
+  const wrap = inner => `<div style="border-top:1px solid var(--line,#E0D2B4);margin-top:12px;padding-top:10px;font-size:.88rem">${inner}${notice}</div>`;
+  const L = p.listing;
+  if (L && L.status === "active") {
+    box.innerHTML = wrap(`<b>Also on Etsy ✓</b> <a href="${esc(L.url || "#")}" target="_blank" rel="noopener" style="color:var(--cobalt);font-weight:700">View ↗</a>
+      <div class="muted" style="font-size:.78rem">When it sells on either one, we take it off the other.</div>
+      <button class="btn sec sm" id="etsyEnd" style="margin-top:8px">Take it off Etsy</button>`);
+    $("#etsyEnd").onclick = async () => {
+      if (!confirm("Take this listing off Etsy? It stays on eBay.")) return;
+      try { await api(`/items/${id}/etsy/end`, { method: "POST" }); toast("Taken off Etsy"); etsyBox(id); } catch (e) { toast(e.message); }
+    };
+    return;
+  }
+  if (L && L.status === "sold") { box.innerHTML = wrap(`<b>Sold on Etsy ✓</b> Ship it from <a href="https://www.etsy.com/your/orders/sold" target="_blank" rel="noopener" style="color:var(--cobalt)">Etsy › Orders</a>.`); return; }
+  if (!p.connected) {
+    box.innerHTML = wrap(`<b>Also sell it on Etsy?</b><div class="muted" style="font-size:.8rem;margin:4px 0 8px">For vintage pieces (20+ years old). One tap lists it on your own Etsy shop too, and whichever sells first comes off the other.</div>
+      <button class="btn sec sm" id="etsyOn">Connect my Etsy shop</button>`);
+    $("#etsyOn").onclick = connectEtsy; return;
+  }
+  if (p.vintage === false) { box.innerHTML = wrap(`<b>Etsy</b><div class="muted" style="font-size:.8rem">${esc(p.why || "Etsy only takes vintage items from resellers.")}</div>`); return; }
+  const opt = (v, t, sel) => `<option value="${esc(v)}" ${sel ? "selected" : ""}>${esc(t)}</option>`;
+  const noShip = !(p.shipping_profiles || []).length;
+  box.innerHTML = wrap(`<b>Also list on Etsy</b> <span class="muted" style="font-size:.78rem">(${esc(p.shop_name || "your shop")})</span>
+    ${L && L.status === "error" ? `<div style="font-size:.8rem;color:var(--rust)">Last try didn't go through: ${esc(L.error || "")}</div>` : ""}
+    <label style="margin-top:8px">Title</label><input id="etTitle" maxlength="140" value="${esc(p.title || "")}">
+    <label>Price ($)</label><input id="etPrice" inputmode="decimal" value="${p.price_cents ? (p.price_cents / 100).toFixed(2) : ""}">
+    <label>When was it made?${p.period ? ` <span class="muted" style="font-weight:400">(estimate says ${esc(p.period)})</span>` : ""}</label>
+    <select id="etWhen">${p.when_made ? "" : opt("", "Pick one…", true)}${(p.when_made_choices || []).map(v => opt(v, ERA_LABEL(v), v === p.when_made)).join("")}</select>
+    <label>Etsy category</label>
+    <select id="etCat">${(p.categories || []).length ? p.categories.map((c, i) => opt(c.id, c.path, i === 0)).join("") : opt("", "No match found — list it from Etsy instead", true)}</select>
+    <label>Shipping profile</label>
+    ${noShip ? `<div style="font-size:.8rem;color:var(--rust)">Your Etsy shop has no shipping profile yet. <a href="${esc(p.shipping_help)}" target="_blank" rel="noopener" style="color:var(--cobalt)">Make one on Etsy</a>, then come back.</div>`
+             : `<select id="etShip">${p.shipping_profiles.map((s, i) => opt(s.id, s.title, i === 0)).join("")}</select>`}
+    <label>Description</label><textarea id="etDesc" rows="5">${esc(p.description || "")}</textarea>
+    <div class="muted" style="font-size:.76rem;margin:6px 0">Etsy charges its own $0.20 listing fee to your Etsy account, plus its sale fees if it sells. Auto-renew is off.</div>
+    <button class="btn" id="etsyGo" style="background:#F1641E" ${noShip ? "disabled" : ""}>List it on Etsy</button>`);
+  $("#etsyGo").onclick = async () => {
+    const btn = $("#etsyGo"); btn.disabled = true; btn.textContent = "Listing on Etsy…";
+    try {
+      const r = await api(`/items/${id}/etsy/publish`, { method: "POST", body: JSON.stringify({
+        title: $("#etTitle").value, price: $("#etPrice").value, when_made: $("#etWhen").value, taxonomy_id: $("#etCat").value,
+        shipping_profile_id: ($("#etShip") || {}).value, description: $("#etDesc").value }) });
+      toast("Listed on Etsy ✓"); etsyBox(id);
+      if (r.url) setTimeout(() => window.open(r.url, "_blank", "noopener"), 300);
+    } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "List it on Etsy"; }
+  };
 }
 
 // Public price guide (/price/...): the item's page link, and the seller's switch to keep it off.
@@ -1497,6 +1570,9 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
       const shippoBack = new URLSearchParams(location.search).get("shippo");
       if (shippoBack) { history.replaceState(null, "", "/" + location.hash); setTimeout(() => toast(shippoBack === "connected" ? "Shippo connected ✓ You can buy labels now." : "Shippo wasn't connected. Try again from a sale."), 600); }
       if (fromEbay) history.replaceState(null, "", "/");
+      // Back from connecting an Etsy shop in a browser tab.
+      const etsyBack = new URLSearchParams(location.search).get("etsy");
+      if (etsyBack) { history.replaceState(null, "", "/"); setTimeout(() => toast(etsyBack === "connected" ? "Etsy connected ✓ Open a listed vintage item to put it on Etsy too." : "Etsy wasn't connected. Try again from an item."), 600); }
       // Back from paying for a shipping label (Stripe Checkout): buy it now, then show the order.
       const lp = new URLSearchParams(location.search), labelPaid = lp.get("labelpaid");
       if (labelPaid) {
