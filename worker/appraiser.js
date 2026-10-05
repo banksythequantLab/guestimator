@@ -1692,7 +1692,13 @@ export async function appraise(env, req) {
   const currency = req.currency || "USD";
   const warnings = [];
 
+  // Per-step timings, kept on the result (timings_ms) so the slow step can be found from real runs.
+  const t0 = Date.now(), marks = {};
+  const mark = k => { marks[k] = Date.now() - t0; };
+  // The metal-price lookup doesn't depend on the photos, so it runs while they are read.
+  const spotP = metalPrices().catch(() => null);
   const findings = await mapLimit(req.photos, 3, p => photoFindings(c, p.kind, p.url));
+  mark("vision");
   // The last layer. Three client-side defences now stand between an iPhone's HEIC and this line -
   // the accept lists, the conversion in shrink(), the refusal in acceptPhoto() - and if all three
   // are bypassed (an older cached app.js, a direct API call, a browser that decodes HEIC for the
@@ -1719,7 +1725,7 @@ export async function appraise(env, req) {
     warnings.push("no photos were supplied, so everything below is inferred from your description alone");
 
   // Give the reasoner today's metal prices up front so its own number starts from reality.
-  const spot = await metalPrices();
+  const spot = await spotP;
   const spotSheet = spot
     ? `\n\n## Today's metal prices (${spot.source}, ${spot.as_of.slice(0, 10)})\n` +
       Object.keys(METAL_SYMBOL).filter(k => spot[k]).map(k => `${k}: $${spot[k].toFixed(2)} per troy ounce`).join("\n") +
@@ -1749,6 +1755,7 @@ export async function appraise(env, req) {
       if (!incomplete(second) || score(second) > score(first)) first = second;
     } catch (e) { warnings.push(`retry failed: ${e.message}`); }
   }
+  mark("identify");
   forgetAnswered(first, req.description);
 
   const ident = { name: "", category: "", maker: "", origin: "", period: "", style: "",
@@ -1833,6 +1840,7 @@ export async function appraise(env, req) {
   // eBay first: it is the only live, free, permitted price feed we have. Tavily backfills the
   // categories eBay is thin on, and covers us entirely when no eBay keys are configured.
   const [live, sold] = await Promise.all([ebayActive(env, q), ebaySold(env, q)]);
+  mark("comps");
   // Sold first: what buyers paid is the strongest evidence, and the repricer reads top-down.
   const soldHits = (sold || []).slice(0, 8);
   const hits = [...soldHits, ...(live || []),
@@ -1941,6 +1949,7 @@ export async function appraise(env, req) {
           `comparable — the rest were set aside as different items (${rejected.slice(0, 3).map(r => r.why).filter(Boolean).join("; ")}). ` +
           `A price built on ${comparables.length} listing${comparables.length === 1 ? "" : "s"} is thinner than the count suggests.`);
     } catch (e) { warnings.push(`comps re-pricing failed: ${e.message}`); await coldPass(); }
+    mark("reprice");
 
     // The market line is built from every live listing, because the model needs the whole pool in
     // front of it before it can judge any of it. But what the dealer READS has to agree with the
@@ -2130,6 +2139,7 @@ export async function appraise(env, req) {
     warnings.push("no price could be set for this item; enter one by hand, or re-run the estimate");
 
   return {
+    timings_ms: { ...marks, total: Date.now() - t0 },
     melt,
     lot,
     // The identification gate. A dealer reads the digits and skips the warning above them, so a

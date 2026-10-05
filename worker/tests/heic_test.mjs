@@ -94,7 +94,10 @@ ok("appraise() throws the refusal", /const blind = blindRunError\(req\.photos, f
 // helper, and a whole-file indexOf compares against that one instead and always fails.
 const PIPE = APP.slice(APP.indexOf("export async function appraise"));
 ok("it is decided before any money is spent on the reasoner",
-   PIPE.indexOf("if (blind) throw new Error(blind)") < PIPE.indexOf("const spot = await metalPrices()"));
+   PIPE.indexOf("if (blind) throw new Error(blind)") < PIPE.indexOf("const spot = await spotP"));
+// The free metal-price fetch now starts alongside the photo reads; it must still be started
+// inside appraise() and only AWAITED (used by the reasoner) after the blind check.
+ok("the spot price lookup is awaited, not re-fetched", PIPE.indexOf("const spot = await spotP") > 0);
 ok("a thrown appraisal is marked error", /UPDATE appraisals SET status='error'/.test(WRK));
 ok("and refunds the dealer's estimate", /refundEstimate\(db, owner\.user_id, ap\.funded_by/.test(WRK));
 ok("with the real reason, not a generic one", !/refundEstimate\([^)]*"appraisal failed"\)/.test(WRK));
