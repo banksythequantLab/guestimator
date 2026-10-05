@@ -134,6 +134,10 @@ async function runAppraisal(env, appraisalId, item, photos) {
       markings: item.markings || "",
       currency: "USD",
       photos: photos.map(p => ({ url: `${env.PUBLIC_ORIGIN}/p/${p.r2_key}`, kind: p.kind })),
+      // How many earlier runs on this item withheld the price to ask questions. After one round
+      // of answers the appraiser prices it instead of asking again (shouldGate).
+      answered_rounds: (await db.prepare("SELECT COUNT(*) AS n FROM appraisals WHERE item_id=? AND id<>? AND status='done' AND json_extract(result_json,'$.needs_clarification') IS NOT NULL")
+        .bind(item.id, appraisalId).first().catch(() => null))?.n || 0,
     };
     let result, text;
     if (env.APPRAISER_URL) {
@@ -972,6 +976,22 @@ export default {
           await db.prepare("DELETE FROM appraisals WHERE item_id=?").bind(iid).run();
           const r = await db.prepare("DELETE FROM items WHERE id=?").bind(iid).run();
           return J({ deleted: r.meta.changes });
+        }
+        // ---------- "Show the price anyway": the dealer accepts a low-confidence estimate ----------
+        // Free - no new run. Only for low confidence; when the photos and the dealer's words name
+        // different objects there is no single price to show, so that still needs an answer.
+        if (parts[3] === "accept-estimate" && m === "POST") {
+          const ap = await db.prepare("SELECT id, result_json FROM appraisals WHERE item_id=? AND status='done' ORDER BY created_at DESC LIMIT 1").bind(iid).first();
+          let res = null; try { res = ap?.result_json ? JSON.parse(ap.result_json) : null; } catch {}
+          if (!res) return J({ error: "estimate this item first" }, 409);
+          if (!res.needs_clarification) return J({ ok: true });
+          if (res.needs_clarification.candidates) return J({ error: "Pick which of the two it is first." }, 409);
+          if (!(res.price_range && res.price_range.high > 0)) return J({ error: "There's no price to show yet — answer a question or re-run it." }, 409);
+          res.accepted_uncertain = { reason: res.needs_clarification.reason, at: now() };
+          res.needs_clarification = null;
+          res.warnings = [...(res.warnings || []), "you chose to see this price although the identification is uncertain — check the comparables before relying on it"];
+          await db.prepare("UPDATE appraisals SET result_json=? WHERE id=?").bind(JSON.stringify(res), ap.id).run();
+          return J({ ok: true });
         }
         // ---------- Etsy cross-listing: what can be offered, list it, take it down ----------
         if (parts[3] === "etsy" && parts.length === 4 && m === "GET") {

@@ -52,6 +52,10 @@ eq("confident does not gate", shouldGate(null, 0.9, false), false);
 // median for four actual rolls. Asking the dealer to confirm what the evidence has settled is
 // how a gate gets ignored on the day it matters.
 eq("corroboration overrides low confidence", shouldGate(null, 0.5, true), false);
+// One round of questions, never a loop (the brass mouse, 2026-10-05: five paid runs at 30-40%).
+eq("after one answered round, low confidence prices instead of asking again", shouldGate(null, 0.3, false, 1), false);
+eq("first time, low confidence still asks", shouldGate(null, 0.3, false, 0), true);
+eq("a conflict with the dealer still asks after answers", shouldGate(CONFLICT, 0.9, false, 3), true);
 eq("corroboration is irrelevant when already confident", shouldGate(null, 0.9, true), false);
 
 console.log(`${pass} passed, ${fail} failed`);

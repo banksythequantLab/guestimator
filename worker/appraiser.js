@@ -718,11 +718,17 @@ export function unitDisagreement(meltValue, count, marketMedian) {
 // metal and market agree — cannot be produced on demand against the live API, and a rule this
 // consequential should not rest on an inline condition nobody can exercise.
 export const CONFIDENCE_FLOOR = 0.55;
-export function shouldGate(idConflict, confidence, corroborated) {
+export function shouldGate(idConflict, confidence, corroborated, answeredRounds = 0) {
   // A disagreement with the dealer always gates. They are holding the object; if the model's
   // reading and theirs are different objects, no amount of corroboration settles which is right,
   // because every other signal here is downstream of the model's reading.
   if (idConflict) return true;
+  // One round of questions, never a loop. Confidence here is the model's certainty about MAKER
+  // and PERIOD, and an unmarked decorative piece has neither to find: Derek's 18" brass mouse
+  // (2026-10-05) answered nine questions over five paid runs and stayed at 30-40%, each run
+  // asking new ones while a usable $10-$40 range sat behind the gate. Once the dealer has
+  // answered, the price is shown with the uncertainty warning instead of asking again.
+  if (answeredRounds > 0) return false;
   // Otherwise low self-reported confidence gates — unless two independent routes have agreed.
   return confidence < CONFIDENCE_FLOOR && !corroborated;
 }
@@ -2137,7 +2143,7 @@ export async function appraise(env, req) {
     // against a $132 median for four actual rolls. Withholding a price there would be asking a
     // dealer to confirm something the evidence had already settled — and a gate that fires when
     // it is not needed is how a gate gets ignored when it is.
-    needs_clarification: shouldGate(idConflict, clamp(first.confidence ?? 0.5), corroborated) ? {
+    needs_clarification: shouldGate(idConflict, clamp(first.confidence ?? 0.5), corroborated, Number(req.answered_rounds) || 0) ? {
       reason: idConflict
         ? "your description and the photographs disagree about what this is"
         : `the photographs do not settle what this is (${Math.round(clamp(first.confidence ?? 0.5) * 100)}% confident)`,

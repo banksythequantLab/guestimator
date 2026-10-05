@@ -1001,6 +1001,8 @@ async function renderItemDetail(id) {
               : `<input id="clarify${n}" style="margin-top:4px" placeholder="${n === 0 ? "A few words is enough" : "Optional"}">`}`).join("")}
           <div style="height:8px"></div>
           <button class="btn sm" id="clarifyGo">Answer &amp; price it</button>
+          ${!nc.candidates && pr && pr.high > 0 ? `<button class="btn sec sm" id="acceptGuess" style="margin-left:6px">Show the price anyway</button>
+            <div class="muted" style="margin-top:6px;font-size:.78rem">Free. Unmarked pieces often can't be pinned to a maker — the price comes from similar items selling now.</div>` : ""}
           ${r.melt && r.melt.applied ? `<div class="muted" style="margin-top:8px;font-size:.8rem">What we do know: it holds <b>$${r.melt.value}</b> of ${esc(r.melt.metal)} at today's spot — but that figure assumes the identification too.</div>` : ""}
         </div>`
       : `<div class="kpis" style="margin:12px 0">
@@ -1163,6 +1165,9 @@ async function renderItemDetail(id) {
     await answerWith(answered.join(". "), $("#clarifyGo"));
   };
   if ($("#retry")) $("#retry").onclick = () => rerun();
+  if ($("#acceptGuess")) $("#acceptGuess").onclick = async () => {
+    try { await api(`/items/${id}/accept-estimate`, { method: "POST" }); renderItemDetail(id); } catch (e) { toast(e.message); }
+  };
   state.view = "item"; state.itemId = id;
   if ($("#guideBox")) guideBox(id);
   if ($("#etsyBox")) etsyBox(id);
