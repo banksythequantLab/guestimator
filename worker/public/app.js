@@ -80,6 +80,7 @@ async function getAuthCfg() {
   return authCfg;
 }
 let gisInited = false;
+const botStart = {};   // item id -> when its robot animation started (see renderItemDetail)
 // iPhone, iPod, and iPad (which reports itself as a Mac with a touch screen).
 const appleTouch = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 function loadGis() {
@@ -980,7 +981,7 @@ async function renderItemDetail(id) {
   app.innerHTML = `
     <button class="back" id="toItems" style="padding:8px 0">‹ My items</button>
     <div class="thumbs">${photos.map(p => `<img src="${esc(p.url)}" alt="${esc(p.kind)}" title="${esc(p.kind)}">`).join("")}</div>
-    ${pending ? `<div class="card" style="text-align:center"><div class="big" style="font-size:1.3rem">Guestimating…</div><div class="muted">Nemotron is reading ${photos.length} photo${photos.length === 1 ? "" : "s"}. Usually under a minute.</div></div>` : ""}
+    ${pending ? `<div class="card" style="text-align:center"><canvas id="guessBot" width="160" height="90" role="img" aria-label="A little robot checks the item with a magnifying glass, then researches prices on a computer" style="width:100%;max-width:480px;aspect-ratio:16/9;image-rendering:pixelated;border-radius:10px;display:block;margin:0 auto 10px"></canvas><div class="big" style="font-size:1.3rem">Guestimating…</div><div class="muted">Nemotron is reading ${photos.length} photo${photos.length === 1 ? "" : "s"}. Usually under a minute.</div></div>` : ""}
     ${appraisal && appraisal.status === "error" ? `<div class="card" style="border-color:var(--rust)"><b>The guestimate didn't go through.</b><div class="muted" style="font-size:.85rem">${esc(appraisal.error)}</div><div style="height:8px"></div><button class="btn sec sm" id="retry">Try again</button></div>` : ""}
     ${r ? `
     <div class="card">
@@ -1165,6 +1166,12 @@ async function renderItemDetail(id) {
   state.view = "item"; state.itemId = id;
   if ($("#guideBox")) guideBox(id);
   if ($("#etsyBox")) etsyBox(id);
+  // The 8-bit robot (robot.js) keeps its place across the 4-second re-renders instead of
+  // starting over each time: it is timed from when this estimate was first seen pending.
+  if (pending && $("#guessBot") && window.GuessBot) {
+    botStart[id] = botStart[id] || performance.now();
+    GuessBot.mount($("#guessBot"), { start: (performance.now() - botStart[id]) / 1000, inApp: true });
+  }
   if (pending) pollT = setTimeout(() => { if (state.view === "item") renderItemDetail(id); }, 4000);
 }
 
