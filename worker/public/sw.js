@@ -1,5 +1,5 @@
 // Minimal service worker — enables install; network-first, caches app shell.
-const CACHE = "gs-v54";
+const CACHE = "gs-v55";
 const SHELL = ["/", "/app.js", "/sales.js", "/orders.js", "/billing.js", "/rc-sdk.js", "/manifest.webmanifest", "/icon.svg"];
 // Share target (manifest share_target): photos shared from the phone's gallery arrive as a POST
 // to /share-target. They're parked in the "gs-share" cache and the app picks them up at /?shared=N.

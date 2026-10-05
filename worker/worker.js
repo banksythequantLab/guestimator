@@ -1286,8 +1286,15 @@ export default {
             item.description = b.dealer_description ?? item.description; item.markings = b.markings ?? item.markings;
           }
           // metered: unlimited plan -> pro plan (300/mo) -> credits -> 402 with the paywall hint
-          const fundedBy = await consumeEstimate(db, userId);
-          if (!fundedBy) return J({ error: "You're out of credits", paywall: true, plan: await planFor(db, userId) }, 402);
+          // Answering the questions on this item is part of the same estimate, so it is free:
+          // the last run withheld its price to ask (needs_clarification). That follow-up then
+          // either prices it or marks it unknown - it never asks again - so this can't repeat.
+          // Derek, 2026-10-05, after a question loop cost 5 credits on one brass mouse.
+          const lastAp = await db.prepare("SELECT status, result_json FROM appraisals WHERE item_id=? ORDER BY created_at DESC LIMIT 1").bind(iid).first();
+          let followUp = false;
+          try { const lr = lastAp?.status === "done" && lastAp.result_json ? JSON.parse(lastAp.result_json) : null; followUp = !!(lr && lr.needs_clarification && !lr.unknown); } catch {}
+          const fundedBy = followUp ? null : await consumeEstimate(db, userId);
+          if (!followUp && !fundedBy) return J({ error: "You're out of credits", paywall: true, plan: await planFor(db, userId) }, 402);
           const apId = uid();
           await db.prepare("INSERT INTO appraisals (id,item_id,status,created_at,funded_by) VALUES (?,?,'pending',?,?)").bind(apId, iid, now(), fundedBy).run();
           if (env.APPRAISALS) await env.APPRAISALS.send({ appraisalId: apId, itemId: iid });
