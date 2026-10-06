@@ -203,6 +203,9 @@ async function ensureListingCopy(env, db, appraisalId, item, result) {
   return result;
 }
 
+// A database hiccup worth one retry, as opposed to a real error.
+const transientD1 = e => /network connection lost|connection (was )?reset|D1_ERROR:.*(timeout|timed out|internal error|overloaded)|storage operation exceeded/i.test(String(e && e.message || e));
+
 async function itemBundle(db, itemId) {
   const item = await db.prepare("SELECT * FROM items WHERE id=?").bind(itemId).first();
   if (!item) return null;
@@ -1445,7 +1448,15 @@ export default {
       "AND EXISTS (SELECT 1 FROM ebay_listings l WHERE l.user_id=a.user_id AND l.status='published') ORDER BY a.orders_synced_at LIMIT 25").bind(cutoff).all();
     for (const { user_id } of results) {
       try {
-        const r = await ebayOrders.syncOrders(env, db, user_id);
+        // One retry for a dropped database connection ("D1_ERROR: Network connection lost"), which
+        // otherwise showed up as a failure on the owner page although the next run (15 min) was fine.
+        let r;
+        try { r = await ebayOrders.syncOrders(env, db, user_id); }
+        catch (e) {
+          if (!transientD1(e)) throw e;
+          await new Promise(res => setTimeout(res, 1500));
+          r = await ebayOrders.syncOrders(env, db, user_id);
+        }
         for (const id of r.new || []) await ebaySoldAlert(db, env, id, origin).catch(e => console.log("ebaySoldAlert", e));
       } catch (e) { await owner.opsFail(db, "ebay order sync failed", e); console.log("ebay order sync failed", user_id, String(e && e.message || e)); }
     }
