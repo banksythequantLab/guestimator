@@ -38,6 +38,7 @@ import * as labelpay from "./labelpay.js";
 import * as shipops from "./shipops.js";
 import * as owner from "./owner.js";
 import * as share from "./share.js";
+import * as market from "./market.js";
 import * as ebaycare from "./ebaycare.js";
 import * as onboard from "./onboard.js";
 import * as growth from "./growth.js";
@@ -264,6 +265,7 @@ export default {
           : new Response("This link isn't available any more.", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
       }
       // ---------- PUBLIC: garage / estate sale pages ----------
+      if (parts[0] === "market" && parts.length === 1 && m === "GET") return await market.marketPage(env, url);
       if (parts[0] === "sale" && parts[1] && m === "GET")
         return await garage.salePages(request, env, url, parts, await currentUser(request, db));
       // ---------- Shippo OAuth callback: a seller connected their own Shippo account ----------

@@ -360,7 +360,7 @@ async function renderHome() {
     <div id="inviteCard"></div>
     <div id="ebayCard"></div>
     <div class="card"><div class="row" style="justify-content:space-between;align-items:center;gap:10px">
-      <div><b>Garage & estate sales</b><div class="muted" style="font-size:.82rem">Free sale page, price tags, holds, online buying</div></div>
+      <div><b>Sales & your shop</b><div class="muted" style="font-size:.82rem">Garage sale pages, plus your own shop on the <a href="/market" target="_blank" rel="noopener">Guestimator Market</a> (no cut taken)</div></div>
       <button class="btn sec sm" id="toSales" style="white-space:nowrap">Your sales <span id="salesBadge"></span></button></div></div>
     <div class="card" style="padding:12px 16px"><div class="row" style="justify-content:space-between;align-items:center;gap:10px">
       <div><b>Profit &amp; inventory</b><div class="muted" style="font-size:.82rem">What you've made, and what's still on the shelf</div></div>

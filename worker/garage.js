@@ -27,7 +27,14 @@ const H = (html, status = 200, cache = "no-store") =>
   new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": cache } });
 async function readJson(req) { try { return await req.json(); } catch { return {}; } }
 
-export const KINDS = { garage: "Garage sale", yard: "Yard sale", estate: "Estate sale", moving: "Moving sale" };
+export const KINDS = { garage: "Garage sale", yard: "Yard sale", estate: "Estate sale", moving: "Moving sale", shop: "Online shop" };
+// An online shop (2026-10-06) is a sale that never ends: no dates, no street address, listed on
+// the Guestimator Market (/market). Guestimator takes no cut of shop sales; the seller pays only
+// Stripe's own card fee on their own account.
+export const SHOP_ENDS = "9999-12-31";
+export const isShop = s => !!s && s.kind === "shop";
+/** Platform fee for an order in this sale: always 0 for an online shop. */
+export const saleFee = (sale, totalCents, bps) => isShop(sale) ? 0 : feeCents(totalCents, bps);
 const STATES = new Set("AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split(" "));
 const ONLINE_MIN_CENTS = 100;       // Stripe's floor is 50c; a $1 floor keeps the fee meaningful
 const HOLD_LIMIT_PER_HOUR = 5;      // per shopper IP, across all sales
@@ -51,7 +58,7 @@ export function phase(sale, date = new Date()) {
 
 /** The street address is private until the first day of the sale (in the sale's time zone). */
 export function addressVisible(sale, date = new Date()) {
-  return !!sale.street && phase(sale, date) !== "upcoming";
+  return !isShop(sale) && !!sale.street && phase(sale, date) !== "upcoming";
 }
 
 /** What a remote buyer pays for the item itself. */
@@ -77,6 +84,8 @@ export function cleanSale(b, { partial = false } = {}) {
   const str = (k, max) => String(b[k] ?? "").trim().slice(0, max);
   if (!partial || has("title")) { v.title = str("title", 90); if (!v.title) return { ok: false, error: "Give the sale a title" }; }
   if (!partial || has("kind")) { v.kind = KINDS[b.kind] ? b.kind : "garage"; }
+  // A shop has no dates and never shows a street address.
+  if (v.kind === "shop") { b = { ...b, starts_on: b.starts_on || localDate(new Date(), "America/New_York"), ends_on: SHOP_ENDS, street: null, hours: null }; }
   if (has("description")) v.description = str("description", 2000) || null;
   if (has("street")) v.street = str("street", 120) || null;
   if (!partial || has("city")) { v.city = str("city", 60); if (!v.city) return { ok: false, error: "Enter the city" }; }
@@ -327,7 +336,7 @@ export async function sellerApi(request, env, url, parts, userId, ctx) {
                  items: items.map(i => ({ ...i, thumb: i.thumb_key ? `/p/${i.thumb_key}` : null, guess: guess.get(i.item_id) || null })),
                  holds, orders,
                  payments: { platform_on: stripeReady(env), connected: !!seller?.connect_account_id, ready: !!seller?.stripe_payouts_ready,
-                             fee_bps: Number(env.GARAGE_FEE_BPS ?? 300) } });
+                             fee_bps: isShop(sale) ? 0 : Number(env.GARAGE_FEE_BPS ?? 300) } });
     }
     if (parts.length === 4 && m === "PATCH") {
       const b = await readJson(request);
@@ -447,7 +456,7 @@ export async function publicApi(request, env, url, parts, ctx) {
     let sql = `SELECT s.slug, s.kind, s.title, s.city, s.state, s.zip, s.starts_on, s.ends_on, s.hours, s.tz,
       (SELECT COUNT(*) FROM garage_sale_items gi WHERE gi.sale_id=s.id) AS items,
       (SELECT ${THUMB.replace("i.id", "gi.item_id")} FROM garage_sale_items gi WHERE gi.sale_id=s.id ORDER BY gi.sort LIMIT 1) AS thumb_key
-      FROM garage_sales s WHERE s.status='published' AND s.ends_on>=?`;
+      FROM garage_sales s WHERE s.status='published' AND s.kind<>'shop' AND s.ends_on>=?`;
     const args = [yesterday];
     if (state) { sql += " AND s.state=?"; args.push(state); }
     if (city) { sql += " AND lower(s.city)=lower(?)"; args.push(city); }
@@ -497,7 +506,7 @@ export async function publicApi(request, env, url, parts, ctx) {
     // Reserve atomically: only one buyer at a time can be paying for an item.
     const res = await db.prepare("UPDATE garage_sale_items SET status='pending' WHERE sale_id=? AND item_id=? AND status='available'").bind(sale.id, row.item_id).run();
     if (!res.meta?.changes) return H(msgPage("Not available right now", row.status === "sold" ? "Sorry, that one has sold." : "Someone else is holding or buying this item. Check back soon."), 409);
-    const fee = feeCents(total, env.GARAGE_FEE_BPS ?? 300);
+    const fee = saleFee(sale, total, env.GARAGE_FEE_BPS ?? 300);
     const orderId = uid(), t = now();
     const title = row.ai_title || row.name;
     const back = `${origin}/sale/${sale.slug}/item/${row.item_id}`;
@@ -511,7 +520,8 @@ export async function publicApi(request, env, url, parts, ctx) {
         line_items: { 0: { quantity: 1, price_data: { currency: "usd", unit_amount: itemC,
           product_data: { name: title.slice(0, 250), images: row.thumb_key ? { 0: `${origin}/p/${row.thumb_key}` } : undefined,
                           description: `${KINDS[sale.kind] || "Sale"}: ${sale.title} (${sale.city}, ${sale.state}) - ${fulfil === "ship" ? "shipped" : "local pickup"}`.slice(0, 500) } } } },
-        payment_intent_data: { application_fee_amount: fee,
+        // No fee at all on a shop sale: the field is left off (stripeForm drops undefined).
+        payment_intent_data: { application_fee_amount: fee > 0 ? fee : undefined,
                                metadata: { order_id: orderId, sale: sale.slug, item: row.item_id } },
         metadata: { order_id: orderId, sale: sale.slug, item: row.item_id },
       };
@@ -611,7 +621,7 @@ label{display:block;font-size:.85rem;margin:8px 0 3px;color:#4b5a55}input,textar
 .btn.alt{background:#fff;color:#0f6b59;border:1.5px solid #0f6b59}.muted{color:#6b7772;font-size:.88rem}footer{padding:24px 0 40px;color:#6b7772;font-size:.85rem}
 .ok{background:#dff1ea;border:1px solid #b5dccd;border-radius:10px;padding:10px 12px;margin:14px 0}`;
 
-function page({ title, desc, body, image, canonical }) {
+export function page({ title, desc, body, image, canonical }) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title><meta name="description" content="${esc(desc)}">
 <meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">${image ? `<meta property="og:image" content="${esc(image)}">` : ""}
@@ -623,10 +633,12 @@ function msgPage(title, text) {
 }
 const fmtDay = d => new Date(d + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 export function whenText(s) {
+  if (isShop(s)) return "Open now · buy any time";
   const days = s.starts_on === s.ends_on ? fmtDay(s.starts_on) : `${fmtDay(s.starts_on)} – ${fmtDay(s.ends_on)}`;
   return s.hours ? `${days} · ${s.hours}` : days;
 }
 function whereHtml(s, reveal) {
+  if (isShop(s)) return `Ships from ${esc(s.city)}, ${esc(s.state)} · <a href="/market">Browse the Guestimator Market</a>`;
   if (reveal) {
     const full = `${s.street}, ${s.city}, ${s.state}${s.zip ? " " + s.zip : ""}`;
     return `${esc(full)} · <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(full)}" target="_blank" rel="noopener">Map</a>`;
@@ -750,26 +762,28 @@ export async function salePages(request, env, url, parts, viewer) {
       const o = await db.prepare("SELECT status, fulfilment FROM garage_orders WHERE id=? AND item_id=?").bind(paid, r.item_id).first();
       banner = o && (o.status === "paid" || o.status === "pending")
         ? `<div class="ok"><b>Thank you, your payment went through.</b> ${o.fulfilment === "ship" ? "The seller will ship it to the address you gave Stripe." :
+            isShop(sale) ? "The seller will email you to arrange pickup." :
             `Pick it up at the sale: ${esc(sale.street ? `${sale.street}, ` : "")}${esc(sale.city)}, ${esc(sale.state)} · ${esc(whenText(sale))}. Bring your Stripe receipt.`}</div>`
         : o?.status === "refund_needed" ? `<div class="note">Your payment went through, but this item sold at the sale a moment earlier. The seller will refund you.</div>` : "";
     }
     if (url.searchParams.get("cancelled")) banner = `<div class="note">Checkout was cancelled. Nothing was charged.</div>`;
     const buyBox = !canBuy || !open ? "" : `<div class="box"><b>Buy it now</b>
 <form method="post" action="/api/public/garage/checkout"><input type="hidden" name="sale" value="${esc(sale.slug)}"><input type="hidden" name="item" value="${esc(r.item_id)}">
-${sale.pickup_ok ? `<label><input type="radio" name="fulfilment" value="pickup" style="width:auto" ${sale.pickup_ok ? "checked" : ""}> Pick up at the sale · ${esc(money(onP))}</label>` : ""}
+${sale.pickup_ok ? `<label><input type="radio" name="fulfilment" value="pickup" style="width:auto" ${sale.pickup_ok ? "checked" : ""}> ${isShop(sale) ? `Local pickup near ${esc(sale.city)}, ${esc(sale.state)}` : "Pick up at the sale"} · ${esc(money(onP))}</label>` : ""}
 ${sale.ship_ok && r.ship_cents != null ? `<label><input type="radio" name="fulfilment" value="ship" style="width:auto" ${!sale.pickup_ok ? "checked" : ""}> Ship to me · ${esc(money(onP))} + ${r.ship_cents ? esc(money(r.ship_cents)) + " shipping" : "free shipping"}</label>` : ""}
 ${!sale.pickup_ok && (r.ship_cents == null || !sale.ship_ok) ? `<p class="muted">This item can't be shipped.</p>` : `<button class="btn">Pay securely with Stripe</button>`}
-</form><p class="muted">Payment goes to the seller through Stripe. The item is reserved for you for ${CHECKOUT_MINUTES} minutes while you pay.</p></div>`;
-    const holdBox = !open ? "" : `<div class="box"><b>Ask the seller to hold it</b><form id="hold"><label>Your name</label><input name="name" required maxlength="60">
+</form><p class="muted">Payment goes to the seller through Stripe. The item is reserved for you for ${CHECKOUT_MINUTES} minutes while you pay.${isShop(sale) ? " Guestimator takes no cut." : ""}</p></div>`;
+    const holdBox = !open || isShop(sale) ? "" : `<div class="box"><b>Ask the seller to hold it</b><form id="hold"><label>Your name</label><input name="name" required maxlength="60">
 <label>Phone</label><input name="phone" type="tel" required maxlength="30"><label>Note (optional)</label><input name="note" maxlength="300" placeholder="e.g. I can come Saturday at 9">
 <button class="btn alt">Send hold request</button></form><p class="muted" id="hmsg">The seller gets your name and number and decides. It isn't held until they say so.</p></div>
 <script>document.getElementById('hold').onsubmit=async function(e){e.preventDefault();var f=new FormData(this),m=document.getElementById('hmsg');m.textContent='Sending...';
 var r=await fetch('/api/public/garage/hold',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sale:${JSON.stringify(sale.slug)},item:${JSON.stringify(r.item_id)},name:f.get('name'),phone:f.get('phone'),note:f.get('note')})});
 var j=await r.json().catch(function(){return{}});m.textContent=r.ok?'Sent. The seller will get back to you.':(j.error||'That did not go through.');if(r.ok)this.reset();};</script>`;
-    const onlineLine = canBuy && onP !== r.price_cents ? `<div class="muted">At the sale: ${esc(money(r.price_cents))} · Online: ${esc(money(onP))}</div>` : "";
-    const body = `${header}<div class="wrap">${banner}${endedNote}<p><a href="/sale/${esc(sale.slug)}">← All items in this sale</a></p><div class="item">
+    const shop = isShop(sale);
+    const onlineLine = !shop && canBuy && onP !== r.price_cents ? `<div class="muted">At the sale: ${esc(money(r.price_cents))} · Online: ${esc(money(onP))}</div>` : "";
+    const body = `${header}<div class="wrap">${banner}${endedNote}<p><a href="/sale/${esc(sale.slug)}">← ${shop ? "More from this seller" : "All items in this sale"}</a>${shop ? ` · <a href="/market">Guestimator Market</a>` : ""}</p><div class="item">
 <div class="gal">${photos.map(p => `<img src="/p/${esc(p.r2_key)}" alt="${esc(title)}" loading="lazy">`).join("") || `<div class="muted">No photo</div>`}</div>
-<div><h2 style="font:700 1.5rem/1.25 Georgia,serif;margin:0">${esc(title)}</h2><div class="price">${esc(money(r.price_cents))}</div>${onlineLine}${statusTag(r)}
+<div><h2 style="font:700 1.5rem/1.25 Georgia,serif;margin:0">${esc(title)}</h2><div class="price">${esc(money(shop ? onP : r.price_cents))}</div>${onlineLine}${statusTag(r)}
 ${desc ? `<p style="white-space:pre-line">${esc(desc)}</p>` : ""}${buyBox}${holdBox}</div></div></div>`;
     return H(page({ title: `${title} · ${money(r.price_cents)} · ${sale.title}`, desc: `${kind} in ${sale.city}, ${sale.state}. ${whenText(sale)}.`,
       image: photos[0] ? `${origin}/p/${photos[0].r2_key}` : null, canonical: `${origin}/sale/${sale.slug}/item/${r.item_id}`, body }));

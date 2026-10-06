@@ -1,9 +1,9 @@
 // Guestimator — garage, yard and estate sales (seller screens). Loaded after app.js and uses its
 // globals: $, app, api, esc, money, toast, setChrome, renderHome, renderItemDetail, state, isNative.
-const SALE_KINDS = { garage: "Garage sale", yard: "Yard sale", estate: "Estate sale", moving: "Moving sale" };
+const SALE_KINDS = { garage: "Garage sale", yard: "Yard sale", estate: "Estate sale", moving: "Moving sale", shop: "Online shop (Guestimator Market, no fees)" };
 const dollars = c => (c == null ? "" : (c / 100).toFixed(2).replace(/\.00$/, ""));
 const dayFmt = d => new Date(d + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
-const saleWhen = s => (s.starts_on === s.ends_on ? dayFmt(s.starts_on) : `${dayFmt(s.starts_on)} – ${dayFmt(s.ends_on)}`) + (s.hours ? ` · ${s.hours}` : "");
+const saleWhen = s => s.kind === "shop" ? "Always open · on the Guestimator Market" : (s.starts_on === s.ends_on ? dayFmt(s.starts_on) : `${dayFmt(s.starts_on)} – ${dayFmt(s.ends_on)}`) + (s.hours ? ` · ${s.hours}` : "");
 const PHASE = { upcoming: "coming up", open: "on now", ended: "ended" };
 let stripeStatus = null;
 
@@ -19,10 +19,10 @@ async function loadStripeStatus() {
 function stripeCardHtml(s) {
   if (!s || s.off) return `<div class="card"><b>Sell online</b><div class="muted" style="font-size:.85rem;margin-top:4px">Online payments aren't switched on yet. Shoppers can still browse and ask you to hold things.</div></div>`;
   if (s.ready) return `<div class="card" style="border-color:var(--green)"><b>Online payments are on ✓</b>
-    <div class="muted" style="font-size:.85rem;margin:4px 0 8px">Buyers pay you by card through your own Stripe account. Refunds and disputes are handled in your Stripe dashboard. Guestimator keeps a small fee on online sales only.</div>
+    <div class="muted" style="font-size:.85rem;margin:4px 0 8px">Buyers pay you by card through your own Stripe account. Refunds and disputes are handled in your Stripe dashboard. Online shop sales on the Market: Guestimator takes no cut. Garage-sale online orders: a small fee.</div>
     <button class="btn sec sm" id="stripeDash">Open my Stripe dashboard</button></div>`;
   return `<div class="card" style="border-color:var(--cobalt)"><b>Let people buy online</b>
-    <div class="muted" style="font-size:.85rem;margin:4px 0 8px">Connect a free Stripe account in your name (about 10 minutes: name, address, bank account, SSN for tax reporting). Buyers pay you by card for pickup or shipping, your name is on their receipt, and Stripe pays you out. Guestimator keeps a small fee on online sales only; in-person sales are free.</div>
+    <div class="muted" style="font-size:.85rem;margin:4px 0 8px">Connect a free Stripe account in your name (about 10 minutes: name, address, bank account, SSN for tax reporting). Buyers pay you by card for pickup or shipping, your name is on their receipt, and Stripe pays you out. Your online shop on the Guestimator Market: no cut taken (Stripe's card fee only). Garage-sale online orders: a small fee. In-person sales are free.</div>
     <button class="btn" id="stripeGo" style="background:var(--cobalt)">${s.connected ? "Finish Stripe setup" : "Connect Stripe"}</button></div>`;
 }
 function wireStripeCard(after) {
@@ -49,16 +49,24 @@ async function renderSales() {
       <div class="muted" style="font-size:.9rem;margin-bottom:12px">Free. Put your priced items on a public page, share the link, print price tags with QR codes, and take holds. The street address stays hidden until the sale starts.</div>
       <button class="btn" id="newSale">＋ Start a sale</button>
     </div>
+    <div class="card" style="border-color:var(--cobalt)">
+      <b>Sell anywhere, any time: your online shop</b>
+      <div class="muted" style="font-size:.85rem;margin:4px 0 8px">Your items go on the <a href="/market" target="_blank" rel="noopener">Guestimator Market</a>, where anyone can buy them like on eBay. Buyers pay you directly through Stripe. Guestimator takes no cut.</div>
+      <button class="btn" id="newShop" style="background:var(--cobalt)">＋ Open my shop</button>
+    </div>
     <div id="stripeCard"></div>
     <div id="saleList" class="list"><div class="muted" style="padding:10px">Loading…</div></div>`;
   $("#newSale").onclick = () => renderSaleForm(null);
+  $("#newShop").onclick = () => renderSaleForm(null, null, "shop");
   loadStripeStatus().then(s => { const c = $("#stripeCard"); if (c && state.view === "sales") { c.innerHTML = stripeCardHtml(s); wireStripeCard(renderSales); } });
   let list = [];
   try { list = await api("/garage/sales"); } catch (e) { $("#saleList").innerHTML = `<div class="muted">${esc(e.message)}</div>`; return; }
   const el = $("#saleList");
+  const myShop = list.find(s => s.kind === "shop");
+  if (myShop && $("#newShop")) { $("#newShop").textContent = "Open my shop ›"; $("#newShop").onclick = () => renderSale(myShop.id); }
   if (!list.length) { el.innerHTML = `<div class="empty"><div class="em">🏷️</div>No sales yet. Start one, then add items you've guestimated.</div>`; return; }
   el.innerHTML = list.map(s => `<div class="li tap" data-sale="${s.id}">
-      <span style="width:40px;text-align:center;font-size:1.4rem">${s.kind === "estate" ? "🏛️" : "🏷️"}</span>
+      <span style="width:40px;text-align:center;font-size:1.4rem">${s.kind === "estate" ? "🏛️" : s.kind === "shop" ? "🛒" : "🏷️"}</span>
       <div style="min-width:0"><div class="nm">${esc(s.title)}</div>
         <div class="muted" style="font-size:.8rem">${esc(saleWhen(s))} · ${esc(s.city)}, ${esc(s.state)}</div>
         <div style="margin-top:3px"><span class="pill">${s.status === "draft" ? "draft" : PHASE[s.phase] || s.status}</span> <span class="pill">${s.items} items</span>
@@ -69,28 +77,38 @@ async function renderSales() {
 }
 
 // ---------- create / edit ----------
-function renderSaleForm(sale, then) {
+function renderSaleForm(sale, then, kind) {
   state.view = "saleForm"; setChrome(); backTo(sale ? () => renderSale(sale.id) : renderSales);
-  ctx.textContent = sale ? "Edit sale" : "New sale";
-  const s = sale || { kind: "garage", pickup_ok: 1, ship_ok: 0, online_ok: 0 };
+  const s = sale || (kind === "shop" ? { kind: "shop", pickup_ok: 0, ship_ok: 1, online_ok: 1 } : { kind: "garage", pickup_ok: 1, ship_ok: 0, online_ok: 0 });
+  ctx.textContent = s.kind === "shop" ? (sale ? "Edit shop" : "New shop") : sale ? "Edit sale" : "New sale";
   const today = new Date().toISOString().slice(0, 10);
   app.innerHTML = `<div class="card">
     <label>Kind of sale</label><select id="sKind">${Object.entries(SALE_KINDS).map(([k, v]) => `<option value="${k}" ${s.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select>
+    <div id="shopNote" class="muted" style="font-size:.85rem;margin-top:6px">Your shop is always open and shows on the <a href="/market" target="_blank" rel="noopener">Guestimator Market</a>. Only your city and state are shown. Guestimator takes no cut.</div>
     <label>Title</label><input id="sTitle" maxlength="90" value="${esc(s.title || "")}" placeholder="e.g. Whole-house estate sale, furniture & tools">
-    <div class="row" style="gap:8px"><div style="flex:1"><label>First day</label><input id="sStart" type="date" value="${esc(s.starts_on || today)}"></div>
+    <div class="dated"><div class="row" style="gap:8px"><div style="flex:1"><label>First day</label><input id="sStart" type="date" value="${esc(s.starts_on || today)}"></div>
       <div style="flex:1"><label>Last day</label><input id="sEnd" type="date" value="${esc(s.ends_on || s.starts_on || today)}"></div></div>
     <label>Hours</label><input id="sHours" maxlength="80" value="${esc(s.hours || "")}" placeholder="8am – 2pm">
-    <label>Street address</label><input id="sStreet" maxlength="120" value="${esc(s.street || "")}" placeholder="Hidden until the first day of the sale">
+    <label>Street address</label><input id="sStreet" maxlength="120" value="${esc(s.street || "")}" placeholder="Hidden until the first day of the sale"></div>
     <div class="row" style="gap:8px"><div style="flex:2"><label>City</label><input id="sCity" maxlength="60" value="${esc(s.city || "")}"></div>
       <div style="flex:1"><label>State</label><input id="sState" maxlength="2" value="${esc(s.state || "")}" placeholder="NJ" style="text-transform:uppercase"></div>
       <div style="flex:1.3"><label>ZIP</label><input id="sZip" maxlength="10" inputmode="numeric" value="${esc(s.zip || "")}"></div></div>
     <label>About the sale (optional)</label><textarea id="sDesc" rows="3" maxlength="2000" placeholder="Parking, cash/card, what's inside…">${esc(s.description || "")}</textarea>
-    <label>Phone for accepted holds (optional)</label><input id="sPhone" type="tel" maxlength="30" value="${esc(s.contact_phone || "")}">
+    <div class="dated"><label>Phone for accepted holds (optional)</label><input id="sPhone" type="tel" maxlength="30" value="${esc(s.contact_phone || "")}"></div>
     <label style="margin-top:12px">Online buying</label>
     <label class="row" style="gap:8px;font-weight:400"><input type="checkbox" id="sOnline" style="width:auto" ${s.online_ok ? "checked" : ""}> Let people buy online (needs Stripe connected)</label>
-    <label class="row" style="gap:8px;font-weight:400"><input type="checkbox" id="sPickup" style="width:auto" ${s.pickup_ok ? "checked" : ""}> Buyers can pick up at the sale</label>
+    <label class="row" style="gap:8px;font-weight:400"><input type="checkbox" id="sPickup" style="width:auto" ${s.pickup_ok ? "checked" : ""}> <span id="pickupTxt">Buyers can pick up at the sale</span></label>
     <label class="row" style="gap:8px;font-weight:400"><input type="checkbox" id="sShip" style="width:auto" ${s.ship_ok ? "checked" : ""}> I'll ship items that have a shipping price</label>
-    <div style="height:10px"></div><button class="btn" id="sSave">${sale ? "Save" : "Create sale"}</button></div>`;
+    <div style="height:10px"></div><button class="btn" id="sSave">${sale ? "Save" : s.kind === "shop" ? "Create my shop" : "Create sale"}</button></div>`;
+  // A shop has no dates, street or holds; only the fields that matter for it are shown.
+  const kindUi = () => {
+    const shop = $("#sKind").value === "shop";
+    document.querySelectorAll(".dated").forEach(el => el.style.display = shop ? "none" : "");
+    $("#shopNote").style.display = shop ? "" : "none";
+    $("#pickupTxt").textContent = shop ? "Local pickup is OK too (you email the buyer to arrange it)" : "Buyers can pick up at the sale";
+    $("#sTitle").placeholder = shop ? "e.g. Derek's vintage finds" : "e.g. Whole-house estate sale, furniture & tools";
+  };
+  $("#sKind").onchange = kindUi; kindUi();
   $("#sSave").onclick = async () => {
     const body = {
       kind: $("#sKind").value, title: $("#sTitle").value, starts_on: $("#sStart").value, ends_on: $("#sEnd").value, hours: $("#sHours").value,
