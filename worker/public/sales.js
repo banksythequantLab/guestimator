@@ -51,7 +51,7 @@ async function renderSales() {
     </div>
     <div class="card" style="border-color:var(--cobalt)">
       <b>Sell anywhere, any time: your online shop</b>
-      <div class="muted" style="font-size:.85rem;margin:4px 0 8px">Your items go on the <a href="/market" target="_blank" rel="noopener">Guestimator Market</a>, where anyone can buy them like on eBay. Buyers pay you directly through Stripe. Guestimator takes no cut.</div>
+      <div class="muted" style="font-size:.85rem;margin:4px 0 8px">Your items go on the <a href="/market" target="_blank" rel="noopener" style="color:var(--cobalt)">Guestimator Market</a>, where anyone can find and buy them. Buyers pay you directly through Stripe. Guestimator takes no cut.</div>
       <button class="btn" id="newShop" style="background:var(--cobalt)">＋ Open my shop</button>
       <button class="btn sec" id="bulkShop" style="margin-top:8px">Put my priced items on the Market</button>
     </div>
@@ -86,7 +86,7 @@ function renderSaleForm(sale, then, kind) {
   const today = new Date().toISOString().slice(0, 10);
   app.innerHTML = `<div class="card">
     <label>Kind of sale</label><select id="sKind">${Object.entries(SALE_KINDS).map(([k, v]) => `<option value="${k}" ${s.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select>
-    <div id="shopNote" class="muted" style="font-size:.85rem;margin-top:6px">Your shop is always open and shows on the <a href="/market" target="_blank" rel="noopener">Guestimator Market</a>. Only your city and state are shown. Guestimator takes no cut.</div>
+    <div id="shopNote" class="muted" style="font-size:.85rem;margin-top:6px">Your shop is always open and shows on the <a href="/market" target="_blank" rel="noopener" style="color:var(--cobalt)">Guestimator Market</a>. Only your city and state are shown. Guestimator takes no cut.</div>
     <label>Title</label><input id="sTitle" maxlength="90" value="${esc(s.title || "")}" placeholder="e.g. Whole-house estate sale, furniture & tools">
     <div class="dated"><div class="row" style="gap:8px"><div style="flex:1"><label>First day</label><input id="sStart" type="date" value="${esc(s.starts_on || today)}"></div>
       <div style="flex:1"><label>Last day</label><input id="sEnd" type="date" value="${esc(s.ends_on || s.starts_on || today)}"></div></div>

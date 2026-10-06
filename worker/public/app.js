@@ -360,7 +360,7 @@ async function renderHome() {
     <div id="inviteCard"></div>
     <div id="ebayCard"></div>
     <div class="card"><div class="row" style="justify-content:space-between;align-items:center;gap:10px">
-      <div><b>Sales & your shop</b><div class="muted" style="font-size:.82rem">Garage sale pages, plus your own shop on the <a href="/market" target="_blank" rel="noopener">Guestimator Market</a> (no cut taken)</div></div>
+      <div><b>Sales & your shop</b><div class="muted" style="font-size:.82rem">Garage sale pages, plus your own shop on the <a href="/market" target="_blank" rel="noopener" style="color:var(--cobalt)">Guestimator Market</a> (no cut taken)</div></div>
       <button class="btn sec sm" id="toSales" style="white-space:nowrap">Your sales <span id="salesBadge"></span></button></div></div>
     <div class="card" style="padding:12px 16px"><div class="row" style="justify-content:space-between;align-items:center;gap:10px">
       <div><b>Profit &amp; inventory</b><div class="muted" style="font-size:.82rem">What you've made, and what's still on the shelf</div></div>
@@ -1097,7 +1097,7 @@ async function renderItemDetail(id) {
 ${r && !nc && !r.unknown && appraisal.status === "done" && pr && pr.high > 0 ? `<button class="btn sec" id="shareEst" style="margin:-4px 0 12px">📤 Share this price</button>` : ""}
     ${ebayPanelHtml(b, !!(r && !nc && appraisal.status === "done"))}
     ${r && !nc && !r.unknown && appraisal.status === "done" && item.listing_status !== "sold" ? `<div class="card" id="mktCard" style="border-color:var(--cobalt)"><b>🛒 Sell it on the Guestimator Market</b>
-      <div class="muted" style="font-size:.8rem;margin:2px 0 8px">Anyone can buy it, like on eBay. They pay you directly. We take no cut.</div><div id="mktBody"><button class="btn" id="mktOpen" style="background:var(--cobalt)">Sell on the Market</button></div></div>` : ""}
+      <div class="muted" style="font-size:.8rem;margin:2px 0 8px">Anyone can find it and buy it on the Guestimator Market. They pay you directly. We take no cut.</div><div id="mktBody"><button class="btn" id="mktOpen" style="background:var(--cobalt)">Sell on the Market</button></div></div>` : ""}
     ${r && !nc && appraisal.status === "done" ? salePanelHtml() : ""}
     ${item.listing_status !== "sold" ? `<div class="card" id="soldCard" style="padding:12px 16px${state.fromSticker === id ? ";border-color:var(--green)" : ""}"><div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
       <div style="flex:1;min-width:140px"><b style="font-size:.9rem">Sold it in person?</b><div class="muted" style="font-size:.75rem">Takes it off eBay and counts it in your profit report.</div></div>
