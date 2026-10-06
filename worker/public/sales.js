@@ -68,7 +68,7 @@ async function renderSales() {
   el.innerHTML = list.map(s => `<div class="li tap" data-sale="${s.id}">
       <span style="width:40px;text-align:center;font-size:1.4rem">${s.kind === "estate" ? "🏛️" : s.kind === "shop" ? "🛒" : "🏷️"}</span>
       <div style="min-width:0"><div class="nm">${esc(s.title)}</div>
-        <div class="muted" style="font-size:.8rem">${esc(saleWhen(s))} · ${esc(s.city)}, ${esc(s.state)}</div>
+        <div class="muted" style="font-size:.8rem">${esc(saleWhen(s))}${s.city ? ` · ${esc(s.city)}, ${esc(s.state)}` : ""}</div>
         <div style="margin-top:3px"><span class="pill">${s.status === "draft" ? "draft" : PHASE[s.phase] || s.status}</span> <span class="pill">${s.items} items</span>
         ${s.new_holds ? `<span class="pill" style="background:#fde7c7">${s.new_holds} hold request${s.new_holds > 1 ? "s" : ""}</span>` : ""}
         ${s.open_orders ? `<span class="pill" style="background:var(--cobalt);color:#fff">${s.open_orders} to send</span>` : ""}</div></div>
@@ -141,7 +141,7 @@ async function renderSale(id) {
   app.innerHTML = `
     <div class="card" style="border-color:var(--green)">
       <h1 class="h1" style="margin:0 0 2px">${esc(s.title)}</h1>
-      <div class="muted" style="font-size:.88rem">${esc(saleWhen(s))} · ${esc(s.street ? s.street + ", " : "")}${esc(s.city)}, ${esc(s.state)}</div>
+      <div class="muted" style="font-size:.88rem">${esc(saleWhen(s))}${s.city ? ` · ${esc(s.street ? s.street + ", " : "")}${esc(s.city)}, ${esc(s.state)}` : ""}</div>
       <div style="margin:8px 0"><span class="pill">${s.status === "draft" ? "draft — only you can see it" : s.status === "ended" ? "ended" : "published · " + (PHASE[s.phase] || "")}</span>
         ${s.online_ok ? `<span class="pill" style="${onlineOn ? "background:var(--cobalt);color:#fff" : ""}">${onlineOn ? "online buying on" : "online buying waiting on Stripe"}</span>` : ""}</div>
       <div class="muted" style="font-size:.8rem;word-break:break-all">${esc(s.url)}</div>
@@ -189,7 +189,7 @@ async function renderSale(id) {
   if ($("#endSale")) $("#endSale").onclick = () => confirm("Mark this sale ended? The page stays up but nothing can be held or bought.") && patch({ status: "ended" }, "Ended");
   $("#edit").onclick = () => renderSaleForm(s);
   if ($("#share")) $("#share").onclick = async () => {
-    const text = `${s.title} — ${saleWhen(s)}, ${s.city}, ${s.state}`;
+    const text = `${s.title} — ${saleWhen(s)}${s.city ? `, ${s.city}, ${s.state}` : ""}`;
     try { if (navigator.share) await navigator.share({ title: s.title, text, url: s.url }); else { await navigator.clipboard.writeText(s.url); toast("Link copied"); } } catch {}
   };
   wireStripeCard(() => renderSale(id));

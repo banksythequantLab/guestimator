@@ -33,6 +33,8 @@ export const KINDS = { garage: "Garage sale", yard: "Yard sale", estate: "Estate
 // the Guestimator Market (/market). Guestimator takes no cut of shop sales; the seller pays only
 // Stripe's own card fee on their own account.
 export const SHOP_ENDS = "9999-12-31";
+// " in Austin, TX", or nothing for a shop that has no location yet.
+const inPlace = s => s.city ? ` in ${s.city}, ${s.state}` : "";
 export const isShop = s => !!s && s.kind === "shop";
 /** Platform fee for an order in this sale: always 0 for an online shop. */
 export const saleFee = (sale, totalCents, bps) => isShop(sale) ? 0 : feeCents(totalCents, bps);
@@ -531,7 +533,7 @@ export async function publicApi(request, env, url, parts, ctx) {
         phone_number_collection: { enabled: true },
         line_items: { 0: { quantity: 1, price_data: { currency: "usd", unit_amount: itemC,
           product_data: { name: title.slice(0, 250), images: row.thumb_key ? { 0: `${origin}/p/${row.thumb_key}` } : undefined,
-                          description: `${KINDS[sale.kind] || "Sale"}: ${sale.title} (${sale.city}, ${sale.state}) - ${fulfil === "ship" ? "shipped" : "local pickup"}`.slice(0, 500) } } } },
+                          description: `${KINDS[sale.kind] || "Sale"}: ${sale.title}${sale.city ? ` (${sale.city}, ${sale.state})` : ""} - ${fulfil === "ship" ? "shipped" : "local pickup"}`.slice(0, 500) } } } },
         // No fee at all on a shop sale: the field is left off (stripeForm drops undefined).
         payment_intent_data: { application_fee_amount: fee > 0 ? fee : undefined,
                                metadata: { order_id: orderId, sale: sale.slug, item: row.item_id } },
@@ -655,7 +657,7 @@ export function whenText(s) {
   return s.hours ? `${days} · ${s.hours}` : days;
 }
 function whereHtml(s, reveal) {
-  if (isShop(s)) return `Ships from ${esc(s.city)}, ${esc(s.state)} · <a href="/market">Browse the Guestimator Market</a>`;
+  if (isShop(s)) return `${s.city ? `Ships from ${esc(s.city)}, ${esc(s.state)}` : "Ships to you"} · <a href="/market">Browse the Guestimator Market</a>`;
   if (reveal) {
     const full = `${s.street}, ${s.city}, ${s.state}${s.zip ? " " + s.zip : ""}`;
     return `${esc(full)} · <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(full)}" target="_blank" rel="noopener">Map</a>`;
@@ -802,7 +804,7 @@ var j=await r.json().catch(function(){return{}});m.textContent=r.ok?'Sent. The s
 <div class="gal">${photos.map(p => `<img src="/p/${esc(p.r2_key)}" alt="${esc(title)}" loading="lazy">`).join("") || `<div class="muted">No photo</div>`}</div>
 <div><h2 style="font:700 1.5rem/1.25 Georgia,serif;margin:0">${esc(title)}</h2><div class="price">${esc(money(shop ? onP : r.price_cents))}</div>${onlineLine}${statusTag(r)}
 ${desc ? `<p style="white-space:pre-line">${esc(desc)}</p>` : ""}${buyBox}${holdBox}</div></div></div>`;
-    return H(page({ title: `${title} · ${money(r.price_cents)} · ${sale.title}`, desc: `${kind} in ${sale.city}, ${sale.state}. ${whenText(sale)}.`,
+    return H(page({ title: `${title} · ${money(r.price_cents)} · ${sale.title}`, desc: `${kind}${inPlace(sale)}. ${whenText(sale)}.`,
       image: photos[0] ? `${origin}/p/${photos[0].r2_key}` : null, canonical: `${origin}/sale/${sale.slug}/item/${r.item_id}`, body }));
   }
 
@@ -814,6 +816,6 @@ ${desc ? `<p style="white-space:pre-line">${esc(desc)}</p>` : ""}${buyBox}${hold
   const body = `${header}<div class="wrap">${endedNote}${sale.description ? `<p style="white-space:pre-line;margin-top:16px">${esc(sale.description)}</p>` : ""}
 ${canBuy ? `<div class="note" style="background:#dff1ea;border-color:#b5dccd;color:#0f4a3e">Can't make it? Many items can be bought online${sale.ship_ok ? " and shipped" : " for pickup"}.</div>` : ""}
 <div class="grid">${cards || `<p class="muted">No items listed yet.</p>`}</div></div>`;
-  return H(page({ title: `${sale.title} · ${kind} in ${sale.city}, ${sale.state}`, desc: `${kind} in ${sale.city}, ${sale.state}. ${whenText(sale)}. ${rows.length} items with prices.`,
+  return H(page({ title: `${sale.title} · ${kind}${inPlace(sale)}`, desc: `${kind}${inPlace(sale)}. ${whenText(sale)}. ${rows.length} items with prices.`,
     image: firstThumb ? `${origin}/p/${firstThumb.thumb_key}` : null, canonical: `${origin}/sale/${sale.slug}`, body }));
 }

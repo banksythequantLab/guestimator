@@ -1687,20 +1687,14 @@ async function marketPanel(id, collapsed = false) {
     wireStripe(); return;
   }
   const s = d.shop;
-  el.innerHTML = `${s ? "" : `<div class="muted" style="font-size:.82rem;margin-bottom:4px">First time: name your shop. Buyers only see your city and state.</div>
-    <label>Shop name</label><input id="mkName" maxlength="90" value="${esc(d.shop_name)}" placeholder="e.g. Derek's vintage finds">
-    <div class="row" style="gap:8px"><div style="flex:2"><label>City</label><input id="mkCity" maxlength="60"></div>
-      <div style="flex:1"><label>State</label><input id="mkState" maxlength="2" placeholder="NJ" style="text-transform:uppercase"></div>
-      <div style="flex:1.3"><label>ZIP</label><input id="mkZip" maxlength="10" inputmode="numeric" value="${esc(d.from_zip || "")}"></div></div>
-    <label class="row" style="gap:8px;font-weight:400"><input type="checkbox" id="mkPickup" style="width:auto"> Local pickup is OK too</label>`}
-    <div class="row" style="gap:8px"><div style="flex:1"><label>Price</label><input id="mkPrice" inputmode="decimal" value="${esc(dol(L ? L.price_cents : d.price_cents))}" placeholder="$0.00"></div>
+  el.innerHTML = `<div class="row" style="gap:8px"><div style="flex:1"><label>Price</label><input id="mkPrice" inputmode="decimal" value="${esc(dol(L ? L.price_cents : d.price_cents))}" placeholder="$0.00"></div>
       <div style="flex:1"><label>Shipping (0 = free)</label><input id="mkShip" inputmode="decimal" value="${esc(dol(L ? L.ship_cents : null))}" placeholder="$0.00"></div></div>
     ${d.has_size ? `<button class="btn sec sm" id="mkQuote" style="margin-top:6px">Suggest a shipping price</button><span class="muted" id="mkQuoteNote" style="font-size:.78rem;margin-left:6px"></span>` : ""}
     <div class="row" style="gap:8px;margin-top:10px"><button class="btn" id="mkGo" style="background:var(--cobalt)">${L ? "Save" : "Put it on the Market"}</button>
       ${L ? `<button class="btn sec" id="mkOff">Take it off</button>` : ""}</div>${stripeNote}`;
   wireStripe();
   if ($("#mkQuote")) $("#mkQuote").onclick = async () => {
-    const zip = ($("#mkZip") && $("#mkZip").value) || (s && s.zip) || d.from_zip || prompt("The 5-digit ZIP you ship from:");
+    const zip = (s && s.zip) || d.from_zip || prompt("The 5-digit ZIP you ship from:");
     if (!zip) return;
     $("#mkQuoteNote").textContent = "Getting rates…";
     try { const q = await api(`/items/${id}/shipping-quote?from=${encodeURIComponent(zip)}&service=ground`);
@@ -1709,17 +1703,30 @@ async function marketPanel(id, collapsed = false) {
   };
   $("#mkGo").onclick = async () => {
     const body = { price: $("#mkPrice").value, ship: $("#mkShip").value };
-    if (!s) Object.assign(body, { shop_name: $("#mkName").value, city: $("#mkCity").value, state: $("#mkState").value, zip: $("#mkZip").value, pickup: $("#mkPickup").checked });
     $("#mkGo").disabled = true;
     try {
       const res = await api(`/market/items/${id}`, { method: "POST", body: JSON.stringify(body) });
       toast(res.visible ? "On the Market ✓" : "Saved. It shows on the Market once Stripe is set up.");
-      state.mktOpenFor = null; marketPanel(id, true);
+      state.mktOpenFor = null; await marketPanel(id, true);
+      // Listed first, then the offer: their own shop page (name, city) or a garage/estate sale.
+      if (res.new_shop || res.needs_setup) offerOwnSale(res.shop_id);
     } catch (e) { toast(e.message); if ($("#mkGo")) $("#mkGo").disabled = false; }
   };
   if ($("#mkOff")) $("#mkOff").onclick = async () => {
     try { await api(`/market/items/${id}`, { method: "DELETE" }); toast("Taken off the Market"); state.mktOpenFor = null; marketPanel(id, true); } catch (e) { toast(e.message); }
   };
+}
+
+function offerOwnSale(shopId) {
+  const el = $("#mktBody"); if (!el) return;
+  el.insertAdjacentHTML("beforeend", `<div id="ownSale" style="margin-top:12px;padding:12px;border:1px dashed var(--cobalt);border-radius:12px">
+    <b>It's listed. Want your own sale too?</b>
+    <div class="muted" style="font-size:.82rem;margin:4px 0 8px">Give your shop a name and your city so buyers know who they're buying from, or start a garage, yard or estate sale page with price tags and QR codes. Both are free.</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sm" id="osShop" style="background:var(--cobalt)">Set up my shop page</button>
+      <button class="btn sec sm" id="osSale">Start a garage sale</button><button class="btn sec sm" id="osNo">Not now</button></div></div>`);
+  $("#osNo").onclick = () => $("#ownSale").remove();
+  $("#osSale").onclick = () => renderSaleForm(null);
+  $("#osShop").onclick = async () => { try { const d = await api("/garage/sales/" + shopId); renderSaleForm(d.sale); } catch (e) { toast(e.message); } };
 }
 
 async function reloadIfUpdated() {

@@ -61,18 +61,22 @@ let r = await call("GET", `/api/market/items/${crock}`);
 ok("first look: no shop, price from the estimate, size known", r.status === 200 && r.json.shop === null && r.json.listed === null && r.json.price_cents === 13500 && r.json.has_size === true, r.json);
 ok("stripe status included", r.json.stripe && r.json.stripe.platform_on === true && r.json.stripe.ready === false);
 who = "b"; ok("someone else's item: 404", (await call("GET", `/api/market/items/${crock}`)).status === 404); who = "a";
-ok("first sale needs city/state", (await call("POST", `/api/market/items/${crock}`, { price: "135", ship: "12", shop_name: "A's finds" })).status === 400);
-ok("needs a shop name", /shop a name/.test((await call("POST", `/api/market/items/${crock}`, { price: "135", ship: "12", city: "Austin", state: "TX" })).json.error));
-ok("price below $1 refused", (await call("POST", `/api/market/items/${crock}`, { price: "0.5", ship: "12", shop_name: "A", city: "Austin", state: "TX" })).status === 400);
-r = await call("POST", `/api/market/items/${crock}`, { price: "135", ship: "12", shop_name: "A's finds", city: "Austin", state: "tx", zip: "78701" });
-ok("one tap creates the shop and lists it", r.status === 200 && r.json.ok && /\/sale\/a-s-finds-[0-9a-f]{6}\/item\//.test(r.json.url), r.json);
+ok("price below $1 refused", (await call("POST", `/api/market/items/${crock}`, { price: "0.5", ship: "12" })).status === 400);
+ok("shipping required", (await call("POST", `/api/market/items/${crock}`, { price: "135" })).status === 400);
+ok("a refused listing makes no shop", !db.raw.prepare("SELECT 1 FROM garage_sales WHERE user_id=? AND kind='shop'").get(aId));
+// A saved ship-from address gives the quiet shop its location.
+db.raw.prepare("INSERT INTO seller_settings (user_id, ship_from, updated_at) VALUES (?,?,?)").run(aId, JSON.stringify({ name: "A", street1: "1 Main", city: "Austin", state: "tx", zip: "78701" }), new Date().toISOString());
+r = await call("POST", `/api/market/items/${crock}`, { price: "135", ship: "12" });
+ok("no setup step: price + shipping lists it", r.status === 200 && r.json.ok && /\/sale\/guestimator-seller-[0-9a-f]{6}\/item\//.test(r.json.url), r.json);
+ok("then the app is told to offer a sale/shop setup", r.json.new_shop === true && !!r.json.shop_id);
 ok("not visible until Stripe is ready", r.json.visible === false);
 const shop = db.raw.prepare("SELECT * FROM garage_sales WHERE user_id=? AND kind='shop'").get(aId);
-ok("shop is published, ships, online, never ends", shop.status === "published" && shop.ship_ok === 1 && shop.online_ok === 1 && shop.ends_on === "9999-12-31" && shop.state === "TX" && shop.zip === "78701");
+ok("quiet shop: published, ships only, never ends, located from ship-from", shop.status === "published" && shop.ship_ok === 1 && shop.pickup_ok === 0 && shop.online_ok === 1 && shop.ends_on === "9999-12-31" && shop.city === "Austin" && shop.state === "TX" && shop.zip === "78701" && shop.title === "Guestimator seller", shop);
 r = await call("GET", `/api/market/items/${crock}`);
 ok("now shows as listed", r.json.listed && r.json.listed.price_cents === 13500 && r.json.listed.ship_cents === 1200 && r.json.listed.status === "available" && r.json.from_zip === "78701", r.json);
-ok("second item: no shop fields needed, shipping required", (await call("POST", `/api/market/items/${lamp}`, { price: "40" })).status === 400);
-ok("second item listed", (await call("POST", `/api/market/items/${lamp}`, { price: "40", ship: "0" })).json.ok);
+ok("second item: shipping still required", (await call("POST", `/api/market/items/${lamp}`, { price: "40" })).status === 400);
+r = await call("POST", `/api/market/items/${lamp}`, { price: "40", ship: "0" });
+ok("second item listed, no offer again", r.json.ok && r.json.new_shop === false && r.json.needs_setup === false, r.json);
 ok("still one shop", db.raw.prepare("SELECT COUNT(*) n FROM garage_sales WHERE user_id=? AND kind='shop'").get(aId).n === 1);
 ok("change the price", (await call("POST", `/api/market/items/${crock}`, { price: "125", ship: "12" })).json.ok &&
   db.raw.prepare("SELECT price_cents FROM garage_sale_items WHERE sale_id=? AND item_id=?").get(shop.id, crock).price_cents === 12500);
@@ -139,6 +143,20 @@ await call("PATCH", `/api/garage/sales/${gs}/items/${vase}`, { status: "sold" })
 const vo = db.raw.prepare("SELECT * FROM garage_orders WHERE item_id=?").get(vase);
 await hook({ type: "checkout.session.completed", data: { object: { id: vo.stripe_session_id, payment_status: "paid", payment_intent: "pi_2", customer_details: { name: "C", email: "c@x.com" } } } });
 ok("late payment after an in-person sale: refund_needed", db.raw.prepare("SELECT status FROM garage_orders WHERE id=?").get(vo.id).status === "refund_needed");
+
+// A seller with no saved address: still one tap, no location shown anywhere, setup offered.
+who = "b";
+const bId = db.raw.prepare("SELECT id FROM users WHERE email='b@example.com'").get().id;
+const teapot = await mkItem("Silver teapot", 60);
+r = await call("POST", `/api/market/items/${teapot}`, { price: "60", ship: "9" });
+ok("no address: listed anyway, setup offered", r.json.ok && r.json.new_shop === true && r.json.needs_setup === true, r.json);
+db.raw.prepare("UPDATE users SET connect_account_id='acct_B', stripe_payouts_ready=1 WHERE id=?").run(bId);
+const bShop = db.raw.prepare("SELECT slug FROM garage_sales WHERE user_id=? AND kind='shop'").get(bId);
+who = "anon";
+r = await call("GET", "/market?q=teapot");
+ok("no-location item on the Market, no stray comma", r.text.includes("Silver teapot") && !r.text.includes(">, <"), r.text.match(/Silver teapot[^]{0,400}/)?.[0]);
+r = await call("GET", `/sale/${bShop.slug}/item/${teapot}`);
+ok("no-location shop page: Ships to you, no empty place", r.status === 200 && r.text.includes("Ships to you") && !r.text.includes(" in , ") && !r.text.includes("Online shop in"));
 
 console.log(`market_onetap_test: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

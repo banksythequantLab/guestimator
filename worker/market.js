@@ -84,7 +84,7 @@ export async function marketPage(env, url) {
   const cards = rows.map(r => `<a class="card" href="/sale/${esc(r.slug)}/item/${esc(r.item_id)}">
 <img src="${r.thumb_key ? "/p/" + esc(r.thumb_key) : ""}" alt="" loading="lazy"><div class="b"><div class="t">${esc(r.ai_title || r.name)}</div>
 <div class="p">${esc(money(r.price))}</div><div class="muted" style="font-size:.8rem">${esc(shipText(r))}</div>
-<div class="muted" style="font-size:.78rem">${esc(r.city)}, ${esc(r.state)}</div></div></a>`).join("");
+${r.city ? `<div class="muted" style="font-size:.78rem">${esc(r.city)}, ${esc(r.state)}</div>` : ""}</div></a>`).join("");
   const opt = (k, label) => `<option value="${k}" ${p.sort === k ? "selected" : ""}>${label}</option>`;
   const empty = p.q ? `<p>Nothing matches “${esc(p.q)}” right now. <a href="/market">See everything</a>.</p>`
     : `<p>Nothing for sale yet. Be the first: it's free to list.</p>`;
@@ -128,7 +128,7 @@ export async function sellerApi(request, env, url, parts, userId) {
     const ss = await db.prepare("SELECT ship_from FROM seller_settings WHERE user_id=?").bind(userId).first().catch(() => null);
     const sp = startingPrice(result);
     return J({
-      shop: shop ? { id: shop.id, title: shop.title, city: shop.city, state: shop.state, zip: shop.zip, pickup_ok: !!shop.pickup_ok, url: `${origin}/sale/${shop.slug}` } : null,
+      shop: shop ? { id: shop.id, title: shop.title, city: shop.city, state: shop.state, zip: shop.zip, pickup_ok: !!shop.pickup_ok, url: `${origin}/sale/${shop.slug}`, needs_setup: !shop.city } : null,
       listed: row ? { price_cents: row.online_price_cents ?? row.price_cents, ship_cents: row.ship_cents, status: row.status, url: itemUrl } : null,
       price_cents: sp ? Math.round(sp * 100) : (item.price_cents || null),
       shop_name: u?.shop_name || "", from_zip: shop?.zip || zipOf(ss?.ship_from),
@@ -145,17 +145,26 @@ export async function sellerApi(request, env, url, parts, userId) {
     const price = cents(b.price), ship = cents(b.ship);
     if (Number.isNaN(price) || !(price >= 100)) return J({ error: "Enter a price of at least $1, like 25 or 7.50" }, 400);
     if (Number.isNaN(ship)) return J({ error: "Enter shipping like 12 or 8.50 (0 for free shipping)" }, 400);
+    if (ship === null && !(shop && shop.pickup_ok)) return J({ error: "Enter a shipping price (0 for free shipping), so buyers can get it to them." }, 400);
+    let newShop = false;
     if (!shop) {
-      const c = cleanSale({ kind: "shop", title: b.shop_name, city: b.city, state: b.state, zip: b.zip || undefined,
-                            ship_ok: true, online_ok: true, pickup_ok: !!b.pickup });
-      if (!c.ok) return J({ error: c.error === "Give the sale a title" ? "Give your shop a name" : c.error }, 400);
-      const v = c.value, id = crypto.randomUUID(), t = nowIso();
+      // No setup step (2026-10-06): the shop is made quietly, shipping only, named from the
+      // account's shop name if it has one, located from the ship-from address if one is saved.
+      // After the first listing the app offers to set up a proper shop page or a sale.
+      const u = await db.prepare("SELECT shop_name FROM users WHERE id=?").bind(userId).first();
+      const ss = await db.prepare("SELECT ship_from FROM seller_settings WHERE user_id=?").bind(userId).first().catch(() => null);
+      let from = {}; try { from = JSON.parse(ss?.ship_from || "{}") || {}; } catch {}
+      const title = String(u?.shop_name || "").trim().slice(0, 90) || "Guestimator seller";
+      const loc = cleanSale({ kind: "shop", title, city: from.city || "", state: from.state || "" });
+      const city = loc.ok ? loc.value.city : "", state = loc.ok ? loc.value.state : "";
+      const zip = /^\d{5}/.test(String(from.zip || "")) ? String(from.zip).slice(0, 5) : null;
+      const id = crypto.randomUUID(), t = nowIso();
       await db.prepare("INSERT INTO garage_sales (id,user_id,slug,kind,title,description,street,city,state,zip,starts_on,ends_on,hours,tz,status,pickup_ok,ship_ok,online_ok,contact_phone,created_at,updated_at) " +
-        "VALUES (?,?,?,'shop',?,NULL,NULL,?,?,?,?,?,NULL,'America/New_York','published',?,1,1,NULL,?,?)")
-        .bind(id, userId, newSlug(v.title), v.title, v.city, v.state, v.zip ?? null, v.starts_on, v.ends_on, v.pickup_ok ?? 0, t, t).run();
+        "VALUES (?,?,?,'shop',?,NULL,NULL,?,?,?,?,'9999-12-31',NULL,'America/New_York','published',0,1,1,NULL,?,?)")
+        .bind(id, userId, newSlug(title), title, city, state, zip, t.slice(0, 10), t, t).run();
       shop = await myShop(db, userId);
+      newShop = true;
     }
-    if (ship === null && !shop.pickup_ok) return J({ error: "Enter a shipping price (0 for free shipping), so buyers can get it to them." }, 400);
     if (row?.status === "pending") return J({ error: "Someone is paying for this right now. Try again in a few minutes." }, 409);
     if (row?.status === "sold") return J({ error: "This one already sold." }, 409);
     if (row) await db.prepare("UPDATE garage_sale_items SET price_cents=?, online_price_cents=NULL, ship_cents=?, status='available' WHERE sale_id=? AND item_id=?")
@@ -169,7 +178,8 @@ export async function sellerApi(request, env, url, parts, userId) {
     if (shop.status !== "published" || !shop.online_ok || !shop.ship_ok)
       await db.prepare("UPDATE garage_sales SET status='published', online_ok=1, ship_ok=1, updated_at=? WHERE id=?").bind(nowIso(), shop.id).run();
     const u = await db.prepare("SELECT stripe_payouts_ready FROM users WHERE id=?").bind(userId).first();
-    return J({ ok: true, url: `${origin}/sale/${shop.slug}/item/${item.id}`, visible: !!(stripeReady(env) && u?.stripe_payouts_ready) });
+    return J({ ok: true, url: `${origin}/sale/${shop.slug}/item/${item.id}`, visible: !!(stripeReady(env) && u?.stripe_payouts_ready),
+                new_shop: newShop, shop_id: shop.id, needs_setup: !shop.city });
   }
 
   if (m === "DELETE") {
