@@ -123,20 +123,89 @@ function mail(title, lines, link, linkText, off) {
   return { text, html };
 }
 
+// Free estimates for new accounts (same rule as worker.js signupCredits) and the demo Short.
+const freeN = env => { const n = Number(env.SIGNUP_CREDITS ?? 3); return Number.isFinite(n) && n > 0 ? Math.min(20, Math.floor(n)) : 0; };
+const demoUrl = env => /^https:\/\/(www\.)?(youtube\.com|youtu\.be)\//.test(String(env.DEMO_VIDEO_URL || "")) ? env.DEMO_VIDEO_URL : null;
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+// ---------- one-time win-back with free estimates (owner button, 2026-10-05) ----------
+// Everyone who signed up before estimates were free hit "buy credits" on their first try; the
+// automatic first-estimate email then sent them back to the same wall. This tops each of them up
+// to the free amount and says so, once. The billing_events row (type 'winback_free') is both the
+// ledger entry and the once-only marker.
+// Accounts made since 2026-10-05 got their free estimates at sign-up ('signup_free'): not for this.
+const NO_WINBACK = "NOT EXISTS (SELECT 1 FROM billing_events b WHERE b.user_id=g.user_id AND b.type IN ('winback_free','signup_free'))";
+export async function winbackCandidates(env, db, ownerEmail) {
+  return (await db.prepare(
+    `SELECT g.user_id, u.email, u.credits, g.created_at, g.winback1_at FROM gs_users g JOIN users u ON u.id=g.user_id
+      WHERE COALESCE(g.marketing_off,0)=0 AND NOT EXISTS (SELECT 1 ${OWNED}) AND ${NO_WINBACK} AND lower(u.email)<>lower(?)
+      ORDER BY g.created_at DESC LIMIT 100`).bind(String(ownerEmail || "")).all()).results || [];
+}
+export async function winbackFree(env, db, origin, ownerEmail, { only = null, ms = Date.now() } = {}) {
+  const n = freeN(env);
+  if (!n) return { sent: 0, error: "free estimates are switched off (SIGNUP_CREDITS=0)" };
+  let list = await winbackCandidates(env, db, ownerEmail);
+  if (Array.isArray(only)) list = list.filter(c => only.includes(c.user_id));
+  const done = [];
+  for (const c of list) {
+    const top = Math.max(0, n - Number(c.credits || 0));
+    // Marker first: if two clicks race, only one of them inserts it.
+    const ins = await db.prepare(`INSERT INTO billing_events (id,user_id,source,type,credits_delta,raw_json,created_at)
+        SELECT ?,?,'admin','winback_free',?,?,? WHERE NOT EXISTS (SELECT 1 FROM billing_events WHERE user_id=? AND type='winback_free')`)
+      .bind(crypto.randomUUID(), c.user_id, top, JSON.stringify({ reason: "free estimates for an account that signed up before they existed" }), iso(ms), c.user_id).run();
+    if (!(ins.meta && ins.meta.changes)) continue;
+    await db.batch([
+      db.prepare("UPDATE users SET credits=COALESCE(credits,0)+? WHERE id=?").bind(top, c.user_id),
+      db.prepare("UPDATE gs_users SET winback1_at=COALESCE(winback1_at,?) WHERE user_id=?").bind(iso(ms), c.user_id),
+    ]);
+    const have = Number(c.credits || 0) + top;
+    const e = winbackFreeMail(env, origin, have, await offLink(env, origin, c.user_id));
+    await sendAlert(env, { to: c.email, subject: `Your ${plural(have, "free estimate")} ${have === 1 ? "is" : "are"} ready`, ...e });
+    done.push({ user: c.user_id, added: top });
+  }
+  return { sent: done.length, done };
+}
+export function winbackFreeMail(env, origin, have, off) {
+  const demo = demoUrl(env);
+  return mail(`Your ${plural(have, "free estimate")} ${have === 1 ? "is" : "are"} ready`, [
+    "You made a Guestimator account but haven't priced anything yet. Estimates used to cost a credit from the very first one.",
+    `Now they don't: ${have === 1 ? "a free estimate is" : `${have} free estimates are`} already in your account.`,
+    "Pick something you'd like to sell, snap 2-4 photos, and get a price from what's actually selling on eBay right now - plus the box and weight to ship it.",
+    ...(demo ? [`See it work in 30 seconds: ${demo}`] : [])],
+    `${origin}/`, "Guestimate something", off);
+}
+
+// Sign-ups by week and how far each week's people got. Guestimator accounts only (gs_users).
+export async function funnelByWeek(db, ms = Date.now(), weeks = 8) {
+  return (await db.prepare(
+    `SELECT strftime('%Y-%W', g.created_at) wk, MIN(substr(g.created_at,1,10)) first_day, COUNT(*) signed,
+        SUM(EXISTS (SELECT 1 ${OWNED})) estimated,
+        SUM(EXISTS (SELECT 1 FROM ebay_listings l WHERE l.user_id=g.user_id AND l.listing_id IS NOT NULL)) listed,
+        SUM(EXISTS (SELECT 1 FROM ebay_orders o WHERE o.user_id=g.user_id AND o.status<>'CANCELLED')) sold,
+        SUM(EXISTS (SELECT 1 FROM billing_events b WHERE b.user_id=g.user_id AND ${PURCHASE_SQL})) paid
+      FROM gs_users g WHERE g.created_at>=? GROUP BY wk ORDER BY wk DESC`).bind(iso(ms - weeks * 7 * DAY)).all()).results || [];
+}
+
 /** Cron: at most 25 of each email per run; each person gets each email once (W2: once per 90 days). */
 export async function winbackSweep(env, db, origin, ms = Date.now()) {
   const sent = [];
   const w1 = (await db.prepare(
-    `SELECT g.user_id, u.email FROM gs_users g JOIN users u ON u.id=g.user_id
-      WHERE g.winback1_at IS NULL AND COALESCE(g.marketing_off,0)=0 AND g.created_at<=? AND g.created_at>=? AND NOT EXISTS (SELECT 1 ${OWNED}) LIMIT 25`)
+    `SELECT g.user_id, u.email, u.credits FROM gs_users g JOIN users u ON u.id=g.user_id
+      WHERE g.winback1_at IS NULL AND COALESCE(g.marketing_off,0)=0 AND g.created_at<=? AND g.created_at>=? AND NOT EXISTS (SELECT 1 ${OWNED})
+        ${freeN(env) ? `AND (COALESCE(u.credits,0)>0 OR NOT ${NO_WINBACK})` : ""} LIMIT 25`)
     .bind(iso(ms - W1_AFTER_D * DAY), iso(ms - W1_UNTIL_D * DAY)).all()).results || [];
   for (const g of w1) {
     const m = await db.prepare("UPDATE gs_users SET winback1_at=? WHERE user_id=? AND winback1_at IS NULL").bind(iso(ms), g.user_id).run();
     if (!(m.meta && m.meta.changes)) continue;
+    // Says what's in their account: "price your first thing" to someone with no credits sent them
+    // straight to the buy-credits wall (2026-10-05).
+    const have = Number(g.credits || 0), demo = demoUrl(env);
     const e = mail("What's in your closet worth?", ["You made a Guestimator account but haven't priced anything yet.",
-      "Pick one thing you've been meaning to sell, snap 2-4 photos, and you'll get a price from what's actually selling now - plus the box and weight to ship it."],
+      ...(have > 0 ? [`You have ${have === 1 ? "a free estimate" : `${have} free estimates`} waiting in your account.`] : []),
+      "Pick one thing you've been meaning to sell, snap 2-4 photos, and you'll get a price from what's actually selling now - plus the box and weight to ship it.",
+      ...(demo ? [`See it work in 30 seconds: ${demo}`] : [])],
       `${origin}/`, "Guestimate something", await offLink(env, origin, g.user_id));
-    await sendAlert(env, { to: g.email, subject: "Price your first thing in 2 minutes", ...e });
+    await sendAlert(env, { to: g.email, subject: have > 0 ? `Your ${plural(have, "free estimate")} ${have === 1 ? "is" : "are"} waiting` : "Price your first thing in 2 minutes", ...e });
     sent.push({ kind: "first", user: g.user_id });
   }
   const w2 = (await db.prepare(

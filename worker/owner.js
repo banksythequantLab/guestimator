@@ -6,6 +6,7 @@
 
 import * as labelpay from "./labelpay.js";
 import { adminEmail } from "./shipops.js";
+import * as growth from "./growth.js";
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const money = c => "$" + (Number(c || 0) / 100).toFixed(2);
@@ -54,11 +55,15 @@ export async function ownerStats(db, env, ms = Date.now()) {
   const listErrors = await all(db, "SELECT updated_at at, error message FROM ebay_listings WHERE status='error' ORDER BY updated_at DESC LIMIT 5");
   const recent = await all(db, `SELECT u.email, u.created_at, (SELECT COUNT(*) FROM appraisals a JOIN items i ON i.id=a.item_id JOIN sales s ON s.id=i.sale_id WHERE s.user_id=u.id) estimates,
       EXISTS (SELECT 1 FROM ebay_accounts e WHERE e.user_id=u.id) ebay FROM users u ORDER BY u.created_at DESC LIMIT 12`);
-  return { at: iso(ms), users, est, paid, ebay, garage, labels: { used: await labelpay.monthCount(db, ms), cap: labelpay.houseCap(env), pay_on: labelpay.payOn(env), payments: labelPays, problems: labelProblems, voids },
+  const funnel = await growth.funnelByWeek(db, ms);
+  const winback = await growth.winbackCandidates(env, db, adminEmail(env));
+  const winbackPreview = growth.winbackFreeMail(env, env.PUBLIC_ORIGIN || "https://app.theguestimator.com", 3, "(their own unsubscribe link)").text;
+  return { at: iso(ms), funnel, winback, winbackPreview, users, est, paid, ebay, garage, labels: { used: await labelpay.monthCount(db, ms), cap: labelpay.houseCap(env), pay_on: labelpay.payOn(env), payments: labelPays, problems: labelProblems, voids },
            errors: { jobs: jobErrors, last: lastErrors, estimates: estErrors, listings: listErrors }, recent };
 }
 
 const n = v => Number(v || 0);
+const pct = (a, b) => n(b) ? ` <span class="m">(${Math.round(100 * n(a) / n(b))}%)</span>` : "";
 const when = s => s ? esc(String(s).slice(0, 16).replace("T", " ")) : "";
 
 export function ownerPage(s) {
@@ -85,6 +90,13 @@ ${tile("Accounts", n(s.users.total), `+${n(s.users.new7)} this week · +${n(s.us
 ${tile("Made an estimate", n(s.users.estimators), `${n(s.users.active7)} active this week`)}
 ${tile("Estimates", n(s.est.n7), `this week · ${n(s.est.n30)} in 30 days`)}
 ${tile("Paid purchases", n(s.paid.n), `30 days (RevenueCat) · ${n(s.paid.credits)} credits`)}</div>
+<h2>Sign-ups by week (Guestimator accounts)</h2><div class="sc">${table(["Week of", "Signed up", "Made an estimate", "Listed on eBay", "Sold", "Paid"],
+  s.funnel.map(w => `<tr><td>${esc(w.first_day)}</td><td>${n(w.signed)}</td><td>${n(w.estimated)}${pct(w.estimated, w.signed)}</td><td>${n(w.listed)}${pct(w.listed, w.signed)}</td><td>${n(w.sold)}</td><td>${n(w.paid)}</td></tr>`), "No sign-ups in the last 8 weeks.")}</div>
+<h2>Never ran an estimate</h2>${s.winback.length ? `<div class="m" style="margin-bottom:8px">These people signed up before estimates were free, so their first try hit "buy credits". The button gives each one free estimates (up to 3) and sends them <b>one</b> email, once. Untick anyone to leave them out.</div>
+<div class="sc">${table(["", "Signed up", "Email", "Credits now", "Old reminder sent"], s.winback.map(c => `<tr><td><input type="checkbox" class="wb" value="${esc(c.user_id)}" checked></td><td>${when(c.created_at)}</td><td>${esc(c.email)}</td><td>${n(c.credits)}</td><td>${c.winback1_at ? when(c.winback1_at) : ""}</td></tr>`), "")}</div>
+<details style="margin:10px 0"><summary class="m" style="cursor:pointer">Show the email they'll get</summary><div class="t" style="margin-top:6px;white-space:pre-wrap;font-size:.85rem">${esc(s.winbackPreview)}</div></details>
+<button id="wbGo" style="font:inherit;font-weight:700;padding:10px 16px;border-radius:10px;border:0;background:var(--ok);color:#fff;cursor:pointer">Give free estimates &amp; send the email</button> <span id="wbOut" class="m"></span>
+<script>document.getElementById("wbGo").onclick=async function(){var ids=[].slice.call(document.querySelectorAll(".wb:checked")).map(function(x){return x.value});if(!ids.length)return;if(!confirm("Give free estimates and email "+ids.length+" "+(ids.length===1?"person":"people")+"? Each gets it once."))return;this.disabled=true;var o=document.getElementById("wbOut");o.textContent="Sending…";try{var r=await fetch("/owner/winback",{method:"POST",headers:{"content-type":"application/json","x-gs-owner":"1"},body:JSON.stringify({ids:ids}),credentials:"same-origin"});var j=await r.json();o.textContent=r.ok?("Done: "+j.sent+" sent. Refresh to see the list update."):("Didn't go: "+(j.error||r.status));}catch(e){o.textContent="Didn't go: "+e.message;this.disabled=false}};</script>` : `<div class="m">Nobody waiting. Everyone has either run an estimate or already had their free estimates.</div>`}
 <h2>Selling</h2><div class="g">
 ${tile("eBay accounts", n(s.ebay.accounts), `${n(s.ebay.live)} listings live`)}
 ${tile("eBay sales", n(s.ebay.sold30), `30 days · ${money(s.ebay.gmv30)}`)}

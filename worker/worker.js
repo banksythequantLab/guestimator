@@ -287,6 +287,17 @@ export default {
         return new Response(owner.ownerPage(await owner.ownerStats(db, env)),
           { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
       }
+      // One-time win-back from the owner page: free estimates + one email to the people ticked there.
+      // x-gs-owner: a cross-site form can't set a custom header, so this can only come from the page.
+      if (parts[0] === "owner" && parts[1] === "winback" && parts.length === 2 && m === "POST") {
+        const uidW = await currentUser(request, db);
+        const meW = uidW ? await db.prepare("SELECT email FROM users WHERE id=?").bind(uidW).first() : null;
+        if (!meW || !owner.isOwner(env, meW.email) || request.headers.get("x-gs-owner") !== "1") return J({ error: "not found" }, 404);
+        const b = await readJson(request);
+        const ids = Array.isArray(b.ids) ? b.ids.map(String).slice(0, 100) : [];
+        if (!ids.length) return J({ error: "nobody ticked" }, 400);
+        return J(await growth.winbackFree(env, db, env.PUBLIC_ORIGIN || url.origin, meW.email, { only: ids }));
+      }
       // ---------- tax-time summary (signed-in seller only; printable page) ----------
       if (parts[0] === "tax-summary" && parts.length === 1 && m === "GET") {
         const uidT = await currentUser(request, db);
