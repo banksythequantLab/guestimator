@@ -348,7 +348,7 @@ async function renderHome() {
   app.innerHTML = `
     <div class="row" style="justify-content:space-between;align-items:center;margin:10px 0 2px;gap:8px;flex-wrap:wrap">
       <span class="muted" style="font-size:.82rem">${esc(user || "")}</span>
-      <span class="row" style="gap:10px">${planPill()}<a href="#" id="signout" class="muted" style="font-size:.82rem;font-weight:700">Sign out</a></span>
+      <span class="row" style="gap:10px">${planPill()}<a href="#" id="toFeedback" class="muted" style="font-size:.82rem;font-weight:700">💬 Feedback</a><a href="#" id="toLook" class="muted" style="font-size:.82rem;font-weight:700" title="Light, dark, black & white">🎨 Look</a><a href="#" id="signout" class="muted" style="font-size:.82rem;font-weight:700">Sign out</a></span>
     </div>
     <div class="card" style="border-color:var(--green)">
       <h1 class="h1" style="margin:0 0 4px">What's it worth?</h1>
@@ -373,6 +373,8 @@ async function renderHome() {
   $("#toSales").onclick = () => renderSales();
   $("#toProfit").onclick = () => renderProfit();
   $("#signout").onclick = e => { e.preventDefault(); logout(); };
+  $("#toLook").onclick = e => { e.preventDefault(); renderLook(); };
+  $("#toFeedback").onclick = e => { e.preventDefault(); renderFeedback("home"); };
   if ($("#planPill")) $("#planPill").onclick = e => { e.preventDefault(); BTBilling.open(); };
   if (window.BTBilling && !billingInit) { billingInit = true; BTBilling.init().then(p => { if (p && state.view === "home") renderHome(); }); }
   loadEbayStatus().then(s => { const c = $("#ebayCard"); if (c && state.view === "home") { c.innerHTML = ebayCardHtml(s); wireEbayCard(renderHome); } });

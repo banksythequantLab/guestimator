@@ -8,6 +8,28 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script>
+// Appearance before first paint (no flash). look.js calls gsLook again when the user changes it.
+window.gsLook = function (L) {
+  var d = document.documentElement, s = d.style; L = L || {};
+  if (L.mode === "light" || L.mode === "dark") d.setAttribute("data-theme", L.mode); else d.removeAttribute("data-theme");
+  if (L.skin === "mono") d.setAttribute("data-skin", "mono"); else d.removeAttribute("data-skin");
+  ["--green", "--green-d", "--cobalt", "--ok", "--on-accent"].forEach(function (k) { s.removeProperty(k); });
+  var dark = L.mode === "dark" || (L.mode !== "light" && window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches);
+  if (L.skin === "mono") {
+    var a = /^#[0-9a-f]{6}$/i.test(L.accent || "") ? L.accent : "#2563eb", n = parseInt(a.slice(1), 16), r = n >> 16 & 255, g = n >> 8 & 255, b = n & 255;
+    var mix = function (t, f) { return "#" + [r, g, b].map(function (c) { return ("0" + Math.round(c + (t - c) * f).toString(16)).slice(-2); }).join(""); };
+    var lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    s.setProperty("--green", a); s.setProperty("--ok", a); s.setProperty("--green-d", mix(0, 0.2));
+    // Links and outlines in the highlight color must stay readable on black or white.
+    s.setProperty("--cobalt", dark && lum < 0.35 ? mix(255, 0.35) : (!dark && lum > 0.7 ? mix(0, 0.4) : a));
+    s.setProperty("--on-accent", lum > 0.6 ? "#000" : "#fff");
+  }
+  var m = document.querySelector("meta[name=theme-color]");
+  if (m) m.content = L.skin === "mono" ? (dark ? "#000000" : "#ffffff") : (dark ? "#161210" : "#0F6B59");
+};
+try { gsLook(JSON.parse(localStorage.getItem("gs-look") || "{}")); } catch (e) {}
+</script>
 <style>
 :root{
  --bg:#F4ECDC;--panel:#FBF6EA;--panel2:#EFE4CC;--ink:#241B10;--sub:#6A5B44;--line:#E0D2B4;
@@ -24,6 +46,20 @@
  --green:#3FBBA0;--green-d:#2C7D6C;--cobalt:#7C9BFF;--gold:#E0B458;--rust:#E38657;--ok:#3FBBA0;
  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px rgba(0,0,0,.4);
 }}
+/* Appearance (look.js, 2026-10-06): data-theme=light|dark forces a mode (no attribute = follow the
+   phone); data-skin=mono is black & white with the user's highlight color, set as inline vars by gsLook. */
+:root{--on-accent:#fff}
+:root[data-theme=dark]{
+ --bg:#161210;--panel:#211B15;--panel2:#2A2219;--ink:#F1E7D4;--sub:#B7A889;--line:#3A2F22;
+ --green:#3FBBA0;--green-d:#2C7D6C;--cobalt:#7C9BFF;--gold:#E0B458;--rust:#E38657;--ok:#3FBBA0;
+ --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px rgba(0,0,0,.4);
+}
+:root[data-skin=mono]{--bg:#FFFFFF;--panel:#FFFFFF;--panel2:#F2F2F2;--ink:#0B0B0B;--sub:#5A5A5A;--line:#E3E3E3;--gold:#8A6D1F;--rust:#B42318;
+ --shadow:0 1px 2px rgba(0,0,0,.06),0 8px 22px rgba(0,0,0,.06)}
+@media(prefers-color-scheme:dark){:root[data-skin=mono]:not([data-theme=light]){--bg:#000000;--panel:#0F0F0F;--panel2:#1A1A1A;--ink:#F5F5F5;--sub:#A3A3A3;--line:#2A2A2A;--gold:#E0B458;--rust:#FF7A59;
+ --shadow:0 1px 2px rgba(0,0,0,.5),0 10px 28px rgba(0,0,0,.5)}}
+:root[data-skin=mono][data-theme=dark]{--bg:#000000;--panel:#0F0F0F;--panel2:#1A1A1A;--ink:#F5F5F5;--sub:#A3A3A3;--line:#2A2A2A;--gold:#E0B458;--rust:#FF7A59;
+ --shadow:0 1px 2px rgba(0,0,0,.5),0 10px 28px rgba(0,0,0,.5)}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
 body{background:var(--bg);color:var(--ink);font-family:"Nunito Sans",-apple-system,system-ui,sans-serif;line-height:1.45;-webkit-font-smoothing:antialiased}
@@ -49,7 +85,7 @@ header.top{position:sticky;top:0;z-index:10;background:var(--panel);border-botto
 label{display:block;font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--sub);margin:0 0 4px}
 input,select{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit}
 input:focus,select:focus{outline:2px solid var(--cobalt);border-color:var(--cobalt)}
-.btn{background:var(--green);color:#fff;border:0;border-radius:11px;padding:13px 16px;font-weight:800;font-size:1rem;width:100%}
+.btn{background:var(--green);color:var(--on-accent);border:0;border-radius:11px;padding:13px 16px;font-weight:800;font-size:1rem;width:100%}
 .btn:active{background:var(--green-d)}
 .btn.sec{background:var(--panel2);color:var(--ink);border:1px solid var(--line)}
 .btn.sm{width:auto;padding:8px 12px;font-size:.85rem;border-radius:9px}
@@ -86,7 +122,7 @@ input:focus,select:focus{outline:2px solid var(--cobalt);border-color:var(--coba
 .toast.show{opacity:.95}
 .seg{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .seg button{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:20px;padding:6px 12px;font-weight:700;font-size:.82rem}
-.seg button.on{background:var(--green);color:#fff;border-color:var(--green)}
+.seg button.on{background:var(--green);color:var(--on-accent);border-color:var(--green)}
 svg.logo{width:22px;height:26px}
 textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit;resize:vertical}
 textarea:focus{outline:2px solid var(--cobalt);border-color:var(--cobalt)}
@@ -132,7 +168,8 @@ ul.ev{margin:4px 0 0;padding-left:18px;font-size:.88rem}ul.ev li{margin:3px 0}
 <script src="/billing.js?v=0.9"></script>
 <script src="/sales.js?v=2.2"></script>
 <script src="/orders.js?v=2.4"></script>
+<script src="/look.js?v=1"></script>
 <script src="/robot.js?v=2"></script>
-<script src="/app.js?v=7.9"></script>
+<script src="/app.js?v=8.0"></script>
 </body>
 </html>

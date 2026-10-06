@@ -6,6 +6,7 @@
 
 import * as labelpay from "./labelpay.js";
 import { adminEmail } from "./shipops.js";
+import * as feedback from "./feedback.js";
 import * as growth from "./growth.js";
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -70,7 +71,7 @@ export async function ownerStats(db, env, ms = Date.now()) {
   const winback = await growth.winbackCandidates(env, db, adminEmail(env));
   const unsent = await growth.winbackUnsent(db);
   const winbackPreview = growth.winbackFreeMail(env, env.PUBLIC_ORIGIN || "https://app.theguestimator.com", Math.min(20, Math.max(1, Math.floor(Number(env.SIGNUP_CREDITS ?? 5)) || 5)), "(their own unsubscribe link)").text;
-  return { at: iso(ms), funnel, winback, unsent, winbackPreview, users, est, paid, ebay, garage, market, labels: { used: await labelpay.monthCount(db, ms), cap: labelpay.houseCap(env), pay_on: labelpay.payOn(env), payments: labelPays, problems: labelProblems, voids },
+  return { at: iso(ms), funnel, winback, unsent, winbackPreview, users, est, paid, ebay, garage, market, feedback: await feedback.ownerList(db).catch(() => []), labels: { used: await labelpay.monthCount(db, ms), cap: labelpay.houseCap(env), pay_on: labelpay.payOn(env), payments: labelPays, problems: labelProblems, voids },
            errors: { jobs: jobErrors, last: lastErrors, estimates: estErrors, listings: listErrors }, recent };
 }
 
@@ -125,6 +126,13 @@ ${tile("Market page views", n((s.market || {}).views7), `7 days · ${n((s.market
 ${tile("Shops opened", n((s.market || {}).shops), `${n((s.market || {}).shops_ready)} can take payment (Stripe ready)`)}
 ${tile("Items buyers can see", n((s.market || {}).visible), `${n((s.market || {}).listed)} in shops in all`)}
 ${tile("Market sales", n((s.market || {}).sold30), `30 days · ${money((s.market || {}).gmv30)} · we take no cut`)}</div>
+<h2>Feedback (${(s.feedback || []).filter(f => f.status === "new").length} new)</h2>
+<div class="m" style="margin-bottom:8px">From the app's Feedback button. Set Planned or Done and the sender gets one email (with your note, if any) and sees it under "Your feedback".</div>
+<div class="sc">${table(["When", "From", "Kind", "Message", "Status", "Note to them", ""], (s.feedback || []).map(f => `<tr data-fb="${esc(f.id)}"><td>${when(f.created_at)}</td><td>${esc(f.email || "")}</td><td>${esc(feedback.KINDS[f.kind] || f.kind)}</td>
+<td style="max-width:420px;white-space:pre-wrap">${esc(f.message)}${f.page ? `<div class="m">screen: ${esc(f.page)}</div>` : ""}</td>
+<td><select class="fbS">${Object.entries(feedback.STATUSES).map(([k, v]) => `<option value="${k}"${f.status === k ? " selected" : ""}>${esc(v)}</option>`).join("")}</select></td>
+<td><input class="fbN" value="${esc(f.owner_note || "")}" placeholder="optional" style="font:inherit;width:180px"></td><td><button class="fbGo">Save</button> <span class="fbOut m"></span></td></tr>`), "No feedback yet.")}</div>
+<script>document.querySelectorAll(".fbGo").forEach(function(b){b.onclick=async function(){var tr=b.closest("tr"),o=tr.querySelector(".fbOut");o.textContent="…";try{var r=await fetch("/owner/feedback",{method:"POST",headers:{"content-type":"application/json","x-gs-owner":"1"},credentials:"same-origin",body:JSON.stringify({id:tr.dataset.fb,status:tr.querySelector(".fbS").value,note:tr.querySelector(".fbN").value})});var j=await r.json();o.textContent=r.ok?("saved"+(j.emailed?", emailed them":"")):(j.error||r.status);}catch(e){o.textContent=e.message}}});</script>
 <h2>Shipping labels</h2><div class="g">
 <div class="t${capPct >= 100 ? " bad" : ""}"><div class="l">House Shippo this month</div><div class="v">${n(L.used)} / ${n(L.cap)}</div><div class="bar"><i style="width:${Math.min(100, capPct)}%"></i></div><div class="s">Card-paid labels ${L.pay_on ? "on" : "off"}</div></div>
 ${L.payments.map(p => tile(`Payments: ${p.status}`, n(p.n), money(p.cents), p.status === "stuck")).join("")}

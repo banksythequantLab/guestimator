@@ -39,6 +39,7 @@ import * as shipops from "./shipops.js";
 import * as owner from "./owner.js";
 import * as share from "./share.js";
 import * as market from "./market.js";
+import * as feedback from "./feedback.js";
 import * as ebaycare from "./ebaycare.js";
 import * as onboard from "./onboard.js";
 import * as growth from "./growth.js";
@@ -339,6 +340,15 @@ export default {
         if (!ids.length) return J({ error: "nobody ticked" }, 400);
         return J(await growth.winbackResend(env, db, env.PUBLIC_ORIGIN || url.origin, ids));
       }
+      // Owner-only: set a feedback item's status (and the note its sender sees).
+      if (parts[0] === "owner" && parts[1] === "feedback" && parts.length === 2 && m === "POST") {
+        const uidF = await currentUser(request, db);
+        const meF = uidF ? await db.prepare("SELECT email FROM users WHERE id=?").bind(uidF).first() : null;
+        if (!meF || !owner.isOwner(env, meF.email) || request.headers.get("x-gs-owner") !== "1") return J({ error: "not found" }, 404);
+        const b = await readJson(request);
+        const r = await feedback.setStatus(env, db, b.id, b.status, b.note, env.PUBLIC_ORIGIN || url.origin);
+        return J(r.status === 200 ? { ok: true, emailed: r.emailed } : { error: r.error }, r.status);
+      }
       // Owner-only: send one test email and return exactly what the mail service said.
       if (parts[0] === "owner" && parts[1] === "mailtest" && parts.length === 2 && m === "POST") {
         const uidM = await currentUser(request, db);
@@ -599,6 +609,12 @@ export default {
       // ---------- one-tap "Sell on the Market" (market.js) ----------
       if (parts[1] === "market" && parts[2] === "items" && parts[3] && parts.length === 4) return await market.sellerApi(request, env, url, parts, userId);
       if (parts[1] === "market" && parts[2] === "bulk" && parts.length === 3) return await market.bulkApi(request, env, url, userId);
+      // ---------- in-app feedback (feedback.js) ----------
+      if (parts[1] === "feedback" && parts.length === 2 && m === "POST") {
+        const r = await feedback.submit(env, db, userId, await readJson(request), env.PUBLIC_ORIGIN || url.origin);
+        return J(r.status === 200 ? { ok: true, id: r.id } : { error: r.error }, r.status);
+      }
+      if (parts[1] === "feedback" && parts[2] === "mine" && parts.length === 3 && m === "GET") return J({ items: await feedback.mine(db, userId) });
 
       // ---------- plan / credits (the app shows this on the paywall and the appraisal button) ----------
       if (parts[1] === "me" && parts[2] === "plan" && m === "GET") {
