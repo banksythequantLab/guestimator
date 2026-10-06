@@ -160,11 +160,35 @@ export async function winbackFree(env, db, origin, ownerEmail, { only = null, ms
       db.prepare("UPDATE gs_users SET winback1_at=COALESCE(winback1_at,?) WHERE user_id=?").bind(iso(ms), c.user_id),
     ]);
     const have = Number(c.credits || 0) + top;
-    const e = winbackFreeMail(env, origin, have, await offLink(env, origin, c.user_id));
-    await sendAlert(env, { to: c.email, subject: `Your ${plural(have, "free credit")} ${have === 1 ? "is" : "are"} ready`, ...e });
-    done.push({ user: c.user_id, added: top });
+    const r = await mailWinback(env, db, origin, c.user_id, c.email, have);
+    done.push({ user: c.user_id, added: top, emailed: r.sent, why: r.sent ? undefined : r.why });
   }
-  return { sent: done.length, done };
+  // "sent" counts emails that actually went: Cloudflare refused every address that wasn't verified
+  // in the account and the old count still said 5 (2026-10-05).
+  return { credited: done.length, sent: done.filter(d => d.emailed).length, failed: done.filter(d => !d.emailed).map(d => ({ user: d.user, why: d.why })), done };
+}
+// Sends the win-back email and records on its ledger row whether it went, so a failed one can be resent.
+async function mailWinback(env, db, origin, userId, email, have) {
+  const e = winbackFreeMail(env, origin, have, await offLink(env, origin, userId));
+  const r = await sendAlert(env, { to: email, subject: `Your ${plural(have, "free credit")} ${have === 1 ? "is" : "are"} ready`, ...e });
+  await db.prepare("UPDATE billing_events SET raw_json=json_set(COALESCE(raw_json,'{}'),'$.emailed',json(?),'$.email_error',?) WHERE user_id=? AND type='winback_free'")
+    .bind(r.sent ? "true" : "false", r.sent ? null : String(r.why || "").slice(0, 200), userId).run();
+  return r;
+}
+// People who got the win-back credits but whose email didn't go (or was never confirmed), and still
+// haven't priced anything or unsubscribed.
+export async function winbackUnsent(db) {
+  return (await db.prepare(
+    `SELECT g.user_id, u.email, u.credits, b.created_at, json_extract(b.raw_json,'$.email_error') why
+       FROM billing_events b JOIN gs_users g ON g.user_id=b.user_id JOIN users u ON u.id=b.user_id
+      WHERE b.type='winback_free' AND COALESCE(json_extract(b.raw_json,'$.emailed'),0)<>1
+        AND COALESCE(g.marketing_off,0)=0 AND NOT EXISTS (SELECT 1 ${OWNED}) ORDER BY b.created_at DESC LIMIT 100`).all()).results || [];
+}
+export async function winbackResend(env, db, origin, ids) {
+  const list = (await winbackUnsent(db)).filter(c => ids.includes(c.user_id));
+  const out = [];
+  for (const c of list) { const r = await mailWinback(env, db, origin, c.user_id, c.email, Number(c.credits || 0)); out.push({ user: c.user_id, emailed: r.sent, why: r.why }); }
+  return { sent: out.filter(o => o.emailed).length, failed: out.filter(o => !o.emailed), done: out };
 }
 export function winbackFreeMail(env, origin, have, off) {
   const demo = demoUrl(env);

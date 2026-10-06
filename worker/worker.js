@@ -317,6 +317,26 @@ export default {
         if (!ids.length) return J({ error: "nobody ticked" }, 400);
         return J(await growth.winbackFree(env, db, env.PUBLIC_ORIGIN || url.origin, meW.email, { only: ids }));
       }
+      // Resend the win-back email to people who got the credits but whose email was refused.
+      if (parts[0] === "owner" && parts[1] === "winback-resend" && parts.length === 2 && m === "POST") {
+        const uidR = await currentUser(request, db);
+        const meR = uidR ? await db.prepare("SELECT email FROM users WHERE id=?").bind(uidR).first() : null;
+        if (!meR || !owner.isOwner(env, meR.email) || request.headers.get("x-gs-owner") !== "1") return J({ error: "not found" }, 404);
+        const b = await readJson(request);
+        const ids = Array.isArray(b.ids) ? b.ids.map(String).slice(0, 100) : [];
+        if (!ids.length) return J({ error: "nobody ticked" }, 400);
+        return J(await growth.winbackResend(env, db, env.PUBLIC_ORIGIN || url.origin, ids));
+      }
+      // Owner-only: send one test email and return exactly what the mail service said.
+      if (parts[0] === "owner" && parts[1] === "mailtest" && parts.length === 2 && m === "POST") {
+        const uidM = await currentUser(request, db);
+        const meM = uidM ? await db.prepare("SELECT email FROM users WHERE id=?").bind(uidM).first() : null;
+        if (!meM || !owner.isOwner(env, meM.email) || request.headers.get("x-gs-owner") !== "1") return J({ error: "not found" }, 404);
+        const b = await readJson(request);
+        const to = String(b.to || "").trim();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return J({ error: "bad address" }, 400);
+        return J(await sendAlert(env, { to, subject: "Guestimator mail test", text: "Test from the owner page. If you got this, mail to this address works." }));
+      }
       // ---------- tax-time summary (signed-in seller only; printable page) ----------
       if (parts[0] === "tax-summary" && parts.length === 1 && m === "GET") {
         const uidT = await currentUser(request, db);

@@ -75,5 +75,20 @@ const firsts = s.filter(x => x.kind === "first").map(x => x.user);
 ok("3-day email skips amy (done) and eve (would hit the wall: she's for the button)", !firsts.includes(id("amy")) && !firsts.includes(id("eve")), firsts);
 ok("cal gets it, saying his free credits are waiting, with the video", firsts.includes(id("cal")) && mails.some(x => x.to === "cal@example.com" && x.subject === "Your 5 free credits are waiting" && x.text.includes(VIDEO)), mails.map(x => [x.to, x.subject]));
 
+// A refused email (Cloudflare: "destination address is not a verified address") is counted as NOT sent,
+// the credits still land, and the person shows up for "Send the email again".
+await reg("fay"); preFree("fay"); who = "boss";
+const realSend = env.EMAIL.send;
+env.EMAIL.send = async m => { if (m.to === "fay@example.com") throw new Error("destination address is not a verified address"); return realSend(m); };
+r = await call("POST", "/owner/winback", { ids: [id("fay")] }, { "x-gs-owner": "1" });
+ok("refused email: credited but not counted as sent, reason returned", r.json.credited === 1 && r.json.sent === 0 && /not a verified address/.test(r.json.failed[0].why) && credits("fay") === 5, r.json);
+let un = await G.winbackUnsent(db);
+ok("listed for resend with the reason", un.some(c => c.user_id === id("fay") && /not a verified/.test(c.why)) && !un.some(c => c.user_id === id("amy")), un);
+ok("owner page shows the resend list", (await call("GET", "/owner")).text.includes(`class="rs" value="${id("fay")}"`));
+env.EMAIL.send = realSend; mails.length = 0;
+r = await call("POST", "/owner/winback-resend", { ids: [id("fay")] }, { "x-gs-owner": "1" });
+ok("resend goes once mail works, no extra credits", r.json.sent === 1 && credits("fay") === 5 && mails.some(x => x.to === "fay@example.com" && x.subject === "Your 5 free credits are ready"), r.json);
+ok("and drops off the resend list", !(await G.winbackUnsent(db)).some(c => c.user_id === id("fay")));
+ok("resend needs the owner and the header", (await call("POST", "/owner/winback-resend", { ids: [id("fay")] })).status === 404);
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
