@@ -34,5 +34,8 @@ ok("identify schema asks only for the condition grade", APP.includes(' "listing"
 const WRK = readFileSync(join(here, "..", "worker.js"), "utf8");
 ok("written after the price is saved, and before an eBay draft if still missing", /status='done'[\s\S]{0,600}ensureListingCopy\(env, db, appraisalId/.test(WRK) && /listing\?\.description\) await ensureListingCopy\(env, db, bundle\.appraisal\.id/.test(WRK));
 
+// The web search runs on every estimate, alongside eBay, not only when eBay is thin (2026-10-06).
+ok("web search always runs, in parallel with both eBay searches", /Promise\.all\(\[timed\("ebay_active"[\s\S]{0,200}timed\("web_search", searchComps\(env, q\)/.test(APP) && !/soldHits\.length >= 3 \? \[\] : await searchComps/.test(APP));
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

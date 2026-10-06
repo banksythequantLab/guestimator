@@ -1884,14 +1884,21 @@ export async function appraise(env, req) {
   // categories eBay is thin on, and covers us entirely when no eBay keys are configured.
   // Each search's own finish time, so a slow one is visible (the step as a whole ran 18-20s).
   const timed = (k, p) => p.finally(() => { marks[k] = Date.now() - t0; });
-  const [live, sold] = await Promise.all([timed("ebay_active", ebayActive(env, q)), timed("ebay_sold", ebaySold(env, q))]);
+  // CHANGED 2026-10-06: the web search (auction and antique marketplaces, then the open web) runs on
+  // EVERY estimate, alongside the two eBay searches, instead of only when eBay came back thin
+  // (Derek: "seems like it should fire no matter what"). eBay alone missed what an artist's or
+  // maker's work actually brings: a signed Kosik portrait priced from generic eBay portraits.
+  const [live, sold, web] = await Promise.all([timed("ebay_active", ebayActive(env, q)), timed("ebay_sold", ebaySold(env, q)),
+                                               timed("web_search", searchComps(env, q).catch(() => []))]);
   marks.sold_lookups = soldLookups();
   mark("comps");
-  // Sold first: what buyers paid is the strongest evidence, and the repricer reads top-down.
+  // Sold first: what buyers paid is the strongest evidence, and the repricer reads top-down. Web
+  // results go last, minus any page eBay already gave us.
   const soldHits = (sold || []).slice(0, 8);
-  const hits = [...soldHits, ...(live || []),
-                ...((live && live.length >= 3) || soldHits.length >= 3 ? [] : await searchComps(env, q))];
-  mark("web_search");
+  const seenUrl = new Set([...soldHits, ...(live || [])].map(h => String(h.url || "").split("?")[0]).filter(Boolean));
+  const webHits = (web || []).filter(h => !seenUrl.has(String(h.url || "").split("?")[0])).slice(0, 6);
+  marks.web_hits = webHits.length;
+  const hits = [...soldHits, ...(live || []), ...webHits];
   // Only the Browse API produces a market range. See the note above searchComps for why search
   // hits do not get one.
   const market = (live && live.length) ? summarise(live) : null;
