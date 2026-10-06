@@ -1004,34 +1004,44 @@ export async function ebaySold(env, query, limit = 30, maxLookups = 3) {
   // eBay's search wants every word, so "... Server Memory 2017" can find nothing while
   // "SK Hynix 32GB DDR4 2400 RDIMM" finds 28 sales. Each rung is one SoldComps request.
   const ladder = [base, ...broaden(base)].filter((q, i, a) => q && a.indexOf(q) === i).slice(0, maxLookups);
-  let returned = 0;
-  for (const kw of ladder) {
+  // CHANGED 2026-10-05: the rungs used to run one after another, each allowed 20s, and the eBay
+  // step measured 18-20s. All rungs now start at once (Derek: "run in parallel"); the answer is
+  // still the FIRST rung in ladder order that has sales, read as soon as it and every rung before
+  // it are back, so the result is the same as before, just sooner. The cost: every rung is a
+  // SoldComps request even when the first would have done.
+  const rung = async (kw, ac) => {
     const u = new URL("https://api.sold-comps.com/v1/scrape");
     u.searchParams.set("keyword", kw);
     u.searchParams.set("count", String(limit));
     u.searchParams.set("soldAfter", since);
-    const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), 20000);
-    _soldLookups++;
     try {
       const r = await fetch(u, { headers: { authorization: `Bearer ${env.SOLDCOMPS_API_KEY}` }, signal: ac.signal });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        _soldFail = r.status === 429 && /quota/i.test(JSON.stringify(j)) ? "the sold-price lookup allowance for this month is used up"
-          : `the sold-price lookup returned ${r.status}`;
         console.log("soldcomps failed", r.status, JSON.stringify(j).slice(0, 300));
-        return null;
+        return { fail: r.status === 429 && /quota/i.test(JSON.stringify(j)) ? "the sold-price lookup allowance for this month is used up"
+          : `the sold-price lookup returned ${r.status}` };
       }
       const j = await r.json();
-      returned += (j.items || []).length;
       const kept = mapSold(j.items, query).slice(0, limit);
       // Kept vs returned: a gap here is our filters at work (wrong generation/spec), not an outage.
       console.log("soldcomps", JSON.stringify({ kw, returned: (j.items || []).length, kept: kept.length }));
-      if (kept.length) { _soldFail = null; return kept; }
+      return { returned: (j.items || []).length, kept };
     } catch (e) {
-      _soldFail = e.name === "AbortError" ? "the sold-price lookup timed out" : `the sold-price lookup failed (${e.message})`;
-      return null;
+      return { fail: e.name === "AbortError" ? "the sold-price lookup timed out" : `the sold-price lookup failed (${e.message})` };
     } finally { clearTimeout(t); }
+  };
+  const acs = ladder.map(() => new AbortController());
+  const running = ladder.map((kw, i) => rung(kw, acs[i]));
+  _soldLookups = ladder.length;
+  const stopRest = from => acs.slice(from).forEach(ac => ac.abort());
+  let returned = 0;
+  for (let i = 0; i < running.length; i++) {
+    const r = await running[i];
+    if (r.fail) { stopRest(i + 1); _soldFail = r.fail; return null; }
+    returned += r.returned;
+    if (r.kept.length) { stopRest(i + 1); _soldFail = null; return r.kept; }
   }
   _soldFail = returned ? "no sold listing matched this exact item" : "no sales of this in the last 90 days";
   return [];

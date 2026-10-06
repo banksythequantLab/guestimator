@@ -41,5 +41,23 @@ const p = repricePrompt({ ident: { name: "crock" }, condition: "Good", lotInfo: 
 ok("repricer told sold prices are what buyers paid, no unjudged sold range, asking separately", /SOLD on eBay in the last 90 days: 2 completed sales/.test(p) && !/\$95-\$120/.test(p) && /cite only the matching/.test(p) && /ASKING prices/.test(p) && /"sold": true/.test(p));
 ok("no sold data -> prompt unchanged", !/SOLD on eBay/.test(repricePrompt({ ident: {}, hits: [] })));
 
+// Parallel rungs (2026-10-05). Each lookup takes 150ms here; the first two find nothing.
+{
+  const Q = "SK Hynix 32GB DDR4 2400 ECC RDIMM Server Memory Module";
+  const seen = [], wait = ms => new Promise(r => setTimeout(r, ms));
+  globalThis.fetch = async u => { const kw = new URL(String(u)).searchParams.get("keyword"); seen.push(kw); await wait(150);
+    return new Response(JSON.stringify({ items: seen.indexOf(kw) === 2 ? [S("SK Hynix 32GB DDR4 2400 ECC RDIMM", 40)] : [] }), { status: 200 }); };
+  const t0 = Date.now(), got = await ebaySold({ SOLDCOMPS_API_KEY: "k" }, Q), took = Date.now() - t0;
+  ok("three rungs start together, not one after another", seen.length === 3 && took < 300, { rungs: seen.length, took });
+  ok("and the third rung's sales come back", got && got.length === 1 && got[0].price === 40, got);
+  // The exact search wins even when a looser one answers first.
+  const order = [];
+  globalThis.fetch = async u => { const kw = new URL(String(u)).searchParams.get("keyword"); order.push(kw); const i = order.length - 1;
+    await wait(i === 0 ? 200 : 20);
+    return new Response(JSON.stringify({ items: [S(`SK Hynix 32GB DDR4 2400 RDIMM rung${i}`, 50 + i)] }), { status: 200 }); };
+  const best = await ebaySold({ SOLDCOMPS_API_KEY: "k" }, Q);
+  ok("the most exact rung is used even when it is the slowest", best && best[0].price === 50, best && best.map(b => b.title));
+}
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
