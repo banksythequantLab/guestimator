@@ -202,7 +202,7 @@ export async function winbackSweep(env, db, origin, ms = Date.now()) {
     // straight to the buy-credits wall (2026-10-05).
     const have = Number(g.credits || 0), demo = demoUrl(env);
     const e = mail("What's in your closet worth?", ["You made a Guestimator account but haven't priced anything yet.",
-      ...(have > 0 ? [`You have ${freeCreditsLine(have)}, waiting in your account.`] : []),
+      ...(have > 0 ? [`You have ${freeCreditsLine(have)} waiting in your account.`] : []),
       "Pick one thing you've been meaning to sell, snap 2-4 photos, and you'll get a price from what's actually selling now - plus the box and weight to ship it.",
       ...(demo ? [`See it work in 30 seconds: ${demo}`] : [])],
       `${origin}/`, "Guestimate something", await offLink(env, origin, g.user_id));

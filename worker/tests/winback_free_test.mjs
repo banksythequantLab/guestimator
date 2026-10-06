@@ -60,7 +60,7 @@ ok("only listed people are touched, even if others are sent", r.status === 200 &
 ok("amy now has 5, in the ledger", credits("amy") === 5 && db.raw.prepare("SELECT SUM(credits_delta) n FROM billing_events WHERE user_id=? AND type='winback_free'").get(id("amy")).n === 5);
 const m = mails.find(x => x.to === "amy@example.com");
 ok("one email: free credits, the video, an unsubscribe link", mails.length === 1 && m && m.subject === "Your 5 free credits are ready"
-  && m.text.includes("5 free credits - enough to price and list 2 items, and price a 3rd. They're already in your account") && m.text.includes(VIDEO) && m.text.includes("/api/growth/off?u="), m && m.text);
+  && m.text.includes("Now you start with 5 free credits. They're already in your account") && !/enough to price/.test(m.text) && m.text.includes(VIDEO) && m.text.includes("/api/growth/off?u="), m && m.text);
 
 r = await call("POST", "/owner/winback", { ids: [id("amy")] }, { "x-gs-owner": "1" });
 ok("once only", r.json.sent === 0 && credits("amy") === 5 && mails.length === 1);

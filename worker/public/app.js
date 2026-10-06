@@ -171,12 +171,7 @@ const PITCH_STEPS = [["📷", "Snap a few photos", "Front, back, labels, maker's
 // The config (with the demo link) loads lazily, so on a first visit the pitch draws before it arrives;
 // renderAuth fills #demoLink again once getAuthCfg() resolves.
 const demoLinkHtml = () => authCfg && authCfg.demo_video ? `<a href="${esc(authCfg.demo_video)}" target="_blank" rel="noopener" style="display:block;margin-top:10px;font-weight:800;font-size:.9rem;color:var(--cobalt);text-decoration:none">▶ Watch how it works (30 seconds)</a>` : "";
-// "5 free credits: enough to price and list 2 items, and price a 3rd" (an estimate and a listing are 1 credit each).
-const freeCreditsLine = n => {
-  n = Number(n) || 0;
-  const k = Math.floor(n / 2), ord = ["1st", "2nd", "3rd", "4th", "5th", "6th"][k] || `${k + 1}th`;
-  return `${n} free credit${n === 1 ? "" : "s"}` + (k ? `: enough to price and list ${k} item${k === 1 ? "" : "s"}${n % 2 ? `, and price a ${ord}` : ""}` : "");
-};
+const freeCreditsLine = n => `${Number(n) || 0} free credit${Number(n) === 1 ? "" : "s"}`;
 const pitchHtml = () => `<div class="card" style="padding:14px 16px">
   ${PITCH_STEPS.map(([i, t, d]) => `<div class="row" style="gap:12px;align-items:center;margin:6px 0"><div style="font-size:1.5rem;width:32px;text-align:center">${i}</div><div><b>${t}</b><div class="muted" style="font-size:.85rem">${d}</div></div></div>`).join("")}
   <div style="margin-top:10px;padding:8px 10px;border-radius:10px;background:var(--bg);font-size:.9rem">🎁 <b>Start with ${freeCreditsLine((authCfg && authCfg.signup_credits) || 5)}.</b> No card needed. Rate an estimate and get another free credit.</div>

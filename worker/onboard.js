@@ -14,12 +14,7 @@ export const WELCOME_STEPS = [
 
 // Same rule as worker.js signupCredits: SIGNUP_CREDITS, default 5.
 const freeN = env => { const n = Number(env.SIGNUP_CREDITS ?? 5); return Number.isFinite(n) && n > 0 ? Math.min(20, Math.floor(n)) : 0; };
-// "5 free credits - enough to price and list 2 items, and price a 3rd" (estimate and listing: 1 credit each).
-export const freeCreditsLine = n => {
-  n = Number(n) || 0;
-  const k = Math.floor(n / 2), ord = ["1st", "2nd", "3rd", "4th", "5th", "6th"][k] || `${k + 1}th`;
-  return `${n} free credit${n === 1 ? "" : "s"}` + (k ? ` - enough to price and list ${k} item${k === 1 ? "" : "s"}${n % 2 ? `, and price a ${ord}` : ""}` : "");
-};
+export const freeCreditsLine = n => `${Number(n) || 0} free credit${Number(n) === 1 ? "" : "s"}`;
 
 export function welcomeEmail(env, email, origin) {
   const link = `${origin}/`;
