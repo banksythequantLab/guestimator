@@ -31,7 +31,7 @@ export async function profitRows(db, userId, { from = "", to = "" } = {}) {
   for (const r of go) rows.push({
     channel: "Online (sale page)", ref: r.id, item_id: r.item_id, title: r.title, at: r.at,
     sale_cents: r.item_cents, ship_paid_cents: r.ship_cents || 0,
-    fee_cents: (r.fee_cents || 0) + STRIPE_EST(r.total_cents), fee_note: "Guestimator fee + Stripe card fee (estimated)",
+    fee_cents: (r.fee_cents || 0) + STRIPE_EST(r.total_cents), fee_note: "Stripe card fee (estimated); Guestimator takes no cut",
     label_cents: r.label_cents });
 
   // In person: sold on a sale page with no paid online order and no eBay sale behind it.

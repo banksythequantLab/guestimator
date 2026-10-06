@@ -370,7 +370,7 @@ export async function pollSold(env, db, origin, { limit = 20, nowMs = Date.now()
         await db.batch([
           db.prepare("UPDATE etsy_listings SET status='sold', checked_at=?, updated_at=? WHERE id=?").bind(ts, ts, l.id),
           db.prepare("UPDATE items SET listing_status='sold' WHERE id=?").bind(l.item_id),
-          db.prepare("UPDATE garage_sale_items SET status='sold' WHERE item_id=? AND status IN ('available','held')").bind(l.item_id),
+          db.prepare("UPDATE garage_sale_items SET status='sold' WHERE item_id=? AND status IN ('available','held','pending')").bind(l.item_id),
         ]);
         const eb = await endEbayListing(env, db, l.item_id, "sold on Etsy");
         await soldEmail(env, db, l, eb, origin).catch(e => console.log("etsy sold email", String(e.message || e)));

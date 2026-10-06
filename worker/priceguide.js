@@ -107,9 +107,9 @@ export function indexPage(guides, origin) {
   return shell("Price guide: what's it worth? | Guestimator", "What things are actually worth, priced from current eBay listings and sales.", origin + "/prices", body, null);
 }
 
-export function sitemap(guides, origin) {
+export function sitemap(guides, origin, extra = []) {
   const u = (loc, mod) => `<url><loc>${esc(origin + loc)}</loc>${mod ? `<lastmod>${esc(day(mod))}</lastmod>` : ""}</url>`;
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${u("/prices", guides[0]?.updated_at)}${guides.map(g => u(pagePath(g), g.updated_at)).join("")}</urlset>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${u("/prices", guides[0]?.updated_at)}${guides.map(g => u(pagePath(g), g.updated_at)).join("")}${extra.map(x => u(x.loc, x.mod)).join("")}</urlset>`;
 }
 
 export const robots = origin => `User-agent: *\nDisallow: /api/\nDisallow: /owner\nDisallow: /stickers\nDisallow: /tax-summary\nDisallow: /shippo/\nAllow: /\n\nSitemap: ${origin}/sitemap.xml\n`;

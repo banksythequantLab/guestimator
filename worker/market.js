@@ -7,7 +7,8 @@
 // charge, no application fee). Only items a buyer can actually pay for right now are shown.
 // /market?q=lamp&sort=new|low|high&page=2
 
-import { page, esc, stripeReady } from "./garage.js";
+import { page, esc, stripeReady, cleanSale, newSlug, cents } from "./garage.js";
+import { startingPrice } from "./ebay.js";
 import { siteOrigin } from "./site.js";
 
 const money = c => "$" + (Number(c || 0) / 100).toFixed(2).replace(/\.00$/, "");
@@ -24,7 +25,7 @@ export function marketParams(sp) {
 }
 
 /** SQL for one page of buyable shop items. Every search word must appear in the title or name. */
-export function marketQuery({ q, sort, page: pg }) {
+export function marketQuery({ q, sort, page: pg }, per = PER_PAGE) {
   const args = [];
   let where = `s.kind='shop' AND s.status='published' AND s.online_ok=1 AND gi.status='available'
     AND u.connect_account_id IS NOT NULL AND u.stripe_payouts_ready=1
@@ -39,7 +40,7 @@ export function marketQuery({ q, sort, page: pg }) {
       s.slug, s.title AS shop, s.city, s.state, s.ship_ok, s.pickup_ok, i.name, i.ai_title,
       (SELECT r2_key FROM photos p WHERE p.item_id=gi.item_id ORDER BY p.sort, p.created_at LIMIT 1) AS thumb_key
     FROM garage_sale_items gi JOIN garage_sales s ON s.id=gi.sale_id JOIN users u ON u.id=s.user_id JOIN items i ON i.id=gi.item_id
-    WHERE ${where} ORDER BY ${SORTS[sort]} LIMIT ${PER_PAGE + 1} OFFSET ${(pg - 1) * PER_PAGE}`;
+    WHERE ${where} ORDER BY ${SORTS[sort]} LIMIT ${per + 1} OFFSET ${(pg - 1) * per}`;
   return { sql, args };
 }
 
@@ -54,12 +55,24 @@ export async function releaseShopStale(db, ms = Date.now()) {
     (SELECT 1 FROM garage_orders o WHERE o.sale_id=garage_sale_items.sale_id AND o.item_id=garage_sale_items.item_id AND o.status='pending')`).run();
 }
 
+/** Sitemap entries: the Market and every item on it right now (item pages are canonical). */
+export async function sitemapEntries(env, db) {
+  const out = [{ loc: "/market" }];
+  if (!stripeReady(env)) return out;
+  const { sql, args } = marketQuery({ q: "", sort: "new", page: 1 }, 5000);
+  for (const r of (await db.prepare(sql).bind(...args).all()).results) out.push({ loc: `/sale/${r.slug}/item/${r.item_id}`, mod: r.added_at });
+  return out;
+}
+
 const shipText = r => r.ship_ok && r.ship_cents != null ? (r.ship_cents ? `+ ${money(r.ship_cents)} shipping` : "Free shipping") : "Local pickup only";
 
 export async function marketPage(env, url) {
   const db = env.DB, origin = siteOrigin(env, url);
   const p = marketParams(url.searchParams);
   let rows = [];
+  // Launch numbers for the owner page; a counting failure never breaks the page.
+  await db.prepare("INSERT INTO market_views (day, views) VALUES (?, 1) ON CONFLICT(day) DO UPDATE SET views=views+1")
+    .bind(new Date().toISOString().slice(0, 10)).run().catch(() => {});
   if (stripeReady(env)) {
     await releaseShopStale(db).catch(() => {});
     const { sql, args } = marketQuery(p);
@@ -88,4 +101,83 @@ ${p.page > 1 || more ? `<p style="display:flex;justify-content:space-between">${
   return new Response(page({ title, desc: "Buy things priced by Guestimator directly from the people who own them. No marketplace cut.",
     image: rows[0]?.thumb_key ? `${origin}/p/${rows[0].thumb_key}` : null, canonical: `${origin}/market`, body }),
     { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+}
+
+// ---------------------------------------------------------------- seller: one tap (/api/market/items/:itemId)
+// "Sell on the Market" from a finished estimate: opens the seller's shop the first time (name,
+// city, state), then puts this item in it at the estimate's price with a shipping price. Items in a
+// shop are only shown to buyers once the seller's Stripe is ready (see marketQuery).
+
+const J = (d, s = 200) => new Response(JSON.stringify(d), { status: s, headers: { "content-type": "application/json", "cache-control": "no-store" } });
+const nowIso = () => new Date().toISOString();
+const myShop = (db, userId) => db.prepare("SELECT * FROM garage_sales WHERE user_id=? AND kind='shop' ORDER BY created_at LIMIT 1").bind(userId).first();
+const zipOf = s => { try { const z = JSON.parse(s || "null")?.zip; return /^\d{5}/.test(String(z || "")) ? String(z).slice(0, 5) : null; } catch { return null; } };
+
+export async function sellerApi(request, env, url, parts, userId) {
+  const db = env.DB, m = request.method, origin = siteOrigin(env, url);
+  const item = await db.prepare("SELECT i.* FROM items i JOIN sales s ON s.id=i.sale_id WHERE i.id=? AND s.user_id=?").bind(parts[3] || "", userId).first();
+  if (!item) return J({ error: "Item not found" }, 404);
+  let shop = await myShop(db, userId);
+  const row = shop ? await db.prepare("SELECT * FROM garage_sale_items WHERE sale_id=? AND item_id=?").bind(shop.id, item.id).first() : null;
+  const itemUrl = shop ? `${origin}/sale/${shop.slug}/item/${item.id}` : null;
+
+  if (m === "GET") {
+    const ap = await db.prepare("SELECT result_json FROM appraisals WHERE item_id=? AND status='done' ORDER BY created_at DESC LIMIT 1").bind(item.id).first();
+    let result = null; try { result = JSON.parse(ap?.result_json || "null"); } catch {}
+    const u = await db.prepare("SELECT shop_name, connect_account_id, stripe_payouts_ready FROM users WHERE id=?").bind(userId).first();
+    const ss = await db.prepare("SELECT ship_from FROM seller_settings WHERE user_id=?").bind(userId).first().catch(() => null);
+    const sp = startingPrice(result);
+    return J({
+      shop: shop ? { id: shop.id, title: shop.title, city: shop.city, state: shop.state, zip: shop.zip, pickup_ok: !!shop.pickup_ok, url: `${origin}/sale/${shop.slug}` } : null,
+      listed: row ? { price_cents: row.online_price_cents ?? row.price_cents, ship_cents: row.ship_cents, status: row.status, url: itemUrl } : null,
+      price_cents: sp ? Math.round(sp * 100) : (item.price_cents || null),
+      shop_name: u?.shop_name || "", from_zip: shop?.zip || zipOf(ss?.ship_from),
+      has_size: !!(result?.shipping && Array.isArray(result.shipping.box_in)),
+      sold: item.listing_status === "sold",
+      stripe: { platform_on: stripeReady(env), connected: !!u?.connect_account_id, ready: !!u?.stripe_payouts_ready },
+      market_url: `${origin}/market`,
+    });
+  }
+
+  if (m === "POST") {
+    let b = {}; try { b = await request.json(); } catch {}
+    if (item.listing_status === "sold") return J({ error: "This item is marked sold." }, 409);
+    const price = cents(b.price), ship = cents(b.ship);
+    if (Number.isNaN(price) || !(price >= 100)) return J({ error: "Enter a price of at least $1, like 25 or 7.50" }, 400);
+    if (Number.isNaN(ship)) return J({ error: "Enter shipping like 12 or 8.50 (0 for free shipping)" }, 400);
+    if (!shop) {
+      const c = cleanSale({ kind: "shop", title: b.shop_name, city: b.city, state: b.state, zip: b.zip || undefined,
+                            ship_ok: true, online_ok: true, pickup_ok: !!b.pickup });
+      if (!c.ok) return J({ error: c.error === "Give the sale a title" ? "Give your shop a name" : c.error }, 400);
+      const v = c.value, id = crypto.randomUUID(), t = nowIso();
+      await db.prepare("INSERT INTO garage_sales (id,user_id,slug,kind,title,description,street,city,state,zip,starts_on,ends_on,hours,tz,status,pickup_ok,ship_ok,online_ok,contact_phone,created_at,updated_at) " +
+        "VALUES (?,?,?,'shop',?,NULL,NULL,?,?,?,?,?,NULL,'America/New_York','published',?,1,1,NULL,?,?)")
+        .bind(id, userId, newSlug(v.title), v.title, v.city, v.state, v.zip ?? null, v.starts_on, v.ends_on, v.pickup_ok ?? 0, t, t).run();
+      shop = await myShop(db, userId);
+    }
+    if (ship === null && !shop.pickup_ok) return J({ error: "Enter a shipping price (0 for free shipping), so buyers can get it to them." }, 400);
+    if (row?.status === "pending") return J({ error: "Someone is paying for this right now. Try again in a few minutes." }, 409);
+    if (row?.status === "sold") return J({ error: "This one already sold." }, 409);
+    if (row) await db.prepare("UPDATE garage_sale_items SET price_cents=?, online_price_cents=NULL, ship_cents=?, status='available' WHERE sale_id=? AND item_id=?")
+      .bind(price, ship, shop.id, item.id).run();
+    else {
+      const mx = await db.prepare("SELECT COALESCE(MAX(sort),0) AS s FROM garage_sale_items WHERE sale_id=?").bind(shop.id).first();
+      await db.prepare("INSERT INTO garage_sale_items (sale_id,item_id,price_cents,online_price_cents,ship_cents,status,sort,added_at) VALUES (?,?,?,NULL,?,'available',?,?)")
+        .bind(shop.id, item.id, price, ship, (mx.s || 0) + 1, nowIso()).run();
+    }
+    // One tap means it's on sale: a shop left in draft or ended earlier is opened again.
+    if (shop.status !== "published" || !shop.online_ok || !shop.ship_ok)
+      await db.prepare("UPDATE garage_sales SET status='published', online_ok=1, ship_ok=1, updated_at=? WHERE id=?").bind(nowIso(), shop.id).run();
+    const u = await db.prepare("SELECT stripe_payouts_ready FROM users WHERE id=?").bind(userId).first();
+    return J({ ok: true, url: `${origin}/sale/${shop.slug}/item/${item.id}`, visible: !!(stripeReady(env) && u?.stripe_payouts_ready) });
+  }
+
+  if (m === "DELETE") {
+    if (!row) return J({ ok: true });
+    if (row.status === "pending") return J({ error: "Someone is paying for this right now." }, 409);
+    if (row.status === "sold") return J({ error: "It sold, so it stays as a record." }, 409);
+    await db.prepare("DELETE FROM garage_sale_items WHERE sale_id=? AND item_id=?").bind(shop.id, item.id).run();
+    return J({ ok: true });
+  }
+  return J({ error: "not found" }, 404);
 }

@@ -11,6 +11,7 @@
 import { startingPrice } from "./ebay.js";
 import { holdAlert, orderAlert, buyerOrderEmail, buyerShippedEmail } from "./notify.js";
 import { endEbayListing } from "./ebayorders.js";
+import { endEtsyListing } from "./etsy.js";
 import { packageFor, flatRateFits } from "./packing.js";
 import * as sheet from "./export.js";
 import { siteOrigin } from "./site.js";
@@ -35,6 +36,15 @@ export const SHOP_ENDS = "9999-12-31";
 export const isShop = s => !!s && s.kind === "shop";
 /** Platform fee for an order in this sale: always 0 for an online shop. */
 export const saleFee = (sale, totalCents, bps) => isShop(sale) ? 0 : feeCents(totalCents, bps);
+/**
+ * Sold in one place: take every OTHER unsold copy of the item out of the seller's sales and shop,
+ * so it can't sell twice (e.g. in the shop on the Market and at a garage sale). Copies are deleted,
+ * not marked sold, so the profit report counts the sale once. A copy someone is paying for right
+ * now is deleted too: when their payment lands, applyStripeEvent finds no row and records
+ * "refund_needed" instead of a second sale.
+ */
+export const pullOtherCopies = (db, itemId, keepSaleId = "") =>
+  db.prepare("DELETE FROM garage_sale_items WHERE item_id=? AND sale_id<>? AND status IN ('available','held','pending')").bind(itemId, keepSaleId || "");
 const STATES = new Set("AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split(" "));
 const ONLINE_MIN_CENTS = 100;       // Stripe's floor is 50c; a $1 floor keeps the fee meaningful
 const HOLD_LIMIT_PER_HOUR = 5;      // per shopper IP, across all sales
@@ -420,6 +430,8 @@ export async function sellerApi(request, env, url, parts, userId, ctx) {
           .bind(...keys.map(k => set[k]), sid, row.item_id).run();
         // Sold at the sale: take it off eBay too, and say whether that worked.
         if (set.status === "sold" && row.status !== "sold") {
+          await pullOtherCopies(db, row.item_id, sid).run();
+          await endEtsyListing(env, db, row.item_id, "sold at the garage sale").catch(e => console.log("endEtsyListing", e));
           const e = await endEbayListing(env, db, row.item_id, "sold at the garage sale");
           return J({ ok: true, ebay: e.why === "not on eBay" ? null : e });
         }
@@ -553,7 +565,10 @@ export async function publicApi(request, env, url, parts, ctx) {
         if (outcome === "paid") {
           ctx.waitUntil(buyerOrderEmail(db, env, o.id, origin).catch(e => console.log("buyerOrderEmail", e)));
           const it = await db.prepare("SELECT item_id FROM garage_orders WHERE id=?").bind(o.id).first();
-          if (it) ctx.waitUntil(endEbayListing(env, db, it.item_id, "bought online from the sale page"));
+          if (it) {
+            ctx.waitUntil(endEbayListing(env, db, it.item_id, "bought online from the sale page"));
+            ctx.waitUntil(endEtsyListing(env, db, it.item_id, "bought online on Guestimator").catch(e => console.log("endEtsyListing", e)));
+          }
         }
       }
     }
@@ -586,7 +601,9 @@ export async function applyStripeEvent(db, ev) {
         .bind(clash ? "refund_needed" : "paid", o.payment_intent || null, cd.name || null, cd.email || null,
               ship ? JSON.stringify({ ...ship, phone: cd.phone || null }) : (cd.phone ? JSON.stringify({ phone: cd.phone }) : null),
               clash ? "Paid, but the item had already sold at the sale. Refund this buyer in Stripe." : null, t, order.id),
-      ...(clash ? [] : [db.prepare("UPDATE garage_sale_items SET status='sold', sold_at=? WHERE sale_id=? AND item_id=?").bind(t, order.sale_id, order.item_id)]),
+      ...(clash ? [] : [db.prepare("UPDATE garage_sale_items SET status='sold', sold_at=? WHERE sale_id=? AND item_id=?").bind(t, order.sale_id, order.item_id),
+                        pullOtherCopies(db, order.item_id, order.sale_id),
+                        db.prepare("UPDATE items SET listing_status='sold' WHERE id=?").bind(order.item_id)]),
     ]);
     return clash ? "refund_needed" : "paid";
   }

@@ -122,7 +122,7 @@ export async function syncOrders(env, db, userId, { nowMs = Date.now() } = {}) {
           // available would otherwise sell a second time to a buyer at the sale or online.
           await db.batch([
             db.prepare("UPDATE items SET listing_status='sold' WHERE id=?").bind(hit.item_id),
-            db.prepare("UPDATE garage_sale_items SET status='sold' WHERE item_id=? AND status IN ('available','held')").bind(hit.item_id),
+            db.prepare("UPDATE garage_sale_items SET status='sold' WHERE item_id=? AND status IN ('available','held','pending')").bind(hit.item_id),
           ]);
           // And off Etsy, if it was cross-listed there.
           await endEtsyListing(env, db, hit.item_id, "sold on eBay");

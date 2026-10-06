@@ -1096,6 +1096,8 @@ async function renderItemDetail(id) {
     ${r && !nc && appraisal.status === "done" ? rateCardHtml(appraisal.rating) : ""}
 ${r && !nc && !r.unknown && appraisal.status === "done" && pr && pr.high > 0 ? `<button class="btn sec" id="shareEst" style="margin:-4px 0 12px">📤 Share this price</button>` : ""}
     ${ebayPanelHtml(b, !!(r && !nc && appraisal.status === "done"))}
+    ${r && !nc && !r.unknown && appraisal.status === "done" && item.listing_status !== "sold" ? `<div class="card" id="mktCard" style="border-color:var(--cobalt)"><b>🛒 Sell it on the Guestimator Market</b>
+      <div class="muted" style="font-size:.8rem;margin:2px 0 8px">Anyone can buy it, like on eBay. They pay you directly. We take no cut.</div><div id="mktBody"><button class="btn" id="mktOpen" style="background:var(--cobalt)">Sell on the Market</button></div></div>` : ""}
     ${r && !nc && appraisal.status === "done" ? salePanelHtml() : ""}
     ${item.listing_status !== "sold" ? `<div class="card" id="soldCard" style="padding:12px 16px${state.fromSticker === id ? ";border-color:var(--green)" : ""}"><div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
       <div style="flex:1;min-width:140px"><b style="font-size:.9rem">Sold it in person?</b><div class="muted" style="font-size:.75rem">Takes it off eBay and counts it in your profit report.</div></div>
@@ -1128,6 +1130,7 @@ ${r && !nc && !r.unknown && appraisal.status === "done" && pr && pr.high > 0 ? `
     } catch (e) { toast(e.message); }
     btn.disabled = false;
   };
+  if ($("#mktBody")) marketPanel(id, state.mktOpenFor !== id);
   $("#delItem").onclick = async () => {
     const onEbay = b.ebay && b.ebay.status === "published";
     const msg = onEbay
@@ -1662,6 +1665,63 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
 // if it changed — only on the home or sign-in screen, so a photo or form in progress is never lost.
 const ownVersion = (() => { const s = document.querySelector('script[src*="/app.js"]'); const m = s && s.src.match(/[?&]v=([^&]+)/); return m ? m[1] : null; })();
 let lastVersionCheck = 0;
+// "Sell on the Market" card on a finished estimate (market.js sellerApi). Collapsed = just the
+// button, or the listing's status if it's already in the shop. Open = the price/shipping form.
+async function marketPanel(id, collapsed = false) {
+  const el = $("#mktBody"); if (!el) return;
+  let d;
+  try { d = await api(`/market/items/${id}`); } catch (e) { el.innerHTML = `<div class="muted" style="font-size:.85rem">${esc(e.message)}</div>`; return; }
+  if (!$("#mktBody")) return;
+  const L = d.listed, dol = c => (c == null ? "" : (c / 100).toFixed(2).replace(/\.00$/, ""));
+  const stripeNote = d.stripe.ready ? "" : `<div class="muted" style="font-size:.8rem;margin-top:8px;color:var(--rust)">Buyers can't see your shop until your Stripe account is set up (about 10 minutes, in your name). ${d.stripe.platform_on ? `<button class="btn sm" id="mktStripe" style="background:var(--cobalt);margin-top:6px">${d.stripe.connected ? "Finish Stripe setup" : "Connect Stripe"}</button>` : ""}</div>`;
+  const wireStripe = () => { if ($("#mktStripe")) $("#mktStripe").onclick = async () => {
+    try { const { url } = await api("/garage/stripe/connect", { method: "POST" });
+      if (typeof isNative !== "undefined" && isNative && window.Capacitor?.Plugins?.Browser) await Capacitor.Plugins.Browser.open({ url }); else location.href = url; } catch (e) { toast(e.message); } }; };
+  if (L && L.status === "sold") { el.innerHTML = `<div style="font-size:.9rem"><b>Sold on the Market ✓</b> <a href="${esc(L.url)}" target="_blank" rel="noopener">View</a></div>`; return; }
+  if (L && L.status === "pending") { el.innerHTML = `<div style="font-size:.9rem">Someone is paying for it right now.</div>`; return; }
+  if (collapsed) {
+    el.innerHTML = L ? `<div style="font-size:.9rem"><b>On the Market</b> for <b>${money(L.price_cents)}</b> · ${L.ship_cents == null ? "local pickup" : L.ship_cents ? money(L.ship_cents) + " shipping" : "free shipping"}
+      · <a href="${esc(L.url)}" target="_blank" rel="noopener">View</a></div><button class="btn sec sm" id="mktOpen" style="margin-top:8px">Change price or shipping</button>${stripeNote}`
+      : `<button class="btn" id="mktOpen" style="background:var(--cobalt)">Sell on the Market</button>`;
+    $("#mktOpen").onclick = () => { state.mktOpenFor = id; marketPanel(id, false); };
+    wireStripe(); return;
+  }
+  const s = d.shop;
+  el.innerHTML = `${s ? "" : `<div class="muted" style="font-size:.82rem;margin-bottom:4px">First time: name your shop. Buyers only see your city and state.</div>
+    <label>Shop name</label><input id="mkName" maxlength="90" value="${esc(d.shop_name)}" placeholder="e.g. Derek's vintage finds">
+    <div class="row" style="gap:8px"><div style="flex:2"><label>City</label><input id="mkCity" maxlength="60"></div>
+      <div style="flex:1"><label>State</label><input id="mkState" maxlength="2" placeholder="NJ" style="text-transform:uppercase"></div>
+      <div style="flex:1.3"><label>ZIP</label><input id="mkZip" maxlength="10" inputmode="numeric" value="${esc(d.from_zip || "")}"></div></div>
+    <label class="row" style="gap:8px;font-weight:400"><input type="checkbox" id="mkPickup" style="width:auto"> Local pickup is OK too</label>`}
+    <div class="row" style="gap:8px"><div style="flex:1"><label>Price</label><input id="mkPrice" inputmode="decimal" value="${esc(dol(L ? L.price_cents : d.price_cents))}" placeholder="$0.00"></div>
+      <div style="flex:1"><label>Shipping (0 = free)</label><input id="mkShip" inputmode="decimal" value="${esc(dol(L ? L.ship_cents : null))}" placeholder="$0.00"></div></div>
+    ${d.has_size ? `<button class="btn sec sm" id="mkQuote" style="margin-top:6px">Suggest a shipping price</button><span class="muted" id="mkQuoteNote" style="font-size:.78rem;margin-left:6px"></span>` : ""}
+    <div class="row" style="gap:8px;margin-top:10px"><button class="btn" id="mkGo" style="background:var(--cobalt)">${L ? "Save" : "Put it on the Market"}</button>
+      ${L ? `<button class="btn sec" id="mkOff">Take it off</button>` : ""}</div>${stripeNote}`;
+  wireStripe();
+  if ($("#mkQuote")) $("#mkQuote").onclick = async () => {
+    const zip = ($("#mkZip") && $("#mkZip").value) || (s && s.zip) || d.from_zip || prompt("The 5-digit ZIP you ship from:");
+    if (!zip) return;
+    $("#mkQuoteNote").textContent = "Getting rates…";
+    try { const q = await api(`/items/${id}/shipping-quote?from=${encodeURIComponent(zip)}&service=ground`);
+      if (q.suggested) { $("#mkShip").value = q.suggested; $("#mkQuoteNote").textContent = q.basis || ""; } else $("#mkQuoteNote").textContent = q.basis || "No rate came back."; }
+    catch (e) { $("#mkQuoteNote").textContent = e.message; }
+  };
+  $("#mkGo").onclick = async () => {
+    const body = { price: $("#mkPrice").value, ship: $("#mkShip").value };
+    if (!s) Object.assign(body, { shop_name: $("#mkName").value, city: $("#mkCity").value, state: $("#mkState").value, zip: $("#mkZip").value, pickup: $("#mkPickup").checked });
+    $("#mkGo").disabled = true;
+    try {
+      const res = await api(`/market/items/${id}`, { method: "POST", body: JSON.stringify(body) });
+      toast(res.visible ? "On the Market ✓" : "Saved. It shows on the Market once Stripe is set up.");
+      state.mktOpenFor = null; marketPanel(id, true);
+    } catch (e) { toast(e.message); if ($("#mkGo")) $("#mkGo").disabled = false; }
+  };
+  if ($("#mkOff")) $("#mkOff").onclick = async () => {
+    try { await api(`/market/items/${id}`, { method: "DELETE" }); toast("Taken off the Market"); state.mktOpenFor = null; marketPanel(id, true); } catch (e) { toast(e.message); }
+  };
+}
+
 async function reloadIfUpdated() {
   if (!ownVersion || document.visibilityState !== "visible" || Date.now() - lastVersionCheck < 60e3) return;
   if (!["home", "auth"].includes(state.view)) return;

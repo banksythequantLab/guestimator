@@ -56,6 +56,10 @@ export async function sharePage(db, token, origin) {
   let invite = `${origin}/?utm_source=share`;
   try { invite = `${origin}/?ref=${encodeURIComponent(await codeFor(db, s.user_id))}&utm_source=share`; } catch {}
   const url = `${origin}/e/${s.token}`, img = s.photo ? `${origin}/p/${s.photo}` : `${origin}/icon.svg`;
+  // On sale in the seller's shop on the Market (and buyable right now)? Then the page sells it too.
+  const buy = await db.prepare(`SELECT g.slug, COALESCE(gi.online_price_cents, gi.price_cents) AS price FROM garage_sale_items gi JOIN garage_sales g ON g.id=gi.sale_id
+      JOIN users u ON u.id=g.user_id WHERE gi.item_id=? AND g.kind='shop' AND g.status='published' AND g.online_ok=1 AND gi.status='available'
+      AND u.stripe_payouts_ready=1 LIMIT 1`).bind(s.item_id).first().catch(() => null);
   const range = `${dollars(g.low)}–${dollars(g.high)}`;
   const title = `${g.title}: Guestimated at ${range}`;
   const desc = `Priced from ${g.sold ? "recent eBay sales and " : ""}${g.comps ? `${g.comps} comparable listings` : "what's selling now"}. What's yours worth? Snap 3 photos and find out free.`;
@@ -71,6 +75,8 @@ ${s.photo ? `<img class="ph" src="${esc(img)}" alt="${esc(g.title)}" style="marg
 <div class="card"><div class="m">Guestimate</div><div class="big">${esc(range)}</div>
 ${g.suggested ? `<div style="margin-top:4px">Suggested price: <b>${dollars(g.suggested)}</b></div>` : ""}
 <div class="m" style="margin-top:6px">Priced from ${g.sold ? "recent eBay sales and " : ""}${g.comps ? `${g.comps} comparable listing${g.comps === 1 ? "" : "s"}` : "what's selling now"}${g.maker ? ` · ${esc(g.maker)}` : ""}${g.period ? ` · ${esc(g.period)}` : ""}</div></div>
+${buy ? `<a class="cta" href="${esc(`${origin}/sale/${buy.slug}/item/${s.item_id}`)}" style="margin-top:14px">Buy this one · ${dollars(buy.price / 100)}</a>
+<p class="m" style="margin-top:6px">Sold by its owner on the <a href="${esc(origin)}/market">Guestimator Market</a>. You pay the seller directly.</p>` : ""}
 <div class="card" style="margin-top:22px"><h2 style="margin-top:0">What's yours worth?</h2>
 <p>Snap 3 photos and Guestimator prices it from what's actually selling on eBay right now. Then one tap writes the listing on your own eBay account. You start with 5 free credits.</p>
 <a class="cta" href="${esc(invite)}">Price mine free</a></div>

@@ -45,6 +45,17 @@ export async function ownerStats(db, env, ms = Date.now()) {
       (SELECT COUNT(*) FROM garage_orders WHERE status IN ('paid','fulfilled') AND created_at>=?) sold30,
       (SELECT COALESCE(SUM(total_cents),0) FROM garage_orders WHERE status IN ('paid','fulfilled') AND created_at>=?) gmv30,
       (SELECT COALESCE(SUM(fee_cents),0) FROM garage_orders WHERE status IN ('paid','fulfilled') AND created_at>=?) fees30`, d30, d30, d30);
+  // Guestimator Market (market.js): shops, what buyers can see right now, orders, page views.
+  const market = await one(db, `SELECT (SELECT COUNT(*) FROM garage_sales WHERE kind='shop') shops,
+      (SELECT COUNT(*) FROM garage_sales g JOIN users u ON u.id=g.user_id WHERE g.kind='shop' AND u.stripe_payouts_ready=1) shops_ready,
+      (SELECT COUNT(*) FROM garage_sale_items gi JOIN garage_sales g ON g.id=gi.sale_id WHERE g.kind='shop' AND gi.status='available') listed,
+      (SELECT COUNT(*) FROM garage_sale_items gi JOIN garage_sales g ON g.id=gi.sale_id JOIN users u ON u.id=g.user_id
+        WHERE g.kind='shop' AND g.status='published' AND g.online_ok=1 AND gi.status='available' AND u.stripe_payouts_ready=1
+          AND ((g.ship_ok=1 AND gi.ship_cents IS NOT NULL) OR g.pickup_ok=1)) visible,
+      (SELECT COUNT(*) FROM garage_orders o JOIN garage_sales g ON g.id=o.sale_id WHERE g.kind='shop' AND o.status IN ('paid','fulfilled') AND o.created_at>=?) sold30,
+      (SELECT COALESCE(SUM(o.total_cents),0) FROM garage_orders o JOIN garage_sales g ON g.id=o.sale_id WHERE g.kind='shop' AND o.status IN ('paid','fulfilled') AND o.created_at>=?) gmv30,
+      (SELECT COALESCE(SUM(views),0) FROM market_views WHERE day>=?) views7,
+      (SELECT COALESCE(SUM(views),0) FROM market_views WHERE day>=?) views30`, d30, d30, d7.slice(0, 10), d30.slice(0, 10)).catch(() => ({}));
   const labelPays = await all(db, "SELECT status, COUNT(*) n, COALESCE(SUM(total_cents),0) cents FROM label_payments GROUP BY status ORDER BY n DESC");
   const labelProblems = await all(db, `SELECT p.status, p.kind, p.order_id, p.total_cents, p.error, p.payment_intent, p.updated_at, u.email FROM label_payments p JOIN users u ON u.id=p.user_id
       WHERE p.status IN ('stuck','refunded','buying') AND p.updated_at>=? ORDER BY p.updated_at DESC LIMIT 10`, d30);
@@ -59,7 +70,7 @@ export async function ownerStats(db, env, ms = Date.now()) {
   const winback = await growth.winbackCandidates(env, db, adminEmail(env));
   const unsent = await growth.winbackUnsent(db);
   const winbackPreview = growth.winbackFreeMail(env, env.PUBLIC_ORIGIN || "https://app.theguestimator.com", Math.min(20, Math.max(1, Math.floor(Number(env.SIGNUP_CREDITS ?? 5)) || 5)), "(their own unsubscribe link)").text;
-  return { at: iso(ms), funnel, winback, unsent, winbackPreview, users, est, paid, ebay, garage, labels: { used: await labelpay.monthCount(db, ms), cap: labelpay.houseCap(env), pay_on: labelpay.payOn(env), payments: labelPays, problems: labelProblems, voids },
+  return { at: iso(ms), funnel, winback, unsent, winbackPreview, users, est, paid, ebay, garage, market, labels: { used: await labelpay.monthCount(db, ms), cap: labelpay.houseCap(env), pay_on: labelpay.payOn(env), payments: labelPays, problems: labelProblems, voids },
            errors: { jobs: jobErrors, last: lastErrors, estimates: estErrors, listings: listErrors }, recent };
 }
 
@@ -108,7 +119,12 @@ ${s.unsent.length ? `<h2>Got free credits, but the email didn't arrive</h2><div 
 ${tile("eBay accounts", n(s.ebay.accounts), `${n(s.ebay.live)} listings live`)}
 ${tile("eBay sales", n(s.ebay.sold30), `30 days · ${money(s.ebay.gmv30)}`)}
 ${tile("Garage sales live", n(s.garage.live), "")}
-${tile("Garage online sales", n(s.garage.sold30), `30 days · ${money(s.garage.gmv30)} · our fees ${money(s.garage.fees30)}`)}</div>
+${tile("Garage online sales", n(s.garage.sold30), `30 days · ${money(s.garage.gmv30)}`)}</div>
+<h2>Guestimator Market</h2><div class="g">
+${tile("Market page views", n((s.market || {}).views7), `7 days · ${n((s.market || {}).views30)} in 30 days`)}
+${tile("Shops opened", n((s.market || {}).shops), `${n((s.market || {}).shops_ready)} can take payment (Stripe ready)`)}
+${tile("Items buyers can see", n((s.market || {}).visible), `${n((s.market || {}).listed)} in shops in all`)}
+${tile("Market sales", n((s.market || {}).sold30), `30 days · ${money((s.market || {}).gmv30)} · we take no cut`)}</div>
 <h2>Shipping labels</h2><div class="g">
 <div class="t${capPct >= 100 ? " bad" : ""}"><div class="l">House Shippo this month</div><div class="v">${n(L.used)} / ${n(L.cap)}</div><div class="bar"><i style="width:${Math.min(100, capPct)}%"></i></div><div class="s">Card-paid labels ${L.pay_on ? "on" : "off"}</div></div>
 ${L.payments.map(p => tile(`Payments: ${p.status}`, n(p.n), money(p.cents), p.status === "stuck")).join("")}

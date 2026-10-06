@@ -299,7 +299,7 @@ export default {
       if (m === "GET" && (url.pathname === "/prices" || url.pathname.startsWith("/price/") || url.pathname === "/sitemap.xml" || url.pathname === "/robots.txt")) {
         const origin = env.PUBLIC_ORIGIN || url.origin, pub = { "cache-control": "public, max-age=3600" };
         if (url.pathname === "/robots.txt") return new Response(priceguide.robots(origin), { headers: { "content-type": "text/plain; charset=utf-8", ...pub } });
-        if (url.pathname === "/sitemap.xml") return new Response(priceguide.sitemap(await priceguide.allGuides(db), origin), { headers: { "content-type": "application/xml; charset=utf-8", ...pub } });
+        if (url.pathname === "/sitemap.xml") return new Response(priceguide.sitemap(await priceguide.allGuides(db), origin, await market.sitemapEntries(env, db).catch(() => [])), { headers: { "content-type": "application/xml; charset=utf-8", ...pub } });
         if (url.pathname === "/prices") return new Response(priceguide.indexPage(await priceguide.allGuides(db), origin), { headers: { "content-type": "text/html; charset=utf-8", ...pub } });
         const idm = url.pathname.match(/^\/price\/(?:[a-z0-9-]*-)?(\d{6,20})\/?$/);
         const g = idm && await priceguide.guideById(db, idm[1]);
@@ -595,6 +595,8 @@ export default {
 
       // ---------- garage / estate sales (free) ----------
       if (parts[1] === "garage") return await garage.sellerApi(request, env, url, parts, userId, ctx);
+      // ---------- one-tap "Sell on the Market" (market.js) ----------
+      if (parts[1] === "market" && parts[2] === "items" && parts[3] && parts.length === 4) return await market.sellerApi(request, env, url, parts, userId);
 
       // ---------- plan / credits (the app shows this on the paywall and the appraisal button) ----------
       if (parts[1] === "me" && parts[2] === "plan" && m === "GET") {
@@ -1310,12 +1312,15 @@ export default {
           const onEbaySold = await db.prepare("SELECT 1 FROM ebay_orders WHERE item_id=? AND status<>'CANCELLED' LIMIT 1").bind(iid).first();
           if (onEbaySold) return J({ error: "This item already sold on eBay." }, 409);
           const ts = now();
-          const gi = await db.prepare("SELECT gi.sale_id FROM garage_sale_items gi JOIN garage_sales g ON g.id=gi.sale_id WHERE gi.item_id=? AND g.user_id=? AND gi.status<>'sold' LIMIT 1").bind(iid, userId).first();
+          const gi = await db.prepare("SELECT gi.sale_id FROM garage_sale_items gi JOIN garage_sales g ON g.id=gi.sale_id WHERE gi.item_id=? AND g.user_id=? AND gi.status<>'sold' ORDER BY (g.kind='shop'), (gi.status='pending') LIMIT 1").bind(iid, userId).first();
           if (gi) await db.prepare("UPDATE garage_sale_items SET status='sold', price_cents=?, sold_at=? WHERE item_id=? AND sale_id=?").bind(cents, ts, iid, gi.sale_id).run();
           else await db.prepare("INSERT INTO item_finance (item_id,user_id,sold_cents,sold_at,updated_at) VALUES (?,?,?,?,?) " +
                                 "ON CONFLICT(item_id) DO UPDATE SET sold_cents=excluded.sold_cents, sold_at=excluded.sold_at, updated_at=excluded.updated_at")
             .bind(iid, userId, cents, ts, ts).run();
           await db.prepare("UPDATE items SET listing_status='sold' WHERE id=?").bind(iid).run();
+          // Off the Market / any other sale page too, and off Etsy.
+          await garage.pullOtherCopies(db, iid, gi ? gi.sale_id : "").run();
+          await etsy.endEtsyListing(env, db, iid, "sold in person").catch(e => console.log("endEtsyListing", e));
           const eb = await ebayOrders.endEbayListing(env, db, iid, "sold in person");
           return J({ ok: true, sold_cents: cents, on_sale_page: !!gi, ebay: eb });
         }
