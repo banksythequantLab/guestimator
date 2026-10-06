@@ -205,7 +205,7 @@ async function itemBundle(db, itemId) {
     }
   }
   if (appraisal) appraisal.rating = (await db.prepare("SELECT stars, credited FROM estimate_ratings WHERE appraisal_id=?").bind(appraisal.id).first()) || null;
-  const el = await db.prepare("SELECT status, listing_url, listing_id, error, updated_at FROM ebay_listings WHERE item_id=? ORDER BY created_at DESC LIMIT 1").bind(itemId).first();
+  const el = await db.prepare("SELECT id, status, listing_url, listing_id, error, updated_at, price_cents, best_offer_accept_cents, best_offer_decline_cents FROM ebay_listings WHERE item_id=? ORDER BY created_at DESC LIMIT 1").bind(itemId).first();
   const fin = await db.prepare("SELECT cost_cents, note, sold_cents, sold_at FROM item_finance WHERE item_id=?").bind(itemId).first();
   return { item, photos: photos.map(p => ({ ...p, url: `/p/${p.r2_key}` })), appraisal, ebay: el || null, finance: fin || null };
 }
@@ -762,6 +762,12 @@ export default {
       // ---------- price check: live eBay listings vs recent eBay sales ----------
       if (parts[1] === "ebay" && parts[2] === "pricecheck" && parts.length === 3 && m === "GET")
         return J(await priceCheck(env, db, userId));
+      // Change a live listing's price from the item page (up or down; offer limits move with it).
+      if (parts[1] === "ebay" && parts[2] === "listings" && parts[4] === "price" && m === "POST") {
+        const b = await readJson(request);
+        try { const r = await nudges.changePrice(env, db, userId, parts[3], b.price_cents); return J(r.ok ? r : { error: r.error }, r.status); }
+        catch (e) { return J({ error: String(e.message || e) }, 502); }
+      }
       if (parts[1] === "ebay" && parts[2] === "listings" && parts[4] === "best-offer" && m === "POST") {
         const b = await readJson(request);
         try { const r = await nudges.setListingBestOffer(env, db, userId, parts[3], b.enabled !== false, b.min_cents); return J(r.ok ? r : { error: r.error }, r.status); }
@@ -1178,11 +1184,12 @@ export default {
             const returns = (pol.return.find(p => p.id === returnPolicyId) || {}).summary || ebay.returnSummary({ returnsAccepted: true, returnPeriod: { value: 30, unit: "DAY" }, returnShippingCostPayer: "BUYER" });
             const locationKey = await ebay.ensureLocation(env, tok, zip);
             const text = String(b.description).trim();
-            // Best Offer is on unless the seller turned it off; its thresholds come from this price
+            // CHANGED 2026-10-05: Best Offer is OFF unless the seller ticks it (Derek: it "auto put in
+            // to accept less, which I didn't say"). When on, its thresholds come from this price
             // and the floor the estimate set (never auto-accept below what we said to take).
             const apBO = await db.prepare("SELECT result_json FROM appraisals WHERE item_id=? AND status='done' ORDER BY created_at DESC LIMIT 1").bind(iid).first();
             let prBO = null; try { prBO = JSON.parse(apBO?.result_json || "null")?.price_range || null; } catch {}
-            const bestOffer = b.best_offer === false ? null : ebay.bestOfferTerms(price, prBO?.floor || prBO?.low);
+            const bestOffer = b.best_offer === true ? ebay.bestOfferTerms(price, prBO?.floor || prBO?.low) : null;
             const L = {
               sku: ebay.skuFor(iid), offerId: row.offer_id, title, price, categoryId: b.category_id, condition,
               conditionDescription: String(b.condition_note || "").trim(), aspects, imageUrls: images,

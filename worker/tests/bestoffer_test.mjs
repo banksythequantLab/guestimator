@@ -123,5 +123,20 @@ r = await call("POST", `/api/ebay/listings/${lid}/returns`, { policy_id: "someon
 ok("a policy that isn't the seller's is refused", r.status === 400);
 r = await call("POST", `/api/ebay/listings/${lid}/returns`, { policy_id: "RNONE" });
 ok("back to an existing policy", r.status === 200 && r.json.returns === "No returns" && calls.filter(c => c.method === "PUT").pop().body.listingPolicies.returnPolicyId === "RNONE", r.json);
+// ---------- change price from the item page (2026-10-05): up or down ----------
+db.raw.prepare("UPDATE ebay_listings SET best_offer_min_cents=NULL WHERE id=?").run(lid);
+r = await call("POST", `/api/ebay/listings/${lid}/best-offer`, { enabled: true });
+r = await call("POST", `/api/ebay/listings/${lid}/price`, { price_cents: 25000 });
+put = calls.filter(c => c.method === "PUT").pop();
+ok("raise with offers on: price and auto-accept move together", r.status === 200 && put.body.pricingSummary.price.value === "250.00"
+  && put.body.listingPolicies.bestOfferTerms.autoAcceptPrice.value === "225.00" && row().p === 25000 && row().a === 22500, { r: r.json, row: row() });
+ok("item price follows", db.raw.prepare("SELECT price_cents p FROM items WHERE id=?").get(id).p === 25000);
+r = await call("POST", `/api/ebay/listings/${lid}/price`, { price_cents: 20000 });
+ok("lower works on the same route", r.status === 200 && row().p === 20000 && row().a === 18000, row());
+ok("same price: no eBay call", (await call("POST", `/api/ebay/listings/${lid}/price`, { price_cents: 20000 })).json.unchanged === true);
+ok("under $0.99 refused", (await call("POST", `/api/ebay/listings/${lid}/price`, { price_cents: 50 })).status === 400);
+ok("someone else's listing -> 404", (await call("POST", `/api/ebay/listings/nope/price`, { price_cents: 1000 })).status === 404);
+ok("the slow-listing route still only lowers", (await call("POST", `/api/ebay/slow/${lid}/lower`, { price_cents: 30000 })).status === 400);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

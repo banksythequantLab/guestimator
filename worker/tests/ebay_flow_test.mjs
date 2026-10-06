@@ -207,7 +207,7 @@ ok("offer: the reviewed price, category, all three policies, location", offer &&
    && offer.body.listingPolicies.returnPolicyId === "RP1" && offer.body.merchantLocationKey === "guestimator-12534");
 const fpol = calls.find(c => c.url.endsWith("/fulfillment_policy") && c.method === "POST");
 ok("shipping policy: $12 flat, 2-day handling", fpol && fpol.body.shippingOptions[0].shippingServices[0].shippingCost.value === "12.00" && fpol.body.handlingTime.value === 2);
-ok("Best Offer on by default: accept 90%+, decline under 70%", offer.body.listingPolicies.bestOfferTerms?.bestOfferEnabled === true && offer.body.listingPolicies.bestOfferTerms.autoAcceptPrice.value === "116.00" && offer.body.listingPolicies.bestOfferTerms.autoDeclinePrice.value === "90.00", offer.body.listingPolicies);
+ok("Best Offer OFF unless the seller ticks it (2026-10-05)", offer.body.listingPolicies.bestOfferTerms?.bestOfferEnabled === false, offer.body.listingPolicies);
 ok("offer description is HTML paragraphs", /<p>A classic crock\.<\/p>/.test(offer.body.listingDescription));
 ok("user token (not the app token) used to list", calls.filter(c => c.url.includes("/sell/")).length > 0);
 ok("ZIP remembered", db.raw.prepare("SELECT postal_code FROM ebay_accounts WHERE user_id=?").get(me.id).postal_code === "12534");

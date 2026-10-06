@@ -79,11 +79,20 @@ export async function slowListings(db, userId, { nowMs = Date.now(), forEmail = 
 
 /** Change the price on eBay (Inventory API bulk price update), then here. Restarts the clock. */
 export async function lowerPrice(env, db, userId, listingRowId, newCents) {
+  return changePrice(env, db, userId, listingRowId, newCents, { lowerOnly: true });
+}
+
+/** Set a live listing's price, up or down. With Best Offer on, its thresholds move with the price —
+ *  eBay refuses a price at or under the auto-accept amount, which is what made a seller's own price
+ *  edit on eBay snap back (2026-10-05). */
+export async function changePrice(env, db, userId, listingRowId, newCents, { lowerOnly = false } = {}) {
   const l = await db.prepare("SELECT l.*, i.listing_status FROM ebay_listings l JOIN items i ON i.id=l.item_id WHERE l.id=? AND l.user_id=?").bind(listingRowId, userId).first();
   if (!l) return { status: 404, error: "not found" };
   if (l.status !== "published" || l.listing_status !== "live" || !l.offer_id) return { status: 409, error: "This listing isn't live any more." };
   const cents = Math.round(Number(newCents));
-  if (!(cents >= 99) || cents >= l.price_cents) return { status: 400, error: "The new price has to be lower than the current one." };
+  if (!(cents >= 99)) return { status: 400, error: "Set a price of at least $0.99." };
+  if (lowerOnly && cents >= l.price_cents) return { status: 400, error: "The new price has to be lower than the current one." };
+  if (cents === l.price_cents) return { status: 200, ok: true, price_cents: cents, best_offer: null, unchanged: true };
   const t = await ebay.userToken(env, db, userId);
   if (!t) return { status: 409, error: "Connect eBay again first." };
   // With Best Offer on, the auto-accept price has to come down with the price (eBay won't take an
@@ -108,7 +117,7 @@ export async function lowerPrice(env, db, userId, listingRowId, newCents) {
       .bind(cents, terms ? terms.accept_cents : null, terms ? terms.decline_cents : null, ts, l.id),
     db.prepare("UPDATE items SET price_cents=? WHERE id=?").bind(cents, l.item_id),
   ]);
-  return { status: 200, ok: true, price_cents: cents };
+  return { status: 200, ok: true, price_cents: cents, best_offer: terms };
 }
 
 // The lowest the item's latest estimate said to take (floor, else the low end), in dollars.

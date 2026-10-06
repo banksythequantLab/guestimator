@@ -455,10 +455,42 @@ async function startCard(list) {
 }
 
 // ---------- eBay: the listing card on an item, and the review screen ----------
+// Price and offers for a live listing, changed from here. Editing the price on eBay itself fails
+// while auto-accept sits at or above the new price; changing it here moves the offer limits too.
+const usd = c => "$" + (Number(c || 0) / 100).toFixed(2);
+function listingControlsHtml(el) {
+  if (!el.id || !el.price_cents) return "";
+  const on = el.best_offer_accept_cents != null;
+  return `<div class="row" style="gap:8px;align-items:center;margin-top:10px">
+      <span style="font-size:.9rem">Price</span>
+      <input id="elPrice" inputmode="decimal" value="${(el.price_cents / 100).toFixed(2)}" style="flex:1;min-width:0">
+      <button class="btn sec" id="elPriceGo" style="width:auto;padding:10px 14px">Change price</button></div>
+    <label class="row" style="gap:8px;align-items:flex-start;margin-top:10px;font-weight:600;text-transform:none;letter-spacing:0;font-size:.9rem;color:inherit"><input type="checkbox" id="elOffers" ${on ? "checked" : ""} style="width:auto;margin-top:3px">
+      <span>Accept offers<div class="muted" style="font-size:.75rem;font-weight:400">${on
+        ? `On: offers of ${usd(el.best_offer_accept_cents)} or more are accepted automatically${el.best_offer_decline_cents ? `, under ${usd(el.best_offer_decline_cents)} declined` : ""}. Untick to sell only at your price.`
+        : "Off: buyers pay your price. Tick to let buyers make offers (90% or more of your price accepted automatically)."}</div></span></label>`;
+}
+function bindListingControls(id, el) {
+  if (!el || !$("#elPriceGo")) return;
+  $("#elPriceGo").onclick = async () => {
+    const v = Number(String($("#elPrice").value).replace(/[$,\s]/g, ""));
+    if (!(v >= 0.99)) { $("#elPrice").focus(); return toast("Enter a price of at least $0.99"); }
+    const btn = $("#elPriceGo"); btn.disabled = true; btn.textContent = "Updating eBay…";
+    try { const r = await api(`/ebay/listings/${encodeURIComponent(el.id)}/price`, { method: "POST", body: JSON.stringify({ price_cents: Math.round(v * 100) }) });
+      toast(r.unchanged ? "That's already the price" : `Price changed on eBay to ${usd(r.price_cents)} ✓`); renderItemDetail(id); }
+    catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "Change price"; }
+  };
+  $("#elOffers").onchange = async () => {
+    const box = $("#elOffers"), on = box.checked; box.disabled = true;
+    try { await api(`/ebay/listings/${encodeURIComponent(el.id)}/best-offer`, { method: "POST", body: JSON.stringify({ enabled: on }) });
+      toast(on ? "Offers turned on ✓" : "Offers turned off — buyers pay your price ✓"); renderItemDetail(id); }
+    catch (e) { toast(e.message); box.checked = !on; box.disabled = false; }
+  };
+}
 function ebayPanelHtml(b, canList) {
   const el = b.ebay;
   if (el && el.status === "published")
-    return `<div class="card" style="border-color:var(--cobalt)"><b>Listed on eBay ✓</b>
+    return `<div class="card" style="border-color:var(--cobalt)"><b>Listed on eBay ✓</b>${listingControlsHtml(el)}
       <div style="height:8px"></div><a class="btn" style="display:block;text-align:center;text-decoration:none;background:var(--cobalt)" href="${esc(el.listing_url || "#")}" target="_blank" rel="noopener">View on eBay ↗</a><div id="guideBox" style="margin-top:10px;font-size:.82rem"></div><div id="etsyBox"></div></div>`;
   if (!canList) return "";
   if (ebayStatus && !ebayStatus.configured) return "";
@@ -505,7 +537,7 @@ function renderEbayDraft(id, d) {
     shipping_cost: e ? e.shipping_cost : "",
     shipping_service: e && e.shipping_service === "priority" ? "priority" : "ground",
     handling_days: e ? String(e.handling_days) : "3",
-    best_offer: e ? e.best_offer !== false : true,
+    best_offer: e ? e.best_offer === true : false,   // off unless the seller ticks it (2026-10-05)
     return_policy_id: e ? e.return_policy_id || "" : "",
   };
   const conds = d.conditions && d.conditions.length ? d.conditions : CONDITION_FALLBACK;
@@ -566,7 +598,7 @@ function renderEbayDraft(id, d) {
       <div class="muted" style="font-size:.75rem;margin-top:6px">One flat price by the USPS service above. Change these any time in eBay Seller Hub.</div>
     </div>
     <div class="card">
-      <label class="row" style="gap:8px;align-items:flex-start;font-weight:600"><input type="checkbox" id="eOffers" ${val.best_offer ? "checked" : ""} style="width:auto;margin-top:3px">
+      <label class="row" style="gap:8px;align-items:flex-start;font-weight:600;text-transform:none;letter-spacing:0;font-size:.9rem;color:inherit"><input type="checkbox" id="eOffers" ${val.best_offer ? "checked" : ""} style="width:auto;margin-top:3px">
         <span>Accept offers<div class="muted" style="font-size:.75rem;font-weight:400">Offers at 90% of your price or more are accepted automatically; lowball offers (under 70%, or under the estimate's floor) are declined for you. Everything in between waits for you.</div></span></label>
     </div>
     <button class="btn" id="eGo" style="background:var(--cobalt)">Preview listing &amp; eBay fees</button>
@@ -599,7 +631,7 @@ function renderEbayDraft(id, d) {
       condition: $("#eCond") ? $("#eCond").value : null, condition_note: $("#eCondNote") ? $("#eCondNote").value : "",
       aspects, description: $("#eDesc").value,
       postal_code: $("#eZip").value, shipping_cost: $("#eShip").value, handling_days: $("#eDays").value,
-      shipping_service: $("#eSvc").value, best_offer: $("#eOffers") ? $("#eOffers").checked : true,
+      shipping_service: $("#eSvc").value, best_offer: $("#eOffers") ? $("#eOffers").checked : false,
       return_policy_id: $("#eRet") ? $("#eRet").value : "",
     };
   };
@@ -1081,6 +1113,7 @@ async function renderItemDetail(id) {
   $("#toItems").onclick = () => { clearTimeout(pollT); renderHome(); };
   if ($("#ebayList")) $("#ebayList").onclick = () => startEbayListing(id);
   if ($("#toSale")) $("#toSale").onclick = () => { clearTimeout(pollT); addItemToSale(id); };
+  bindListingControls(id, b.ebay);
   $("#delItem").onclick = async () => {
     const onEbay = b.ebay && b.ebay.status === "published";
     const msg = onEbay
