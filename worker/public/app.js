@@ -1194,8 +1194,9 @@ async function renderItemDetail(id) {
   // starting over each time: it is timed from when this estimate was first seen pending.
   if (pending && $("#guessBot") && window.GuessBot) {
     botStart[id] = botStart[id] || performance.now();
-    GuessBot.mount($("#guessBot"), { start: (performance.now() - botStart[id]) / 1000, inApp: true });
-  }
+    try { GuessBot.mount($("#guessBot"), { start: (performance.now() - botStart[id]) / 1000, inApp: true }); }
+    catch (e) { $("#guessBot").style.display = "none"; }
+  } else if (pending && $("#guessBot")) $("#guessBot").style.display = "none";   // robot.js didn't load: no empty box
   if (pending) pollT = setTimeout(() => { if (state.view === "item") renderItemDetail(id); }, 4000);
 }
 

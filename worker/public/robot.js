@@ -75,7 +75,7 @@
     // head
     R(x + 1, top + 1, 16, 12, C.ink); R(x + 2, top + 2, 14, 10, C.metal); R(x + 2, top + 2, 14, 2, C.metalL);
     R(x + 4, top + 5, 10, 5, C.visor);
-    const look = o.look ?? 1;   // eyes shift toward what it looks at
+    const look = o.look == null ? 1 : o.look;   // eyes shift toward what it looks at
     if (!blinkOn(t)) { R(x + 5 + look, top + 6, 2, 3, C.eye); R(x + 10 + look, top + 6, 2, 3, C.eye); }
     else { R(x + 5 + look, top + 8, 2, 1, C.eye); R(x + 10 + look, top + 8, 2, 1, C.eye); }
     if (pose === "cheer") { R(x + 6, top + 9, 6, 1, C.eye); }      // smile on the visor
