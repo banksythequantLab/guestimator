@@ -46,7 +46,7 @@ const IDENTIFY_SCHEMA = `{
  "evidence": [],
  "transcribed_text": [],
  "price_range": {"low": 0, "high": 0, "suggested_retail": 0, "floor": 0, "currency": "USD", "basis": ""},
- "listing": {"title": "", "description": "", "tags": [], "condition_grade": ""},
+ "listing": {"condition_grade": ""},
  "dealer_questions": [{"q": "", "options": []}],
  "questions_for_dealer": [],
  "shipping": {"item_weight_lb": 0, "item_in": [0, 0, 0], "fragile": false, "basis": ""}
@@ -59,7 +59,7 @@ FIELD GUIDE (do not copy these sentences into the JSON):
 - transcribed_text: every mark/word from the photos and the dealer's markings, cleaned and de-duplicated.
 - price_range: low/high = realistic dealer retail band in whole dollars, NEVER all zeros; suggested_retail inside the band;
   floor = lowest you'd accept; basis = one plain sentence on how you priced it.
-- listing.title: <= 80 chars, searchable (maker, period, type). listing.description: 2-3 short paragraphs for a shop website.
+- listing: only the condition grade here; the listing title and text are written separately, after the price.
 - listing.condition_grade: one of Excellent, Very good, Good, Fair, Poor, As-is.
 - questions_for_dealer: 1-2 things that would most change the appraisal if known. Each is ONE
   plain question ending in a question mark and NOTHING else. Never append the possible answers to
@@ -1264,7 +1264,7 @@ export function usablePrice(range, currency) {
 }
 
 const score = d => [num((d.price_range || {}).high) > 0, num(d.confidence) > 0, strs(d.evidence).length > 0,
-                    !!(d.listing || {}).description, !!(d.identification || {}).name].filter(Boolean).length;
+                    !!(d.listing || {}).condition_grade, !!(d.identification || {}).name].filter(Boolean).length;
 const incomplete = d => num((d.price_range || {}).high) <= 0 || !strs(d.evidence).length || num(d.confidence) <= 0;
 
 const STOP = new Set(["a","an","the","and","or","of","with","from","in","on","for","to","is","it","its","this","that",
@@ -1699,6 +1699,36 @@ export function blindRunError(photos, findings) {
 }
 
 // ---------- the pipeline ----------
+// The listing title and shop text, written AFTER the price (2026-10-05). They used to be part of the
+// identify call, which made every estimate wait on ~200 words of prose before showing a number.
+// Now the price is saved first and this runs straight after it; eBay drafts call it themselves if
+// it hasn't finished. Only what the estimate found goes in: no new facts, no price.
+const LISTING_SYSTEM = `You write short, honest resale listings for things people are selling second-hand.
+Use ONLY the facts given. Never invent a maker, date, material or provenance that is not stated. No prices.
+Return ONLY one JSON object: {"title": "", "description": "", "tags": []}
+- title: at most 80 characters, what a buyer would search for (maker, model or pattern, period, type).
+- description: 2-3 short plain paragraphs for a shop page: what it is, what the marks and details show, condition.
+- tags: 5-10 short search tags.`;
+export async function writeListingCopy(env, result, item = {}) {
+  const c = cfg(env);
+  if (!c.key || !result) return null;
+  const id = result.identification || {};
+  const facts = [
+    `Item: ${id.name || item.name || ""}`,
+    id.maker && `Maker: ${id.maker}`, id.period && `Period: ${id.period}`, id.origin && `Origin: ${id.origin}`,
+    id.style && `Style: ${id.style}`, id.category && `Category: ${id.category}`,
+    `Condition: ${(result.listing || {}).condition_grade || "Good"}`,
+    (result.evidence || []).length && `What the photos and notes show:\n- ${result.evidence.join("\n- ")}`,
+    (result.transcribed_text || []).length && `Marks and text on it: ${result.transcribed_text.join("; ")}`,
+    (result.lot && result.lot.count > 1) && `This is a lot of ${result.lot.count}.`,
+  ].filter(Boolean).join("\n");
+  const r = await textJson(c, LISTING_SYSTEM, facts, 900);
+  const title = String(r.title || "").trim().slice(0, 80) || String(id.name || "").slice(0, 80);
+  const description = String(r.description || "").trim();
+  if (!description) return null;
+  return { title, description, tags: strs(r.tags).slice(0, 10) };
+}
+
 export async function appraise(env, req) {
   const c = cfg(env);
   if (!c.key) throw new Error("NEBIUS_API_KEY is not set");

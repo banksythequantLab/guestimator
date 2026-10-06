@@ -18,7 +18,7 @@ async function grantSignup(env, db, userId, ts) {
   if (n > 0) await db.prepare("INSERT INTO billing_events (id,user_id,source,type,credits_delta,raw_json,created_at) VALUES (?,?,'admin','signup_free',?,?,?)")
     .bind(crypto.randomUUID(), userId, n, JSON.stringify({ reason: "free estimates for new accounts" }), ts).run();
 }
-import { appraise, sizeOnly } from "./appraiser.js";
+import { appraise, sizeOnly, writeListingCopy } from "./appraiser.js";
 import * as ebay from "./ebay.js";
 import * as garage from "./garage.js";
 import { quoteShipping } from "./shipping.js";
@@ -170,6 +170,8 @@ async function runAppraisal(env, appraisalId, item, photos) {
     // pre-fill AI copy on the item (dealer still approves before it goes live)
     await db.prepare("UPDATE items SET ai_title=?, ai_description=? WHERE id=?")
       .bind(result.listing?.title || null, result.listing?.description || null, item.id).run();
+    // The price is saved and showing; now the listing text (no longer part of the estimate call).
+    if (!result.listing?.description) await ensureListingCopy(env, db, appraisalId, item, result);
   } catch (e) {
     await db.prepare("UPDATE appraisals SET status='error', error=?, completed_at=? WHERE id=?")
       .bind(String(e && e.message || e).slice(0, 1000), now(), appraisalId).run();
@@ -181,6 +183,23 @@ async function runAppraisal(env, appraisalId, item, photos) {
     if (ap?.funded_by && owner?.user_id)
       await refundEstimate(db, owner.user_id, ap.funded_by, String(e && e.message || e).slice(0, 300));
   }
+}
+
+// Writes the listing title and shop text for a finished estimate and stores them on both the
+// appraisal and the item. Never throws: an estimate without listing text is still an estimate.
+async function ensureListingCopy(env, db, appraisalId, item, result) {
+  try {
+    const copy = await writeListingCopy(env, result, item);
+    if (!copy) return result;
+    result.listing = { ...(result.listing || {}), ...copy };
+    await db.batch([
+      db.prepare("UPDATE appraisals SET result_json=? WHERE id=?").bind(JSON.stringify(result), appraisalId),
+      // Only fill what the seller hasn't already written.
+      db.prepare("UPDATE items SET ai_title=COALESCE(NULLIF(ai_title,''),?), ai_description=COALESCE(NULLIF(ai_description,''),?) WHERE id=?")
+        .bind(copy.title, copy.description, item.id),
+    ]);
+  } catch (e) { console.log("listing copy failed", String(e && e.message || e)); }
+  return result;
 }
 
 async function itemBundle(db, itemId) {
@@ -1094,6 +1113,8 @@ export default {
           if (last?.status === "published")
             return J({ draft: null, listing: { status: "published", url: last.listing_url, listing_id: last.listing_id } });
           const db0 = await readJson(request);
+          // "List on eBay" tapped before the listing text was written (it now follows the estimate).
+          if (!bundle.appraisal.result.listing?.description) await ensureListingCopy(env, db, bundle.appraisal.id, item, bundle.appraisal.result);
           const draft = await ebay.buildDraft(env, { item, photos: bundle.photos, result: bundle.appraisal.result,
                                                      origin: env.PUBLIC_ORIGIN || url.origin, categoryId: db0.category_id });
           const ts = now();
