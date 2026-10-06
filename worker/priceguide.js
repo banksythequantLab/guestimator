@@ -61,7 +61,7 @@ export async function guideStatus(db, itemId, origin) {
   return { eligible: !!g, hidden, url: g && !hidden ? origin + pagePath(g) : null };
 }
 
-const CSS = `:root{--bg:#f4ecdc;--card:#fbf6ea;--ink:#241b10;--mut:#6a5b44;--line:#e0d2b4;--acc:#0f6b59}
+export const CSS = `:root{--bg:#f4ecdc;--card:#fbf6ea;--ink:#241b10;--mut:#6a5b44;--line:#e0d2b4;--acc:#0f6b59}
 @media (prefers-color-scheme:dark){:root{--bg:#17130d;--card:#221c14;--ink:#f1e7d3;--mut:#b3a387;--line:#3a3022;--acc:#5cc2a8}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif}
 .w{max-width:760px;margin:0 auto;padding:16px}header a{color:var(--acc);font-weight:800;text-decoration:none;font-family:Georgia,serif;font-size:1.2rem}

@@ -1094,6 +1094,7 @@ async function renderItemDetail(id) {
       <div class="muted" style="font-size:.72rem;margin-top:8px">${esc(r.models.text)} + ${esc(r.models.vision)} on Nebius</div>
     </div>` : ""}
     ${r && !nc && appraisal.status === "done" ? rateCardHtml(appraisal.rating) : ""}
+${r && !nc && !r.unknown && appraisal.status === "done" && pr && pr.high > 0 ? `<button class="btn sec" id="shareEst" style="margin:-4px 0 12px">📤 Share this price</button>` : ""}
     ${ebayPanelHtml(b, !!(r && !nc && appraisal.status === "done"))}
     ${r && !nc && appraisal.status === "done" ? salePanelHtml() : ""}
     ${item.listing_status !== "sold" ? `<div class="card" id="soldCard" style="padding:12px 16px${state.fromSticker === id ? ";border-color:var(--green)" : ""}"><div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
@@ -1115,6 +1116,18 @@ async function renderItemDetail(id) {
   if ($("#ebayList")) $("#ebayList").onclick = () => startEbayListing(id);
   if ($("#toSale")) $("#toSale").onclick = () => { clearTimeout(pollT); addItemToSale(id); };
   bindListingControls(id, b.ebay);
+  // "Share your price": a public page (photo, range, "price yours free" via your invite link).
+  if ($("#shareEst")) $("#shareEst").onclick = async () => {
+    const btn = $("#shareEst"); btn.disabled = true;
+    try {
+      const s = await api(`/items/${id}/share`, { method: "POST" });
+      const text = `Guestimator priced my ${(r.listing && r.listing.title) || (r.identification && r.identification.name) || "find"} at $${Math.round(pr.low)}–$${Math.round(pr.high)}. What's yours worth?`;
+      if (navigator.share) { try { await navigator.share({ title: "What's it worth?", text, url: s.url }); } catch {} }
+      else if (navigator.clipboard) { await navigator.clipboard.writeText(s.url); toast("Link copied ✓ Paste it anywhere"); }
+      else prompt("Copy this link:", s.url);
+    } catch (e) { toast(e.message); }
+    btn.disabled = false;
+  };
   $("#delItem").onclick = async () => {
     const onEbay = b.ebay && b.ebay.status === "published";
     const msg = onEbay

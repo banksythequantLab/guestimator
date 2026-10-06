@@ -37,6 +37,7 @@ import * as shippoauth from "./shippoauth.js";
 import * as labelpay from "./labelpay.js";
 import * as shipops from "./shipops.js";
 import * as owner from "./owner.js";
+import * as share from "./share.js";
 import * as ebaycare from "./ebaycare.js";
 import * as onboard from "./onboard.js";
 import * as growth from "./growth.js";
@@ -252,6 +253,12 @@ export default {
         const obj = await env.PHOTOS.get(parts.slice(1).join("/"));
         if (!obj) return new Response("not found", { status: 404 });
         return new Response(obj.body, { headers: { "content-type": obj.httpMetadata?.contentType || "image/jpeg", "cache-control": "public, max-age=31536000, immutable", etag: obj.httpEtag } });
+      }
+      // ---------- PUBLIC: a shared estimate (share.js) ----------
+      if (parts[0] === "e" && parts.length === 2 && m === "GET") {
+        const html = await share.sharePage(db, parts[1], env.PUBLIC_ORIGIN || url.origin);
+        return html ? new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } })
+          : new Response("This link isn't available any more.", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
       }
       // ---------- PUBLIC: garage / estate sale pages ----------
       if (parts[0] === "sale" && parts[1] && m === "GET")
@@ -1060,8 +1067,14 @@ export default {
           await Promise.all(ps.map(x => env.PHOTOS.delete(x.r2_key)));
           await db.prepare("DELETE FROM photos WHERE item_id=?").bind(iid).run();
           await db.prepare("DELETE FROM appraisals WHERE item_id=?").bind(iid).run();
+          await db.prepare("DELETE FROM estimate_shares WHERE item_id=?").bind(iid).run();   // a deleted item's share page goes too
           const r = await db.prepare("DELETE FROM items WHERE id=?").bind(iid).run();
           return J({ deleted: r.meta.changes });
+        }
+        // ---------- "Share your price": a public page for this item's latest estimate (share.js) ----------
+        if (parts[3] === "share" && m === "POST") {
+          const s = await share.createShare(db, userId, iid);
+          return s.token ? J({ url: `${env.PUBLIC_ORIGIN || url.origin}/e/${s.token}` }) : J({ error: s.error }, s.status);
         }
         // ---------- "How close was it?": rate the latest estimate, earn a free one ----------
         // One rating per estimate (re-rating updates it). The first rating of a paid estimate
