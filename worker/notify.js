@@ -167,3 +167,18 @@ export async function ebaySoldAlert(db, env, rowId, origin) {
     text: plain(title, rows, link) + "\n\nPrint the packing slip, ship it, then add the tracking number in Guestimator - it goes to eBay for you.",
     html: shell(title, rows, link, "Open my eBay sales", "You're getting this because you listed this item on eBay with Guestimator.") });
 }
+
+/** A buyer asked a question about an item in the seller's shop on the Market. Reply goes to them. */
+export async function questionAlert(db, env, questionId, origin) {
+  const q = await db.prepare("SELECT * FROM market_questions WHERE id=?").bind(questionId).first();
+  if (!q) return { sent: false, why: "question gone" };
+  const c = await loadContext(db, q.sale_id, q.item_id);
+  if (!c) return { sent: false, why: "shop gone" };
+  const title = `Question about ${c.item_title || "your item"}`;
+  const rows = [["Item", c.item_title], ["From", q.name], ["Email", q.email], ["Question", q.message]];
+  const link = `${origin}/sale/${c.slug}/item/${q.item_id}`;
+  return sendAlert(env, { to: c.seller_email, subject: `${title} - Guestimator Market`,
+    text: plain(title, rows, link) + "\n\nJust reply to this email to answer them.",
+    html: shell(title, rows, link, "See the item", "Reply to this email to answer them. You're getting this because the item is in your shop on the Guestimator Market."),
+    replyTo: q.email });
+}

@@ -7,7 +7,8 @@
 // charge, no application fee). Only items a buyer can actually pay for right now are shown.
 // /market?q=lamp&sort=new|low|high&page=2
 
-import { page, esc, stripeReady, cleanSale, newSlug, cents } from "./garage.js";
+import { page, esc, stripeReady, cleanSale, newSlug, cents, ipHash } from "./garage.js";
+import { questionAlert } from "./notify.js";
 import { startingPrice } from "./ebay.js";
 import { siteOrigin } from "./site.js";
 
@@ -188,6 +189,73 @@ export async function sellerApi(request, env, url, parts, userId) {
     if (row.status === "sold") return J({ error: "It sold, so it stays as a record." }, 409);
     await db.prepare("DELETE FROM garage_sale_items WHERE sale_id=? AND item_id=?").bind(shop.id, item.id).run();
     return J({ ok: true });
+  }
+  return J({ error: "not found" }, 404);
+}
+// ---------------------------------------------------------------- buyer: "Ask the seller a question"
+// POST /api/public/market/ask {sale, item, name, email, message}. Emailed to the seller with the
+// buyer's email as reply-to. Limits: 5 per hour per visitor, 30 per day per shop.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+export async function publicAsk(request, env, url, ctx) {
+  const db = env.DB, origin = siteOrigin(env, url);
+  let b = {}; try { b = await request.json(); } catch {}
+  const sale = await db.prepare("SELECT * FROM garage_sales WHERE slug=? AND kind='shop' AND status='published'").bind(String(b.sale || "")).first();
+  if (!sale) return J({ error: "This shop isn't open." }, 404);
+  const row = await db.prepare("SELECT status FROM garage_sale_items WHERE sale_id=? AND item_id=?").bind(sale.id, String(b.item || "")).first();
+  if (!row) return J({ error: "That item isn't in this shop any more." }, 404);
+  if (row.status === "sold") return J({ error: "Sorry, that one has sold." }, 409);
+  const name = String(b.name || "").trim().slice(0, 60), email = String(b.email || "").trim().slice(0, 120), message = String(b.message || "").trim().slice(0, 1000);
+  if (!name || !EMAIL_RE.test(email) || message.length < 3) return J({ error: "Enter your name, a working email and your question." }, 400);
+  const ih = await ipHash(request, env), hourAgo = new Date(Date.now() - 3600e3).toISOString(), dayAgo = new Date(Date.now() - 86400e3).toISOString();
+  const lim = await db.prepare("SELECT (SELECT COUNT(*) FROM market_questions WHERE ip_hash=? AND created_at>?) mine, (SELECT COUNT(*) FROM market_questions WHERE sale_id=? AND created_at>?) shop")
+    .bind(ih, hourAgo, sale.id, dayAgo).first();
+  if (lim.mine >= 5 || lim.shop >= 30) return J({ error: "That's a lot of questions for now. Please try again later." }, 429);
+  const id = crypto.randomUUID();
+  await db.prepare("INSERT INTO market_questions (id,sale_id,item_id,name,email,message,ip_hash,emailed,created_at) VALUES (?,?,?,?,?,?,?,0,?)")
+    .bind(id, sale.id, String(b.item), name, email, message, ih, nowIso()).run();
+  const send = questionAlert(db, env, id, origin).then(r => r.sent ? db.prepare("UPDATE market_questions SET emailed=1 WHERE id=?").bind(id).run() : null)
+    .catch(e => console.log("questionAlert", e));
+  if (ctx && ctx.waitUntil) ctx.waitUntil(send); else await send;
+  return J({ ok: true });
+}
+// ---------------------------------------------------------------- seller: put many items on at once
+// GET  /api/market/bulk -> priced, unsold items not yet in the shop (newest first, up to 200)
+// POST /api/market/bulk {items:[{id, price, ship}]} -> lists each through sellerApi, so the rules
+//      (price >= $1, shipping required, quiet shop creation) are exactly the one-tap ones.
+export async function bulkApi(request, env, url, userId) {
+  const db = env.DB;
+  if (request.method === "GET") {
+    const rows = (await db.prepare(`SELECT i.id, COALESCE(i.ai_title, i.name) AS title,
+        (SELECT r2_key FROM photos p WHERE p.item_id=i.id ORDER BY p.sort, p.created_at LIMIT 1) AS thumb_key,
+        (SELECT result_json FROM appraisals a WHERE a.item_id=i.id AND a.status='done' ORDER BY a.created_at DESC LIMIT 1) AS rj
+      FROM items i JOIN sales s ON s.id=i.sale_id
+      WHERE s.user_id=? AND COALESCE(i.listing_status,'')<>'sold'
+        AND NOT EXISTS (SELECT 1 FROM garage_sale_items gi JOIN garage_sales g ON g.id=gi.sale_id WHERE gi.item_id=i.id AND g.kind='shop')
+      ORDER BY i.created_at DESC LIMIT 200`).bind(userId).all()).results;
+    const items = [];
+    for (const r of rows) {
+      let res = null; try { res = JSON.parse(r.rj || "null"); } catch {}
+      if (!res || res.unknown || res.needs_clarification) continue;
+      const sp = startingPrice(res);
+      if (!sp || sp < 1) continue;
+      items.push({ id: r.id, title: r.title, thumb: r.thumb_key ? `/p/${r.thumb_key}` : null, price_cents: Math.round(sp * 100) });
+    }
+    return J({ items });
+  }
+  if (request.method === "POST") {
+    let b = {}; try { b = await request.json(); } catch {}
+    const list = (Array.isArray(b.items) ? b.items : []).slice(0, 200);
+    if (!list.length) return J({ error: "Pick at least one item." }, 400);
+    const done = [], failed = [];
+    let newShop = false, shopId = null, visible = false;
+    for (const it of list) {
+      const req = new Request(url.toString(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ price: it.price, ship: it.ship }) });
+      const r = await sellerApi(req, env, url, ["api", "market", "items", String(it.id || "")], userId);
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { done.push(it.id); newShop = newShop || !!j.new_shop; shopId = j.shop_id || shopId; visible = !!j.visible; }
+      else failed.push({ id: it.id, error: j.error || `error ${r.status}` });
+    }
+    return J({ listed: done.length, failed, new_shop: newShop, shop_id: shopId, visible });
   }
   return J({ error: "not found" }, 404);
 }

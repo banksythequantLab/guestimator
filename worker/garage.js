@@ -33,6 +33,8 @@ export const KINDS = { garage: "Garage sale", yard: "Yard sale", estate: "Estate
 // the Guestimator Market (/market). Guestimator takes no cut of shop sales; the seller pays only
 // Stripe's own card fee on their own account.
 export const SHOP_ENDS = "9999-12-31";
+// The seller's returns promise (garage_sales.returns), as buyers read it. Absent = ask the seller.
+export const RETURNS = { none: "No returns, unless it isn't as described", "14": "Returns accepted within 14 days of delivery", "30": "Returns accepted within 30 days of delivery" };
 // " in Austin, TX", or nothing for a shop that has no location yet.
 const inPlace = s => s.city ? ` in ${s.city}, ${s.state}` : "";
 export const isShop = s => !!s && s.kind === "shop";
@@ -114,6 +116,7 @@ export function cleanSale(b, { partial = false } = {}) {
   if (has("tz")) { const tz = str("tz", 60); try { new Intl.DateTimeFormat("en-US", { timeZone: tz }); v.tz = tz; } catch { /* keep default */ } }
   if (has("contact_phone")) v.contact_phone = str("contact_phone", 30) || null;
   for (const k of ["pickup_ok", "ship_ok", "online_ok"]) if (has(k)) v[k] = b[k] ? 1 : 0;
+  if (has("returns")) v.returns = RETURNS[String(b.returns)] ? String(b.returns) : null;
   return { ok: true, value: v };
 }
 
@@ -322,6 +325,7 @@ export async function sellerApi(request, env, url, parts, userId, ctx) {
         .bind(id, userId, newSlug(v.title), v.kind, v.title, v.description ?? null, v.street ?? null, v.city, v.state, v.zip ?? null,
               v.starts_on, v.ends_on, v.hours ?? null, v.tz || "America/New_York", v.pickup_ok ?? 1, v.ship_ok ?? 0, v.online_ok ?? 0,
               v.contact_phone ?? null, t, t).run();
+      if (v.returns) await db.prepare("UPDATE garage_sales SET returns=? WHERE id=?").bind(v.returns, id).run();
       return J({ id });
     }
   }
@@ -451,7 +455,7 @@ export async function sellerApi(request, env, url, parts, userId, ctx) {
 
 // ---------------------------------------------------------------- public API (/api/public/garage/*)
 
-async function ipHash(request, env) {
+export async function ipHash(request, env) {
   const ip = request.headers.get("cf-connecting-ip") || "0.0.0.0";
   return (await hmacHex(env.HOLD_SALT || "guestimator-holds", ip)).slice(0, 24);
 }
@@ -799,11 +803,31 @@ ${!sale.pickup_ok && (r.ship_cents == null || !sale.ship_ok) ? `<p class="muted"
 var r=await fetch('/api/public/garage/hold',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sale:${JSON.stringify(sale.slug)},item:${JSON.stringify(r.item_id)},name:f.get('name'),phone:f.get('phone'),note:f.get('note')})});
 var j=await r.json().catch(function(){return{}});m.textContent=r.ok?'Sent. The seller will get back to you.':(j.error||'That did not go through.');if(r.ok)this.reset();};</script>`;
     const shop = isShop(sale);
+    // Online shop on the Market: who's selling, their returns promise, how paying works, and a
+    // way to ask a question (market.publicAsk) instead of the garage sale's hold request.
+    let trustBox = "", askBox = "";
+    if (shop) {
+      const st = await db.prepare("SELECT u.created_at, (SELECT COUNT(*) FROM garage_orders o WHERE o.sale_id=? AND o.status IN ('paid','fulfilled')) AS sold FROM users u WHERE u.id=?")
+        .bind(sale.id, sale.user_id).first();
+      const since = st?.created_at ? new Date(st.created_at).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" }) : null;
+      trustBox = `<div class="box"><b>Sold by ${esc(sale.title)}</b>
+<div class="muted">${since ? `On Guestimator since ${esc(since)}` : "Selling on Guestimator"}${st?.sold ? ` · ${st.sold} sold on the Market` : ""}</div>
+<div style="margin-top:6px"><b>Returns:</b> ${esc(RETURNS[sale.returns] || "Ask the seller before you buy")}</div>
+<div class="muted" style="margin-top:6px">How paying works: you pay the seller directly through Stripe, and your receipt is in the seller's name. Guestimator doesn't hold your money and takes no cut. Anything about your order is between you and the seller.</div></div>`;
+      askBox = `<div class="box"><b>Ask the seller a question</b><form id="ask"><label>Your name</label><input name="name" required maxlength="60">
+<label>Your email (the seller replies to it)</label><input name="email" type="email" required maxlength="120">
+<label>Question</label><textarea name="message" required maxlength="1000" rows="3" placeholder="e.g. Any chips on the base? Can you ship by Friday?"></textarea>
+<button class="btn alt">Send to the seller</button></form><p class="muted" id="amsg">The seller gets your question and your email address, and replies to you directly.</p></div>
+<script>document.getElementById('ask').onsubmit=async function(e){e.preventDefault();var f=new FormData(this),m=document.getElementById('amsg');m.textContent='Sending...';
+var r=await fetch('/api/public/market/ask',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sale:${JSON.stringify(sale.slug)},item:${JSON.stringify(r.item_id)},name:f.get('name'),email:f.get('email'),message:f.get('message')})});
+var j=await r.json().catch(function(){return{}});m.textContent=r.ok?'Sent. The seller will reply to your email.':(j.error||'That did not go through.');if(r.ok)this.reset();};</script>`;
+      if (r.status === "sold") askBox = "";
+    }
     const onlineLine = !shop && canBuy && onP !== r.price_cents ? `<div class="muted">At the sale: ${esc(money(r.price_cents))} · Online: ${esc(money(onP))}</div>` : "";
     const body = `${header}<div class="wrap">${banner}${endedNote}<p><a href="/sale/${esc(sale.slug)}">← ${shop ? "More from this seller" : "All items in this sale"}</a>${shop ? ` · <a href="/market">Guestimator Market</a>` : ""}</p><div class="item">
 <div class="gal">${photos.map(p => `<img src="/p/${esc(p.r2_key)}" alt="${esc(title)}" loading="lazy">`).join("") || `<div class="muted">No photo</div>`}</div>
 <div><h2 style="font:700 1.5rem/1.25 Georgia,serif;margin:0">${esc(title)}</h2><div class="price">${esc(money(shop ? onP : r.price_cents))}</div>${onlineLine}${statusTag(r)}
-${desc ? `<p style="white-space:pre-line">${esc(desc)}</p>` : ""}${buyBox}${holdBox}</div></div></div>`;
+${desc ? `<p style="white-space:pre-line">${esc(desc)}</p>` : ""}${buyBox}${holdBox}${trustBox}${askBox}</div></div></div>`;
     return H(page({ title: `${title} · ${money(r.price_cents)} · ${sale.title}`, desc: `${kind}${inPlace(sale)}. ${whenText(sale)}.`,
       image: photos[0] ? `${origin}/p/${photos[0].r2_key}` : null, canonical: `${origin}/sale/${sale.slug}/item/${r.item_id}`, body }));
   }

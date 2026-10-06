@@ -369,6 +369,7 @@ export default {
       }
       if (!p.startsWith("/api/")) return env.ASSETS.fetch(request);
       if (parts[1] === "public" && parts[2] === "garage") return await garage.publicApi(request, env, url, parts, ctx);
+    if (parts[1] === "public" && parts[2] === "market" && parts[3] === "ask" && parts.length === 4 && m === "POST") return await market.publicAsk(request, env, url, ctx);
 
       // ---------- BILLING: RevenueCat webhook (Authorization: Bearer <RC_WEBHOOK_SECRET>, set in the RC dashboard) ----------
       if (parts[1] === "billing" && parts[2] === "revenuecat" && m === "POST") {
@@ -597,6 +598,7 @@ export default {
       if (parts[1] === "garage") return await garage.sellerApi(request, env, url, parts, userId, ctx);
       // ---------- one-tap "Sell on the Market" (market.js) ----------
       if (parts[1] === "market" && parts[2] === "items" && parts[3] && parts.length === 4) return await market.sellerApi(request, env, url, parts, userId);
+      if (parts[1] === "market" && parts[2] === "bulk" && parts.length === 3) return await market.bulkApi(request, env, url, userId);
 
       // ---------- plan / credits (the app shows this on the paywall and the appraisal button) ----------
       if (parts[1] === "me" && parts[2] === "plan" && m === "GET") {

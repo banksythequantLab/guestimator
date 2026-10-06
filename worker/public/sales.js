@@ -53,11 +53,13 @@ async function renderSales() {
       <b>Sell anywhere, any time: your online shop</b>
       <div class="muted" style="font-size:.85rem;margin:4px 0 8px">Your items go on the <a href="/market" target="_blank" rel="noopener">Guestimator Market</a>, where anyone can buy them like on eBay. Buyers pay you directly through Stripe. Guestimator takes no cut.</div>
       <button class="btn" id="newShop" style="background:var(--cobalt)">＋ Open my shop</button>
+      <button class="btn sec" id="bulkShop" style="margin-top:8px">Put my priced items on the Market</button>
     </div>
     <div id="stripeCard"></div>
     <div id="saleList" class="list"><div class="muted" style="padding:10px">Loading…</div></div>`;
   $("#newSale").onclick = () => renderSaleForm(null);
   $("#newShop").onclick = () => renderSaleForm(null, null, "shop");
+  $("#bulkShop").onclick = () => renderMarketBulk();
   loadStripeStatus().then(s => { const c = $("#stripeCard"); if (c && state.view === "sales") { c.innerHTML = stripeCardHtml(s); wireStripeCard(renderSales); } });
   let list = [];
   try { list = await api("/garage/sales"); } catch (e) { $("#saleList").innerHTML = `<div class="muted">${esc(e.message)}</div>`; return; }
@@ -94,6 +96,11 @@ function renderSaleForm(sale, then, kind) {
       <div style="flex:1"><label>State</label><input id="sState" maxlength="2" value="${esc(s.state || "")}" placeholder="NJ" style="text-transform:uppercase"></div>
       <div style="flex:1.3"><label>ZIP</label><input id="sZip" maxlength="10" inputmode="numeric" value="${esc(s.zip || "")}"></div></div>
     <label>About the sale (optional)</label><textarea id="sDesc" rows="3" maxlength="2000" placeholder="Parking, cash/card, what's inside…">${esc(s.description || "")}</textarea>
+    <div class="shoponly"><label>Returns (buyers see this on every item)</label><select id="sReturns">
+      <option value="" ${!s.returns ? "selected" : ""}>Not set: buyers are told to ask you</option>
+      <option value="none" ${s.returns === "none" ? "selected" : ""}>No returns, unless it isn't as described</option>
+      <option value="14" ${s.returns === "14" ? "selected" : ""}>Returns within 14 days of delivery</option>
+      <option value="30" ${s.returns === "30" ? "selected" : ""}>Returns within 30 days of delivery</option></select></div>
     <div class="dated"><label>Phone for accepted holds (optional)</label><input id="sPhone" type="tel" maxlength="30" value="${esc(s.contact_phone || "")}"></div>
     <label style="margin-top:12px">Online buying</label>
     <label class="row" style="gap:8px;font-weight:400"><input type="checkbox" id="sOnline" style="width:auto" ${s.online_ok ? "checked" : ""}> Let people buy online (needs Stripe connected)</label>
@@ -104,6 +111,7 @@ function renderSaleForm(sale, then, kind) {
   const kindUi = () => {
     const shop = $("#sKind").value === "shop";
     document.querySelectorAll(".dated").forEach(el => el.style.display = shop ? "none" : "");
+    document.querySelectorAll(".shoponly").forEach(el => el.style.display = shop ? "" : "none");
     $("#shopNote").style.display = shop ? "" : "none";
     $("#pickupTxt").textContent = shop ? "Local pickup is OK too (you email the buyer to arrange it)" : "Buyers can pick up at the sale";
     $("#sTitle").placeholder = shop ? "e.g. Derek's vintage finds" : "e.g. Whole-house estate sale, furniture & tools";
@@ -115,6 +123,7 @@ function renderSaleForm(sale, then, kind) {
       street: $("#sStreet").value, city: $("#sCity").value, state: $("#sState").value, zip: $("#sZip").value, description: $("#sDesc").value,
       contact_phone: $("#sPhone").value, online_ok: $("#sOnline").checked, pickup_ok: $("#sPickup").checked, ship_ok: $("#sShip").checked,
       tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      ...($("#sKind").value === "shop" ? { returns: $("#sReturns").value } : {}),
     };
     $("#sSave").disabled = true;
     try {
@@ -299,3 +308,41 @@ async function afterStripeReturn() {
   return true;
 }
 window.addEventListener("hashchange", afterStripeReturn);
+
+// ---------- put many priced items on the Market at once (market.bulkApi) ----------
+async function renderMarketBulk() {
+  state.view = "marketBulk"; setChrome(); backTo(renderSales);
+  ctx.textContent = "Sell on the Market";
+  app.innerHTML = `<div class="muted" style="padding:14px">Loading…</div>`;
+  let d;
+  try { d = await api("/market/bulk"); } catch (e) { app.innerHTML = `<div class="muted" style="padding:14px">${esc(e.message)}</div>`; return; }
+  if (!d.items.length) { app.innerHTML = `<div class="card"><b>Nothing to add</b><div class="muted" style="font-size:.88rem;margin-top:4px">Every priced item is already on the Market or sold. Guestimate something new and it shows up here.</div></div>`; return; }
+  app.innerHTML = `<div class="card" style="border-color:var(--cobalt)"><b>Put your priced items on the Market</b>
+    <div class="muted" style="font-size:.85rem;margin:4px 0 10px">Prices come from each estimate; change any you like. Every item needs a shipping price (0 = free shipping). Buyers pay you directly, and we take no cut.</div>
+    <div class="row" style="gap:8px;align-items:flex-end"><div style="flex:1"><label>Same shipping for all ticked</label><input id="mbShipAll" inputmode="decimal" placeholder="$0.00"></div>
+      <button class="btn sec sm" id="mbApply">Apply</button></div></div>
+    <div class="list">${d.items.map(i => `<div class="li" style="align-items:center;gap:8px">
+      <input type="checkbox" class="mbOn" data-id="${esc(i.id)}" checked style="width:auto">
+      ${i.thumb ? `<img src="${esc(i.thumb)}" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:8px">` : ""}
+      <div style="flex:1;min-width:0"><div class="nm" style="font-size:.88rem">${esc(i.title)}</div>
+        <div class="row" style="gap:6px;margin-top:4px"><input class="mbPrice" data-id="${esc(i.id)}" inputmode="decimal" value="${esc(dollars(i.price_cents))}" style="width:80px" aria-label="Price">
+        <input class="mbShip" data-id="${esc(i.id)}" inputmode="decimal" placeholder="ship $" style="width:80px" aria-label="Shipping"></div></div></div>`).join("")}</div>
+    <button class="btn" id="mbGo" style="background:var(--cobalt);margin:12px 0 20px">List the ticked items</button>`;
+  $("#mbApply").onclick = () => { const v = $("#mbShipAll").value; document.querySelectorAll(".mbOn").forEach(cb => { if (cb.checked) document.querySelector(`.mbShip[data-id="${cb.dataset.id}"]`).value = v; }); };
+  $("#mbGo").onclick = async () => {
+    const items = [...document.querySelectorAll(".mbOn")].filter(cb => cb.checked).map(cb => ({ id: cb.dataset.id,
+      price: document.querySelector(`.mbPrice[data-id="${cb.dataset.id}"]`).value, ship: document.querySelector(`.mbShip[data-id="${cb.dataset.id}"]`).value }));
+    if (!items.length) return toast("Tick at least one item");
+    const missing = items.filter(i => String(i.ship).trim() === "").length;
+    if (missing && !confirm(`${missing} item${missing > 1 ? "s have" : " has"} no shipping price and will be skipped. List the rest?`)) return;
+    $("#mbGo").disabled = true; $("#mbGo").textContent = "Listing…";
+    try {
+      const r = await api("/market/bulk", { method: "POST", body: JSON.stringify({ items: items.filter(i => String(i.ship).trim() !== "") }) });
+      toast(`${r.listed} listed${r.failed.length ? `, ${r.failed.length} not: ${r.failed[0].error}` : ""}${r.visible ? "" : ". They show once Stripe is set up."}`);
+      if (r.new_shop && r.shop_id && confirm("They're listed. Want to set up your shop page (name, city, returns) now?")) {
+        try { const s = await api("/garage/sales/" + r.shop_id); return renderSaleForm(s.sale); } catch {}
+      }
+      renderMarketBulk();
+    } catch (e) { toast(e.message); $("#mbGo").disabled = false; $("#mbGo").textContent = "List the ticked items"; }
+  };
+}
