@@ -80,8 +80,11 @@ ok("look.js loaded before app.js", html.indexOf("/look.js") > 0 && html.indexOf(
   const d = { setAttribute: (k, v) => attrs[k] = v, removeAttribute: k => delete attrs[k], style: { setProperty: (k, v) => props[k] = v, removeProperty: k => delete props[k] } };
   const g = { document: { documentElement: d, querySelector: () => null }, matchMedia: () => ({ matches: false }), localStorage: { getItem: () => null } };
   g.window = g;
-  const src = html.slice(html.indexOf("window.gsLook"), html.indexOf("try { gsLook"));
-  new Function("window", "document", "matchMedia", src)(g, g.document, g.matchMedia);
+  // The whole head script: with nothing saved it applies the default look (white + orange).
+  const src = html.slice(html.indexOf("window.GS_DEFAULT_LOOK"), html.indexOf("</script>", html.indexOf("window.gsLook")));
+  new Function("window", "document", "matchMedia", "localStorage", "gsLook", src.replace("try { gsLook(", "try { window.gsLook(").replace("catch (e) { gsLook(", "catch (e) { window.gsLook("))(g, g.document, g.matchMedia, g.localStorage);
+  ok("default look: light, black & white, orange; links darkened to 4.5:1, white button text", attrs["data-theme"] === "light" && attrs["data-skin"] === "mono" &&
+    props["--green"] === "#d97757" && props["--on-accent"] === "#fff" && props["--cobalt"] !== "#d97757", { attrs, props });
   g.gsLook({ mode: "dark", skin: "mono", accent: "#ffd400" });
   ok("gsLook: dark + mono + yellow highlight", attrs["data-theme"] === "dark" && attrs["data-skin"] === "mono" && props["--green"] === "#ffd400" && props["--on-accent"] === "#000", { attrs, props });
   g.gsLook({ mode: "dark", skin: "mono", accent: "#1e1b4b" });

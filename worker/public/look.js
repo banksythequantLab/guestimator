@@ -5,9 +5,9 @@
 // before first paint by gsLook in index.html.
 
 const LOOK_KEY = "gs-look";
-const HIGHLIGHTS = [["#2563eb", "Blue"], ["#e11d48", "Red"], ["#f97316", "Orange"], ["#ca8a04", "Gold"],
+const HIGHLIGHTS = [["#d97757", "Orange (default)"], ["#2563eb", "Blue"], ["#e11d48", "Red"], ["#ca8a04", "Gold"],
                     ["#16a34a", "Green"], ["#0d9488", "Teal"], ["#7c3aed", "Purple"], ["#db2777", "Pink"]];
-function getLook() { try { return JSON.parse(localStorage.getItem(LOOK_KEY) || "{}") || {}; } catch { return {}; } }
+function getLook() { try { return JSON.parse(localStorage.getItem(LOOK_KEY) || "null") || { ...window.GS_DEFAULT_LOOK }; } catch { return { ...window.GS_DEFAULT_LOOK }; } }
 function setLook(L) {
   try { localStorage.setItem(LOOK_KEY, JSON.stringify(L)); } catch {}
   if (window.gsLook) window.gsLook(L);
@@ -18,7 +18,7 @@ try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () =
 function renderLook() {
   state.view = "look"; setChrome(); backTo(renderHome);
   ctx.textContent = "Appearance";
-  const L = { mode: "system", skin: "classic", accent: "#2563eb", ...getLook() };
+  const L = { mode: "system", skin: "classic", accent: "#d97757", ...getLook() };
   const seg = (name, opts, cur) => `<div class="seg" data-seg="${name}">${opts.map(([v, t]) => `<button type="button" data-v="${v}" class="${cur === v ? "on" : ""}">${esc(t)}</button>`).join("")}</div>`;
   app.innerHTML = `<div class="card">
     <b>Light or dark</b>${seg("mode", [["system", "Match my phone"], ["light", "Light"], ["dark", "Dark"]], L.mode)}

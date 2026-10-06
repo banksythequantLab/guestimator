@@ -3,13 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0F6B59">
+<meta name="theme-color" content="#ffffff">
 <title>Guestimator — What’s it worth?</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
 <script>
 // Appearance before first paint (no flash). look.js calls gsLook again when the user changes it.
+// Default (nothing chosen yet): white with the warm orange highlight (2026-10-06).
+window.GS_DEFAULT_LOOK = { mode: "light", skin: "mono", accent: "#d97757" };
 window.gsLook = function (L) {
   var d = document.documentElement, s = d.style; L = L || {};
   if (L.mode === "light" || L.mode === "dark") d.setAttribute("data-theme", L.mode); else d.removeAttribute("data-theme");
@@ -17,18 +19,24 @@ window.gsLook = function (L) {
   ["--green", "--green-d", "--cobalt", "--ok", "--on-accent"].forEach(function (k) { s.removeProperty(k); });
   var dark = L.mode === "dark" || (L.mode !== "light" && window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches);
   if (L.skin === "mono") {
-    var a = /^#[0-9a-f]{6}$/i.test(L.accent || "") ? L.accent : "#2563eb", n = parseInt(a.slice(1), 16), r = n >> 16 & 255, g = n >> 8 & 255, b = n & 255;
+    var a = /^#[0-9a-f]{6}$/i.test(L.accent || "") ? L.accent : window.GS_DEFAULT_LOOK.accent, n = parseInt(a.slice(1), 16), r = n >> 16 & 255, g = n >> 8 & 255, b = n & 255;
     var mix = function (t, f) { return "#" + [r, g, b].map(function (c) { return ("0" + Math.round(c + (t - c) * f).toString(16)).slice(-2); }).join(""); };
-    var lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    // WCAG relative luminance and contrast, so text in or on the highlight stays readable.
+    var rl = function (h) { var v = parseInt(h.slice(1), 16); return [v >> 16 & 255, v >> 8 & 255, v & 255].map(function (c) { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); })
+      .reduce(function (t, c, i) { return t + c * [0.2126, 0.7152, 0.0722][i]; }, 0); };
+    var cr = function (x, y) { var p = rl(x), q = rl(y); return (Math.max(p, q) + 0.05) / (Math.min(p, q) + 0.05); };
     s.setProperty("--green", a); s.setProperty("--ok", a); s.setProperty("--green-d", mix(0, 0.2));
-    // Links and outlines in the highlight color must stay readable on black or white.
-    s.setProperty("--cobalt", dark && lum < 0.35 ? mix(255, 0.35) : (!dark && lum > 0.7 ? mix(0, 0.4) : a));
-    s.setProperty("--on-accent", lum > 0.6 ? "#000" : "#fff");
+    // Links and outlines: darken (on white) or lighten (on black) the highlight until it reads as body text (4.5:1).
+    var link = a, bg = dark ? "#000000" : "#ffffff";
+    for (var i = 1; i <= 12 && cr(link, bg) < 4.5; i++) link = mix(dark ? 255 : 0, i * 0.06);
+    s.setProperty("--cobalt", link);
+    // Button text: white, unless the highlight is too light for it (then black).
+    s.setProperty("--on-accent", cr(a, "#ffffff") >= 3 ? "#fff" : "#000");
   }
   var m = document.querySelector("meta[name=theme-color]");
   if (m) m.content = L.skin === "mono" ? (dark ? "#000000" : "#ffffff") : (dark ? "#161210" : "#0F6B59");
 };
-try { gsLook(JSON.parse(localStorage.getItem("gs-look") || "{}")); } catch (e) {}
+try { gsLook(JSON.parse(localStorage.getItem("gs-look") || "null") || window.GS_DEFAULT_LOOK); } catch (e) { gsLook(window.GS_DEFAULT_LOOK); }
 </script>
 <style>
 :root{
@@ -168,8 +176,8 @@ ul.ev{margin:4px 0 0;padding-left:18px;font-size:.88rem}ul.ev li{margin:3px 0}
 <script src="/billing.js?v=0.9"></script>
 <script src="/sales.js?v=2.2"></script>
 <script src="/orders.js?v=2.4"></script>
-<script src="/look.js?v=1"></script>
+<script src="/look.js?v=2"></script>
 <script src="/robot.js?v=2"></script>
-<script src="/app.js?v=8.0"></script>
+<script src="/app.js?v=8.1"></script>
 </body>
 </html>
