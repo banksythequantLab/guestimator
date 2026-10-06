@@ -1609,6 +1609,25 @@ function openViewer(list, start) {
 // PWA
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
+// Stay current. Android resumes the app instead of restarting it, so the Android app could run
+// code loaded days earlier (2026-10-05: the estimate robot showed on the web but not on Android).
+// When the app comes back to the front, compare our app.js version with the live one and reload
+// if it changed — only on the home or sign-in screen, so a photo or form in progress is never lost.
+const ownVersion = (() => { const s = document.querySelector('script[src*="/app.js"]'); const m = s && s.src.match(/[?&]v=([^&]+)/); return m ? m[1] : null; })();
+let lastVersionCheck = 0;
+async function reloadIfUpdated() {
+  if (!ownVersion || document.visibilityState !== "visible" || Date.now() - lastVersionCheck < 60e3) return;
+  if (!["home", "auth"].includes(state.view)) return;
+  lastVersionCheck = Date.now();
+  try {
+    const html = await (await fetch("/", { cache: "no-store" })).text();
+    const m = html.match(/\/app\.js\?v=([^"'&>]+)/);
+    if (m && m[1] !== ownVersion && ["home", "auth"].includes(state.view)) location.reload();
+  } catch {}
+}
+document.addEventListener("visibilitychange", reloadIfUpdated);
+window.addEventListener("focus", reloadIfUpdated);
+
 // boot: check session, then show your items or the sign-in screen
 (async function init() {
   // Back from Google's redirect sign-in (iPhone/iPad) without a session: say so.
