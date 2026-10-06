@@ -105,7 +105,7 @@ EXAMPLE of a filled answer for a different item (format only):
 // seen, so a bad first guess survived into the final number rather than being corrected by the
 // evidence. The listings are the better evidence; the prior is a memory. So the prior is withheld
 // and the price is formed from the comparables cold.
-export function repricePrompt({ ident, condition, lotInfo, market, hits, soldMarket = null }) {
+export function repricePrompt({ ident, condition, lotInfo, market, hits, soldMarket = null, makerWorks = [] }) {
   return `Item: ${JSON.stringify(ident)}\nCondition: ${condition || "Unknown"}\n` +
     `\nYou are pricing this from the live listings below and from nothing else. You are NOT being\n` +
     `given an earlier estimate to adjust, because an earlier estimate made before these listings\n` +
@@ -127,7 +127,12 @@ export function repricePrompt({ ident, condition, lotInfo, market, hits, soldMar
       `evidence here; weigh them above asking prices. Some may be a different variant (another speed, ` +
       `type, size or a set); judge each one. Price from the sold ones that match this exact item, keep ` +
       `those among your comparables, and if your basis cites a sold range, cite only the matching ones.\n` : "") +
-    `\nComparables:\n${JSON.stringify(hits, null, 1)}`;
+    `\nComparables:\n${JSON.stringify(hits, null, 1)}` +
+    ((makerWorks || []).length ? `\n\nOTHER WORKS BY THE SAME MAKER (${makerQueryName(ident.maker)}), from auction and dealer sites. ` +
+      `These are NOT this item: never keep them as comparables and never list them in "rejected". Use them only to ` +
+      `judge this maker's market level - if their work sells in the hundreds or thousands, a price built from generic, ` +
+      `unsigned look-alikes is wrong, and the reverse. Allow for size, medium, subject and condition, and say in ` +
+      `basis_note if the maker's market moved your price.\n${JSON.stringify(makerWorks, null, 1)}` : "");
 }
 
 export const REPRICE_SYSTEM = `You are a senior antiques appraiser pricing an item against live comparable listings from
@@ -1094,6 +1099,30 @@ async function tavily(env, query, domains, limit) {
   finally { clearTimeout(t); }
 }
 
+// ---------- the maker's own market (2026-10-06) ----------
+// The comps search looks for THIS item. When the estimate names an artist or maker, what their
+// other work brings at auction is a separate and often decisive fact: a signed Stefan Kosik portrait
+// came back $5-$30 because the item search found generic eBay portraits. These results go to the
+// repricer as context about the maker, never as comparables.
+const MAKER_DOMAINS = ["liveauctioneers.com", "invaluable.com", "worthpoint.com", "1stdibs.com", "mutualart.com",
+                       "askart.com", "artnet.com", "christies.com", "sothebys.com", "bonhams.com", "ha.com", "chairish.com", "ebay.com"];
+const NOT_A_MAKER = /^(unknown|unmarked|unsigned|none|n\/?a|not visible|illegible|various|generic|unidentified|anonymous)\b/i;
+export function makerQueryName(maker) {
+  const m = String(maker || "").replace(/\s*\(.*?\)\s*/g, " ").replace(/\b(attributed to|attrib\.?|possibly|probably|likely|style of|after|school of|circle of|signed)\b/gi, " ")
+    .replace(/[^\p{L}\p{N}&.'\- ]/gu, " ").replace(/\s+/g, " ").trim();
+  if (m.length < 3 || NOT_A_MAKER.test(m)) return null;
+  return m.split(" ").slice(0, 5).join(" ");
+}
+export async function makerMarket(env, maker, category = "") {
+  const name = makerQueryName(maker);
+  if (!name || !env.TAVILY_API_KEY) return [];
+  const hits = await tavily(env, `"${name}" ${String(category || "").split(/[,/>]/)[0].trim()} auction results price`.replace(/\s+/g, " ").trim(), MAKER_DOMAINS, 8);
+  // Keep only pages that actually mention the maker (the last word of the name is the surname).
+  const sur = name.split(" ").pop().toLowerCase();
+  return hits.filter(h => h && h.url && (`${h.title} ${h.note}`.toLowerCase().includes(sur)) && !isNoise(h))
+    .slice(0, 6).map(h => ({ title: h.title, url: h.url, source: h.source, price: h.price || null, note: String(h.note || "").slice(0, 240) }));
+}
+
 export async function searchComps(env, query, limit = 5) {
   _searchFail = null;
   if (!env.TAVILY_API_KEY) { _searchFail = "no market-search key is configured"; return []; }
@@ -1888,8 +1917,11 @@ export async function appraise(env, req) {
   // EVERY estimate, alongside the two eBay searches, instead of only when eBay came back thin
   // (Derek: "seems like it should fire no matter what"). eBay alone missed what an artist's or
   // maker's work actually brings: a signed Kosik portrait priced from generic eBay portraits.
-  const [live, sold, web] = await Promise.all([timed("ebay_active", ebayActive(env, q)), timed("ebay_sold", ebaySold(env, q)),
-                                               timed("web_search", searchComps(env, q).catch(() => []))]);
+  const [live, sold, web, makerWorks] = await Promise.all([timed("ebay_active", ebayActive(env, q)), timed("ebay_sold", ebaySold(env, q)),
+                                               timed("web_search", searchComps(env, q).catch(() => [])),
+                                               // The artist's / maker's own auction market, when one is named (context, not comps).
+                                               timed("maker_search", makerMarket(env, ident.maker, ident.category).catch(() => []))]);
+  marks.maker_hits = (makerWorks || []).length;
   marks.sold_lookups = soldLookups();
   mark("comps");
   // Sold first: what buyers paid is the strongest evidence, and the repricer reads top-down. Web
@@ -1921,7 +1953,7 @@ export async function appraise(env, req) {
     warnings.push(`no eBay listing matched the full description, so these prices are for ` +
       `"${broadenedTo}" — comparable items rather than this exact one.`);
   if (hits.length) {
-    const repriceUser = repricePrompt({ ident, condition: listing.condition_grade, lotInfo, market, hits, soldMarket });
+    const repriceUser = repricePrompt({ ident, condition: listing.condition_grade, lotInfo, market, hits, soldMarket, makerWorks });
     // The cold pass: a pricing-only ask over the same comparables with no prior in it. Used when
     // the repricer answers without a price AND when it fails outright - a failed repricer used to
     // leave the pre-listing memory price standing: SK Hynix 32GB showed $30-$60 under a sold line
@@ -2194,6 +2226,8 @@ export async function appraise(env, req) {
 
   return {
     timings_ms: { ...marks, total: Date.now() - t0 },
+    // Other works by the named maker (auction/dealer pages) that informed the price; context, not comps.
+    maker_works: makerWorks || [],
     melt,
     lot,
     // The identification gate. A dealer reads the digits and skips the warning above them, so a

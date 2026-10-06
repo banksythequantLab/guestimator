@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { writeListingCopy } from "../appraiser.js";
+import { writeListingCopy, makerQueryName, makerMarket, repricePrompt } from "../appraiser.js";
 
 let pass = 0, fail = 0;
 const ok = (n, c, got) => { c ? pass++ : (fail++, console.log(`FAIL ${n}${got !== undefined ? "\n     got " + JSON.stringify(got) : ""}`)); };
@@ -37,5 +37,19 @@ ok("written after the price is saved, and before an eBay draft if still missing"
 // The web search runs on every estimate, alongside eBay, not only when eBay is thin (2026-10-06).
 ok("web search always runs, in parallel with both eBay searches", /Promise\.all\(\[timed\("ebay_active"[\s\S]{0,200}timed\("web_search", searchComps\(env, q\)/.test(APP) && !/soldHits\.length >= 3 \? \[\] : await searchComps/.test(APP));
 
+// ---------- the maker's own market (2026-10-06) ----------
+ok("maker name cleaned for the search", makerQueryName("attributed to Stefan Kosik (signed lower right)") === "Stefan Kosik" && makerQueryName("Unknown") === null && makerQueryName("unsigned") === null && makerQueryName("") === null, makerQueryName("attributed to Stefan Kosik (signed lower right)"));
+let tq = null;
+globalThis.fetch = async (u, init) => { tq = JSON.parse(init.body); return new Response(JSON.stringify({ results: [
+  { title: "Stefan Kosik, Portrait of a Lady, oil on canvas - sold $1,200", url: "https://www.liveauctioneers.com/item/1", content: "Stefan Kosik (Czech, b.1971) oil on canvas. Sold for $1,200." },
+  { title: "Unrelated portrait painting $40", url: "https://www.liveauctioneers.com/item/2", content: "Anonymous portrait." }] }), { status: 200 }); };
+const mw = await makerMarket({ TAVILY_API_KEY: "t" }, "Stefan Kosik", "Paintings");
+ok("searches auction sites for the maker by name", tq && /"Stefan Kosik"/.test(tq.query) && /auction results/.test(tq.query) && tq.include_domains.includes("liveauctioneers.com"), tq);
+ok("keeps only pages about the maker", mw.length === 1 && /Kosik/.test(mw[0].title), mw);
+ok("no maker -> no search", (await makerMarket({ TAVILY_API_KEY: "t" }, "unknown")).length === 0);
+const rp = repricePrompt({ ident: { name: "Portrait", maker: "Stefan Kosik" }, hits: [], makerWorks: mw });
+ok("repricer told these are the maker's other works, not comparables", /OTHER WORKS BY THE SAME MAKER \(Stefan Kosik\)/.test(rp) && /never keep them as comparables/.test(rp) && rp.includes("liveauctioneers.com/item/1"));
+ok("no maker works -> prompt unchanged", !/OTHER WORKS/.test(repricePrompt({ ident: { name: "x" }, hits: [] })));
+ok("maker search runs alongside the others", /timed\("maker_search", makerMarket\(env, ident\.maker, ident\.category\)/.test(APP));
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
