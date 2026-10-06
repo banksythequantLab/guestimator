@@ -45,7 +45,7 @@ const db = d1(join(here, "..", "migrations"));
 const mails = [], pending = [];
 const env = {
   DB: db, ASSETS: { fetch: async () => new Response("asset") }, PHOTOS: { put: async () => {}, get: async () => null, delete: async () => {} },
-  PUBLIC_ORIGIN: "https://g.test", GARAGE_FEE_BPS: "300",
+  PUBLIC_ORIGIN: "https://g.test",
   STRIPE_SECRET_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_platform", STRIPE_CONNECT_WEBHOOK_SECRET: "whsec_connect",
   EMAIL: { send: async m => { mails.push(m); return { messageId: "m" + mails.length }; } },
 };
@@ -132,10 +132,10 @@ db.raw.prepare("UPDATE garage_orders SET created_at=? WHERE id=?").run(new Date(
 ok("abandoned checkout released by the Market", (await call("GET", "/market")).text.includes("Red Wing crock"));
 ok("abandoned order cancelled", db.raw.prepare("SELECT status FROM garage_orders WHERE id=?").get(order.id).status === "cancelled");
 
-// garage sale checkout still carries its fee (unchanged behaviour)
+// garage sale checkout: no fee either, by default (Guestimator lists, it takes no cut)
 r = await call("POST", "/api/public/garage/checkout", new URLSearchParams({ sale: db.raw.prepare("SELECT slug FROM garage_sales WHERE id=?").get(gsId).slug, item: vase, fulfilment: "ship" }));
 sc = calls.filter(c => c.url.endsWith("/v1/checkout/sessions")).pop();
-ok("garage sale checkout still has its fee", r.status === 303 && sc.form.get("payment_intent_data[application_fee_amount]") === "84", sc.form.get("payment_intent_data[application_fee_amount]"));
+ok("garage sale checkout has no fee by default", r.status === 303 && !sc.form.has("payment_intent_data[application_fee_amount]"), sc.form.get("payment_intent_data[application_fee_amount]"));
 
 // paid
 await buy();

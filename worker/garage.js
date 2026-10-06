@@ -3,7 +3,7 @@
 //
 // Money path (Stripe Connect, DIRECT charges): the seller is the merchant. Checkout runs on the
 // seller's own connected Stripe account (Stripe-Account header), their name is on the receipt, and
-// they own refunds and disputes. Guestimator takes an application fee. Accounts are created with
+// they own refunds and disputes. Guestimator takes no cut (GARAGE_FEE_BPS defaults to 0). Accounts are created with
 // Stripe liable for negative balances (losses.payments = stripe), so Guestimator never holds a
 // seller's money and is not on the hook when a seller cannot cover a dispute.
 // Sale pages are free. Estimates still cost credits; nothing here touches the credits ledger.
@@ -66,7 +66,7 @@ export const onlinePrice = row => (row.online_price_cents != null ? row.online_p
 
 /** Platform fee in cents on the whole charge; bps = basis points (300 = 3%). */
 export function feeCents(totalCents, bps) {
-  const b = Number.isFinite(Number(bps)) ? Math.max(0, Math.min(2000, Number(bps))) : 300;
+  const b = Number.isFinite(Number(bps)) ? Math.max(0, Math.min(2000, Number(bps))) : 0;
   return Math.round((totalCents * b) / 10000);
 }
 
@@ -336,7 +336,7 @@ export async function sellerApi(request, env, url, parts, userId, ctx) {
                  items: items.map(i => ({ ...i, thumb: i.thumb_key ? `/p/${i.thumb_key}` : null, guess: guess.get(i.item_id) || null })),
                  holds, orders,
                  payments: { platform_on: stripeReady(env), connected: !!seller?.connect_account_id, ready: !!seller?.stripe_payouts_ready,
-                             fee_bps: isShop(sale) ? 0 : Number(env.GARAGE_FEE_BPS ?? 300) } });
+                             fee_bps: isShop(sale) ? 0 : Number(env.GARAGE_FEE_BPS ?? 0) } });
     }
     if (parts.length === 4 && m === "PATCH") {
       const b = await readJson(request);
@@ -506,7 +506,7 @@ export async function publicApi(request, env, url, parts, ctx) {
     // Reserve atomically: only one buyer at a time can be paying for an item.
     const res = await db.prepare("UPDATE garage_sale_items SET status='pending' WHERE sale_id=? AND item_id=? AND status='available'").bind(sale.id, row.item_id).run();
     if (!res.meta?.changes) return H(msgPage("Not available right now", row.status === "sold" ? "Sorry, that one has sold." : "Someone else is holding or buying this item. Check back soon."), 409);
-    const fee = saleFee(sale, total, env.GARAGE_FEE_BPS ?? 300);
+    const fee = saleFee(sale, total, env.GARAGE_FEE_BPS ?? 0);
     const orderId = uid(), t = now();
     const title = row.ai_title || row.name;
     const back = `${origin}/sale/${sale.slug}/item/${row.item_id}`;
