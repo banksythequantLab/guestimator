@@ -583,6 +583,8 @@ export default {
       // ---------- everything below requires a session ----------
       const userId = await currentUser(request, db);
       if (!userId) return J({ error: "not authenticated" }, 401);
+      // Etsy is only shown to allowed accounts until it works for everyone (etsy.etsyAllowed).
+      const etsyOn = async () => etsy.etsyOnFor(env, (await db.prepare("SELECT email FROM users WHERE id=?").bind(userId).first())?.email);
       const ownsSale = async (sid) => !!(await db.prepare("SELECT id FROM sales WHERE id=? AND user_id=?").bind(sid, userId).first());
       const ownsItem = async (iid) => await db.prepare("SELECT i.* FROM items i JOIN sales s ON s.id=i.sale_id WHERE i.id=? AND s.user_id=?").bind(iid, userId).first();
 
@@ -627,11 +629,12 @@ export default {
       // ---------- the user's Etsy shop (cross-listing vintage items; etsy.js) ----------
       if (parts[1] === "etsy" && parts.length === 3) {
         if (parts[2] === "status" && m === "GET") {
-          const a = etsy.etsyReady(env) ? await db.prepare("SELECT shop_name, created_at FROM etsy_accounts WHERE user_id=?").bind(userId).first() : null;
-          return J({ configured: etsy.etsyReady(env), connected: !!a, shop_name: a?.shop_name || null, notice: etsy.NOTICE });
+          const on = await etsyOn();
+          const a = on ? await db.prepare("SELECT shop_name, created_at FROM etsy_accounts WHERE user_id=?").bind(userId).first() : null;
+          return J({ configured: on, connected: !!a, shop_name: a?.shop_name || null, notice: etsy.NOTICE });
         }
         if (parts[2] === "connect" && m === "POST") {
-          if (!etsy.etsyReady(env)) return J({ error: "Etsy listing isn't switched on yet." }, 503);
+          if (!(await etsyOn())) return J({ error: "Etsy listing isn't switched on yet." }, 503);
           const cb = await readJson(request);
           const state = (cb.native ? "n" : "w") + randHex(24), verifier = etsy.newVerifier();
           await db.prepare("DELETE FROM etsy_oauth_states WHERE created_at < ?").bind(new Date(Date.now() - 3600e3).toISOString()).run();
@@ -1121,11 +1124,12 @@ export default {
         }
         // ---------- Etsy cross-listing: what can be offered, list it, take it down ----------
         if (parts[3] === "etsy" && parts.length === 4 && m === "GET") {
+          if (!(await etsyOn())) return J({ configured: false });   // hidden for accounts not allowed yet
           const bundle = await itemBundle(db, iid);
           return J(await etsy.plan(env, db, userId, { item, result: bundle.appraisal?.result || null }));
         }
         if (parts[3] === "etsy" && parts[4] === "publish" && m === "POST") {
-          if (!etsy.etsyReady(env)) return J({ error: "Etsy listing isn't switched on yet." }, 503);
+          if (!(await etsyOn())) return J({ error: "Etsy listing isn't switched on yet." }, 503);
           const bundle = await itemBundle(db, iid);
           const r = await etsy.publish(env, db, userId, { item, photos: bundle.photos, result: bundle.appraisal?.result || null },
             await readJson(request), listingCredits(env), { consume: consumeEstimate, refund: refundEstimate });

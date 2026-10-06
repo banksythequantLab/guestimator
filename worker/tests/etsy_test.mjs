@@ -72,7 +72,7 @@ globalThis.fetch = async (u, init = {}) => {
 const { default: worker } = await import("../worker.js");
 const db = d1(join(here, "..", "migrations"));
 const mails = [];
-const env = { SIGNUP_CREDITS: "0", DB: db, EBAY_TOKEN_KEY: KEY, ETSY_API_KEY: "kstring", ETSY_SHARED_SECRET: "shh", EBAY_LISTING_CREDITS: "0",
+const env = { SIGNUP_CREDITS: "0", DB: db, EBAY_TOKEN_KEY: KEY, ETSY_API_KEY: "kstring", ETSY_SHARED_SECRET: "shh", ADMIN_EMAIL: "seller@example.com", EBAY_LISTING_CREDITS: "0",
   ASSETS: { fetch: async () => new Response("a") }, PUBLIC_ORIGIN: "https://g.test",
   PHOTOS: { put: async () => {}, delete: async () => {}, get: async k => ({ arrayBuffer: async () => new Uint8Array([255, 216, 255]).buffer, key: k }) },
   EMAIL: { send: async m => { if (!/^Welcome/.test(m.subject)) mails.push(m); return { messageId: "m" }; } }, ALERT_FROM: "a@g.test" };
@@ -92,6 +92,13 @@ ok("status: configured, not connected", r.json.configured === true && r.json.con
 const offEnv = { ...env }; delete offEnv.ETSY_API_KEY;
 const off = await worker.fetch(new Request("https://g.test/api/etsy/status", { headers: { cookie } }), offEnv, { waitUntil() {} });
 ok("without ETSY_API_KEY: not configured", (await off.json()).configured === false);
+// Only allowed accounts see Etsy until it is opened to everyone (2026-10-06).
+const etsyVisible = async e => (await (await worker.fetch(new Request("https://g.test/api/etsy/status", { headers: { cookie } }), e, { waitUntil() {} })).json()).configured;
+ok("the owner sees Etsy by default", await etsyVisible(env) === true);
+ok("anyone else doesn't, until ETSY_OPEN is on", await etsyVisible({ ...env, ADMIN_EMAIL: "boss@example.com" }) === false && await etsyVisible({ ...env, ADMIN_EMAIL: "boss@example.com", ETSY_OPEN: "on" }) === true);
+ok("ETSY_USERS lets named testers in", await etsyVisible({ ...env, ADMIN_EMAIL: "boss@example.com", ETSY_USERS: "x@example.com, Seller@Example.com" }) === true);
+const hid = await worker.fetch(new Request("https://g.test/api/etsy/connect", { method: "POST", headers: { cookie, "content-type": "application/json" }, body: "{}" }), { ...env, ADMIN_EMAIL: "boss@example.com" }, { waitUntil() {} });
+ok("and can't connect a shop", hid.status === 503);
 
 // Connect (PKCE)
 r = await call("POST", "/api/etsy/connect", {});

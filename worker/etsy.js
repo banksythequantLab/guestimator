@@ -18,6 +18,17 @@ export const SCOPES = "listings_r listings_w shops_r shops_w";
 export const NOTICE = "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the Etsy API but is not endorsed or certified by Etsy, Inc.";
 export const SHIPPING_HELP = "https://www.etsy.com/your/shops/me/tools/shipping-profiles";
 export const etsyReady = env => !!(env.ETSY_API_KEY && env.ETSY_SHARED_SECRET && env.EBAY_TOKEN_KEY);
+// Who sees Etsy (2026-10-06, Derek: "we can't add the feature to a live product until it works for
+// everyone"). Until ETSY_OPEN is "on" it is only for ETSY_USERS (comma-separated emails), which
+// defaults to the owner (ADMIN_EMAIL, else the first LABEL_USERS address). Everyone else sees
+// nothing about Etsy, exactly as if it were switched off.
+export function etsyAllowed(env, email) {
+  if (String(env.ETSY_OPEN || "").trim() === "on") return true;
+  const owner = env.ADMIN_EMAIL || String(env.LABEL_USERS || "").split(",")[0];
+  const list = String(env.ETSY_USERS || owner || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+  return !!email && list.includes(String(email).trim().toLowerCase());
+}
+export const etsyOnFor = (env, email) => etsyReady(env) && etsyAllowed(env, email);
 const redirectUri = env => `${(env.PUBLIC_ORIGIN || "https://app.theguestimator.com").replace(/\/+$/, "")}/etsy/callback`;
 const now = () => new Date().toISOString();
 
