@@ -34,7 +34,7 @@ const credits = w => db.raw.prepare("SELECT credits FROM users WHERE email=?").g
 const preFree = w => { db.raw.prepare("DELETE FROM billing_events WHERE user_id=? AND type='signup_free'").run(id(w)); db.raw.prepare("UPDATE users SET credits=0 WHERE id=?").run(id(w)); };
 
 await reg("boss"); await reg("amy"); await reg("ben"); await reg("cal"); await reg("dan");
-preFree("boss"); preFree("amy"); preFree("ben"); preFree("dan");      // cal signed up after: keeps his 3
+preFree("boss"); preFree("amy"); preFree("ben"); preFree("dan");      // cal signed up after: keeps his 5
 who = "dan";
 const item = (await call("POST", "/api/items", { name: "Brass lamp", description: "old brass lamp" })).json.id;
 db.raw.prepare("INSERT INTO appraisals (id,item_id,status,created_at) VALUES (?,?,'done',?)").run(crypto.randomUUID(), item, new Date().toISOString());
@@ -46,7 +46,7 @@ ok("list: only pre-free accounts with no estimate, not unsubscribed, not the own
 who = "boss";
 const page = await call("GET", "/owner");
 ok("owner page shows the list, the email preview and the funnel", page.status === 200 && page.text.includes("amy@example.com") && page.text.includes(`class="wb" value="${id("amy")}"`) && !page.text.includes(`class="wb" value="${id("cal")}"`)
-  && page.text.includes("Your 3 free estimates are ready") && page.text.includes(VIDEO) && page.text.includes("Sign-ups by week"));
+  && page.text.includes("Your 5 free credits are ready") && page.text.includes(VIDEO) && page.text.includes("Sign-ups by week"));
 
 ok("no custom header -> refused", (await call("POST", "/owner/winback", { ids: [id("amy")] })).status === 404 && credits("amy") === 0);
 who = "cal";
@@ -56,14 +56,14 @@ ok("nobody ticked -> nothing", (await call("POST", "/owner/winback", { ids: [] }
 
 mails.length = 0;
 let r = await call("POST", "/owner/winback", { ids: [id("amy"), id("cal"), id("dan")] }, { "x-gs-owner": "1" });
-ok("only listed people are touched, even if others are sent", r.status === 200 && r.json.sent === 1 && credits("cal") === 3 && credits("dan") === 0, { r: r.json, cal: credits("cal"), dan: credits("dan") });
-ok("amy now has 3, in the ledger", credits("amy") === 3 && db.raw.prepare("SELECT SUM(credits_delta) n FROM billing_events WHERE user_id=? AND type='winback_free'").get(id("amy")).n === 3);
+ok("only listed people are touched, even if others are sent", r.status === 200 && r.json.sent === 1 && credits("cal") === 5 && credits("dan") === 0, { r: r.json, cal: credits("cal"), dan: credits("dan") });
+ok("amy now has 5, in the ledger", credits("amy") === 5 && db.raw.prepare("SELECT SUM(credits_delta) n FROM billing_events WHERE user_id=? AND type='winback_free'").get(id("amy")).n === 5);
 const m = mails.find(x => x.to === "amy@example.com");
-ok("one email: free estimates, the video, an unsubscribe link", mails.length === 1 && m && m.subject === "Your 3 free estimates are ready"
-  && m.text.includes("3 free estimates are already in your account") && m.text.includes(VIDEO) && m.text.includes("/api/growth/off?u="), m && m.text);
+ok("one email: free credits, the video, an unsubscribe link", mails.length === 1 && m && m.subject === "Your 5 free credits are ready"
+  && m.text.includes("5 free credits - enough to price and list 2 items, and price a 3rd. They're already in your account") && m.text.includes(VIDEO) && m.text.includes("/api/growth/off?u="), m && m.text);
 
 r = await call("POST", "/owner/winback", { ids: [id("amy")] }, { "x-gs-owner": "1" });
-ok("once only", r.json.sent === 0 && credits("amy") === 3 && mails.length === 1);
+ok("once only", r.json.sent === 0 && credits("amy") === 5 && mails.length === 1);
 
 // The automatic 3-day email: never to amy again, and not to a pre-free account with nothing in it.
 await reg("eve"); preFree("eve");
@@ -73,7 +73,7 @@ mails.length = 0;
 let s = await G.winbackSweep(env, db, "https://g.test");
 const firsts = s.filter(x => x.kind === "first").map(x => x.user);
 ok("3-day email skips amy (done) and eve (would hit the wall: she's for the button)", !firsts.includes(id("amy")) && !firsts.includes(id("eve")), firsts);
-ok("cal gets it, saying his free estimates are waiting, with the video", firsts.includes(id("cal")) && mails.some(x => x.to === "cal@example.com" && x.subject === "Your 3 free estimates are waiting" && x.text.includes(VIDEO)), mails.map(x => [x.to, x.subject]));
+ok("cal gets it, saying his free credits are waiting, with the video", firsts.includes(id("cal")) && mails.some(x => x.to === "cal@example.com" && x.subject === "Your 5 free credits are waiting" && x.text.includes(VIDEO)), mails.map(x => [x.to, x.subject]));
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

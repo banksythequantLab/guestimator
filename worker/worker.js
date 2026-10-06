@@ -9,7 +9,7 @@ import { planFor, consumeEstimate, refundEstimate, applyRevenueCatEvent, redeemP
 // wouldn't have spent money"). SIGNUP_CREDITS overrides; 0 restores pay-from-the-start.
 // The 30-second demo Short shown on the sign-up screen. Only an https YouTube link is passed through.
 const demoVideo = env => { const u = String(env.DEMO_VIDEO_URL || ""); return /^https:\/\/(www\.)?(youtube\.com|youtu\.be)\//.test(u) ? u : null; };
-const signupCredits = env => { const n = Number(env.SIGNUP_CREDITS ?? 3); return Number.isFinite(n) && n >= 0 ? Math.min(20, Math.floor(n)) : 3; };
+const signupCredits = env => { const n = Number(env.SIGNUP_CREDITS ?? 5); return Number.isFinite(n) && n >= 0 ? Math.min(20, Math.floor(n)) : 5; };   // 5 (2026-10-05): price + list 2 items, price a 3rd
 // A free estimate for rating how close one was; capped per calendar month.
 const ratingCredits = env => { const n = Number(env.RATING_CREDITS_PER_MONTH ?? 5); return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 5; };
 // The ledger accounts for the opening balance too.

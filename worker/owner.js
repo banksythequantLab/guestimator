@@ -57,7 +57,7 @@ export async function ownerStats(db, env, ms = Date.now()) {
       EXISTS (SELECT 1 FROM ebay_accounts e WHERE e.user_id=u.id) ebay FROM users u ORDER BY u.created_at DESC LIMIT 12`);
   const funnel = await growth.funnelByWeek(db, ms);
   const winback = await growth.winbackCandidates(env, db, adminEmail(env));
-  const winbackPreview = growth.winbackFreeMail(env, env.PUBLIC_ORIGIN || "https://app.theguestimator.com", 3, "(their own unsubscribe link)").text;
+  const winbackPreview = growth.winbackFreeMail(env, env.PUBLIC_ORIGIN || "https://app.theguestimator.com", Math.min(20, Math.max(1, Math.floor(Number(env.SIGNUP_CREDITS ?? 5)) || 5)), "(their own unsubscribe link)").text;
   return { at: iso(ms), funnel, winback, winbackPreview, users, est, paid, ebay, garage, labels: { used: await labelpay.monthCount(db, ms), cap: labelpay.houseCap(env), pay_on: labelpay.payOn(env), payments: labelPays, problems: labelProblems, voids },
            errors: { jobs: jobErrors, last: lastErrors, estimates: estErrors, listings: listErrors }, recent };
 }

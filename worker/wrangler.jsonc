@@ -51,6 +51,8 @@
     "LABEL_PAY": "on",
     // Google redirect sign-in on iPhone/iPad (authorized redirect URI added by Derek 2026-10-05)
     "GOOGLE_REDIRECT": "on",
+    // Free credits for new accounts: 5 = price and list 2 items, then price a 3rd (Derek, 2026-10-05).
+    "SIGNUP_CREDITS": "5",
     "DEMO_VIDEO_URL": "https://youtube.com/shorts/i4Mi9YwJobE",
     "SHIPPO_MONTHLY_CAP": "30",
     "LABEL_FEE_CENTS": "0",

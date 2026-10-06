@@ -11,6 +11,7 @@
 // quiet for 30+ days, and still has priced items that aren't listed.
 
 import { sendAlert } from "./notify.js";
+import { freeCreditsLine } from "./onboard.js";
 
 const enc = new TextEncoder();
 const DAY = 86400e3;
@@ -124,7 +125,7 @@ function mail(title, lines, link, linkText, off) {
 }
 
 // Free estimates for new accounts (same rule as worker.js signupCredits) and the demo Short.
-const freeN = env => { const n = Number(env.SIGNUP_CREDITS ?? 3); return Number.isFinite(n) && n > 0 ? Math.min(20, Math.floor(n)) : 0; };
+const freeN = env => { const n = Number(env.SIGNUP_CREDITS ?? 5); return Number.isFinite(n) && n > 0 ? Math.min(20, Math.floor(n)) : 0; };
 const demoUrl = env => /^https:\/\/(www\.)?(youtube\.com|youtu\.be)\//.test(String(env.DEMO_VIDEO_URL || "")) ? env.DEMO_VIDEO_URL : null;
 const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
@@ -160,16 +161,16 @@ export async function winbackFree(env, db, origin, ownerEmail, { only = null, ms
     ]);
     const have = Number(c.credits || 0) + top;
     const e = winbackFreeMail(env, origin, have, await offLink(env, origin, c.user_id));
-    await sendAlert(env, { to: c.email, subject: `Your ${plural(have, "free estimate")} ${have === 1 ? "is" : "are"} ready`, ...e });
+    await sendAlert(env, { to: c.email, subject: `Your ${plural(have, "free credit")} ${have === 1 ? "is" : "are"} ready`, ...e });
     done.push({ user: c.user_id, added: top });
   }
   return { sent: done.length, done };
 }
 export function winbackFreeMail(env, origin, have, off) {
   const demo = demoUrl(env);
-  return mail(`Your ${plural(have, "free estimate")} ${have === 1 ? "is" : "are"} ready`, [
-    "You made a Guestimator account but haven't priced anything yet. Estimates used to cost a credit from the very first one.",
-    `Now they don't: ${have === 1 ? "a free estimate is" : `${have} free estimates are`} already in your account.`,
+  return mail(`Your ${plural(have, "free credit")} ${have === 1 ? "is" : "are"} ready`, [
+    "You made a Guestimator account but haven't priced anything yet. Back then, every estimate cost a credit from the very first one.",
+    `Now you start with ${freeCreditsLine(have)}. They're already in your account.`,
     "Pick something you'd like to sell, snap 2-4 photos, and get a price from what's actually selling on eBay right now - plus the box and weight to ship it.",
     ...(demo ? [`See it work in 30 seconds: ${demo}`] : [])],
     `${origin}/`, "Guestimate something", off);
@@ -201,11 +202,11 @@ export async function winbackSweep(env, db, origin, ms = Date.now()) {
     // straight to the buy-credits wall (2026-10-05).
     const have = Number(g.credits || 0), demo = demoUrl(env);
     const e = mail("What's in your closet worth?", ["You made a Guestimator account but haven't priced anything yet.",
-      ...(have > 0 ? [`You have ${have === 1 ? "a free estimate" : `${have} free estimates`} waiting in your account.`] : []),
+      ...(have > 0 ? [`You have ${freeCreditsLine(have)}, waiting in your account.`] : []),
       "Pick one thing you've been meaning to sell, snap 2-4 photos, and you'll get a price from what's actually selling now - plus the box and weight to ship it.",
       ...(demo ? [`See it work in 30 seconds: ${demo}`] : [])],
       `${origin}/`, "Guestimate something", await offLink(env, origin, g.user_id));
-    await sendAlert(env, { to: g.email, subject: have > 0 ? `Your ${plural(have, "free estimate")} ${have === 1 ? "is" : "are"} waiting` : "Price your first thing in 2 minutes", ...e });
+    await sendAlert(env, { to: g.email, subject: have > 0 ? `Your ${plural(have, "free credit")} ${have === 1 ? "is" : "are"} waiting` : "Price your first thing in 2 minutes", ...e });
     sent.push({ kind: "first", user: g.user_id });
   }
   const w2 = (await db.prepare(

@@ -25,7 +25,7 @@ ok("sign-up works", await call("/api/auth/register", { email: "New@Example.com",
 ok("one welcome email to the new seller", mails.length === 1 && mails[0].to === "new@example.com" && /Welcome to Guestimator/.test(mails[0].subject), mails.map(m => [m.to, m.subject]));
 ok("it has the steps and the link, no reply promise without SUPPORT_EMAIL", WELCOME_STEPS.every(([, t]) => mails[0].text.includes(t)) && mails[0].text.includes("https://g.test/") && !/reply to this email/i.test(mails[0].text) && !mails[0].replyTo);
 ok("no free-estimate promise (Derek: no free estimate)", !/free estimate|free guestimate/i.test(mails[0].text) && /use credits/.test(mails[0].text));
-ok("3 free estimates granted at sign-up, in the ledger", db.raw.prepare("SELECT credits FROM users WHERE email='new@example.com'").get().credits === 3 && db.raw.prepare("SELECT SUM(credits_delta) n FROM billing_events b JOIN users u ON u.id=b.user_id WHERE u.email='new@example.com' AND b.type='signup_free'").get().n === 3);
+ok("5 free credits granted at sign-up, in the ledger", db.raw.prepare("SELECT credits FROM users WHERE email='new@example.com'").get().credits === 5 && db.raw.prepare("SELECT SUM(credits_delta) n FROM billing_events b JOIN users u ON u.id=b.user_id WHERE u.email='new@example.com' AND b.type='signup_free'").get().n === 5);
 await call("/api/auth/login", { email: "new@example.com", password: "password123" });
 await call("/api/auth/register", { email: "new@example.com", password: "password123" });
 ok("no email on sign-in or a duplicate sign-up", mails.length === 1);
