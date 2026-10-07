@@ -64,6 +64,14 @@ ok("not the owner: 404", (await call("POST", "/owner/feedback", { id: fid, statu
 r = await call("GET", "/api/feedback/mine");
 ok("sender sees Done and the note", r.json.items.find(i => i.id === fid).status === "done" && r.json.items.find(i => i.id === fid).owner_note === "Building it this week, promise");
 
+// ---------- promo codes on the owner page ----------
+env.PROMO_CODES = JSON.stringify({ JUDGE10: { credits: 10, max: 2 }, OPEN5: { credits: 5 } });
+await call("POST", "/api/me/redeem", { code: "judge10" });
+who = "boss";
+r = await call("GET", "/owner");
+ok("owner page lists promo codes with uses and cap", r.text.includes("<b>JUDGE10</b>") && /JUDGE10<\/b><\/td><td>10<\/td><td>1<\/td><td>2<\/td>/.test(r.text) && r.text.includes("<b>OPEN5</b>") && r.text.includes("no cap"), r.text.match(/Promo codes[^]{0,600}/)?.[0]);
+who = "sam";
+
 // ---------- limit ----------
 for (let i = 0; i < 8; i++) await call("POST", "/api/feedback", { kind: "idea", message: "idea number " + i });
 ok("10 a day", (await call("POST", "/api/feedback", { kind: "idea", message: "one too many" })).status === 429);

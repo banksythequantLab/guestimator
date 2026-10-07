@@ -7,6 +7,7 @@
 import * as labelpay from "./labelpay.js";
 import { adminEmail } from "./shipops.js";
 import * as feedback from "./feedback.js";
+import { parsePromoCodes } from "./billing.js";
 import * as growth from "./growth.js";
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -57,6 +58,9 @@ export async function ownerStats(db, env, ms = Date.now()) {
       (SELECT COALESCE(SUM(o.total_cents),0) FROM garage_orders o JOIN garage_sales g ON g.id=o.sale_id WHERE g.kind='shop' AND o.status IN ('paid','fulfilled') AND o.created_at>=?) gmv30,
       (SELECT COALESCE(SUM(views),0) FROM market_views WHERE day>=?) views7,
       (SELECT COALESCE(SUM(views),0) FROM market_views WHERE day>=?) views30`, d30, d30, d7.slice(0, 10), d30.slice(0, 10)).catch(() => ({}));
+  // Promo codes (PROMO_CODES secret): which exist, how many credits, the cap, and uses so far.
+  const promos = await Promise.all(Object.entries(parsePromoCodes(env.PROMO_CODES)).map(async ([code, c]) => ({ code, credits: c.credits, max: c.max,
+    used: ((await db.prepare("SELECT COUNT(*) n FROM billing_events WHERE source='promo' AND product_id=?").bind(code).first()) || {}).n || 0 })));
   const labelPays = await all(db, "SELECT status, COUNT(*) n, COALESCE(SUM(total_cents),0) cents FROM label_payments GROUP BY status ORDER BY n DESC");
   const labelProblems = await all(db, `SELECT p.status, p.kind, p.order_id, p.total_cents, p.error, p.payment_intent, p.updated_at, u.email FROM label_payments p JOIN users u ON u.id=p.user_id
       WHERE p.status IN ('stuck','refunded','buying') AND p.updated_at>=? ORDER BY p.updated_at DESC LIMIT 10`, d30);
@@ -71,7 +75,7 @@ export async function ownerStats(db, env, ms = Date.now()) {
   const winback = await growth.winbackCandidates(env, db, adminEmail(env));
   const unsent = await growth.winbackUnsent(db);
   const winbackPreview = growth.winbackFreeMail(env, env.PUBLIC_ORIGIN || "https://app.theguestimator.com", Math.min(20, Math.max(1, Math.floor(Number(env.SIGNUP_CREDITS ?? 5)) || 5)), "(their own unsubscribe link)").text;
-  return { at: iso(ms), funnel, winback, unsent, winbackPreview, users, est, paid, ebay, garage, market, feedback: await feedback.ownerList(db).catch(() => []), labels: { used: await labelpay.monthCount(db, ms), cap: labelpay.houseCap(env), pay_on: labelpay.payOn(env), payments: labelPays, problems: labelProblems, voids },
+  return { at: iso(ms), funnel, winback, unsent, winbackPreview, users, est, paid, ebay, garage, market, promos, feedback: await feedback.ownerList(db).catch(() => []), labels: { used: await labelpay.monthCount(db, ms), cap: labelpay.houseCap(env), pay_on: labelpay.payOn(env), payments: labelPays, problems: labelProblems, voids },
            errors: { jobs: jobErrors, last: lastErrors, estimates: estErrors, listings: listErrors }, recent };
 }
 
@@ -126,6 +130,8 @@ ${tile("Market page views", n((s.market || {}).views7), `7 days · ${n((s.market
 ${tile("Shops opened", n((s.market || {}).shops), `${n((s.market || {}).shops_ready)} can take payment (Stripe ready)`)}
 ${tile("Items buyers can see", n((s.market || {}).visible), `${n((s.market || {}).listed)} in shops in all`)}
 ${tile("Market sales", n((s.market || {}).sold30), `30 days · ${money((s.market || {}).gmv30)} · we take no cut`)}</div>
+<h2>Promo codes</h2><div class="m" style="margin-bottom:8px">From the PROMO_CODES secret. Each account can use each code once.</div>
+<div class="sc">${table(["Code", "Credits", "Used", "Cap"], (s.promos || []).map(p => `<tr><td><b>${esc(p.code)}</b></td><td>${n(p.credits)}</td><td>${n(p.used)}</td><td${p.max && p.used >= p.max ? ' class="err"' : ""}>${p.max ? n(p.max) + (p.used >= p.max ? " (used up)" : "") : "no cap"}</td></tr>`), "No codes set: the PROMO_CODES secret is missing or empty.")}</div>
 <h2>Feedback (${(s.feedback || []).filter(f => f.status === "new").length} new)</h2>
 <div class="m" style="margin-bottom:8px">From the app's Feedback button. Set Planned or Done and the sender gets one email (with your note, if any) and sees it under "Your feedback".</div>
 <div class="sc">${table(["When", "From", "Kind", "Message", "Status", "Note to them", ""], (s.feedback || []).map(f => `<tr data-fb="${esc(f.id)}"><td>${when(f.created_at)}</td><td>${esc(f.email || "")}</td><td>${esc(feedback.KINDS[f.kind] || f.kind)}</td>
