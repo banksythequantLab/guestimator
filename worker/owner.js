@@ -78,8 +78,11 @@ export async function ownerStats(db, env, ms = Date.now()) {
   const unsent = await growth.winbackUnsent(db);
   const winbackPreview = growth.winbackFreeMail(env, env.PUBLIC_ORIGIN || "https://app.theguestimator.com", Math.min(20, Math.max(1, Math.floor(Number(env.SIGNUP_CREDITS ?? 5)) || 5)), "(their own unsubscribe link)").text;
   const alerts = await quota.recentAlerts(db).catch(() => []);
+  const sources = (await db.prepare(`SELECT COALESCE(u.signup_source, '(unknown)') src, COALESCE(u.signup_campaign, '') camp, COUNT(*) n,
+      SUM(EXISTS (SELECT 1 FROM sales s JOIN items i ON i.sale_id=s.id JOIN appraisals a ON a.item_id=i.id WHERE s.user_id=u.id)) est
+    FROM users u WHERE u.created_at>=? GROUP BY 1,2 ORDER BY n DESC LIMIT 20`).bind(d30).all().catch(() => ({ results: [] }))).results || [];
   const acc = await accuracy.accuracyRows(db).catch(() => []);
-  return { at: iso(ms), alerts, acc, accSum: accuracy.summary(acc), funnel, winback, unsent, winbackPreview, users, est, paid, ebay, garage, market, promos, feedback: await feedback.ownerList(db).catch(() => []), labels: { used: await labelpay.monthCount(db, ms), cap: labelpay.houseCap(env), pay_on: labelpay.payOn(env), payments: labelPays, problems: labelProblems, voids },
+  return { at: iso(ms), alerts, sources, acc, accSum: accuracy.summary(acc), funnel, winback, unsent, winbackPreview, users, est, paid, ebay, garage, market, promos, feedback: await feedback.ownerList(db).catch(() => []), labels: { used: await labelpay.monthCount(db, ms), cap: labelpay.houseCap(env), pay_on: labelpay.payOn(env), payments: labelPays, problems: labelProblems, voids },
            errors: { jobs: jobErrors, last: lastErrors, estimates: estErrors, listings: listErrors }, recent };
 }
 
@@ -149,6 +152,7 @@ ${L.payments.map(p => tile(`Payments: ${p.status}`, n(p.n), money(p.cents), p.st
 ${tile("Voids pending", n(L.voids.pending), `${n(L.voids.refused)} refused by Shippo`, n(L.voids.refused) > 0)}</div>
 ${L.problems.length ? `<h2>Label payments to check (30 days)</h2><div class="sc">${table(["When", "Status", "Seller", "Order", "Charged", "Stripe", "Why"],
   L.problems.map(p => `<tr><td>${when(p.updated_at)}</td><td class="${p.status === "refunded" ? "" : "err"}">${esc(p.status)}</td><td>${esc(p.email)}</td><td>${esc(p.kind)} ${esc(p.order_id)}</td><td>${money(p.total_cents)}</td><td>${esc(p.payment_intent || "")}</td><td>${esc(p.error || "")}</td></tr>`), "")}</div>` : ""}
+<h2>Sign-ups by source (30 days)</h2><div class="m" style="margin-bottom:8px">From the link people first arrived on (utm_source / utm_campaign, else the referring site). Counting started 2026-10-07; older accounts show as (unknown).</div><div class="sc">${table(["Source", "Campaign", "Sign-ups", "Made a Guestimate"], (s.sources || []).map(r => `<tr><td>${esc(r.src)}</td><td>${esc(r.camp)}</td><td>${n(r.n)}</td><td>${n(r.est)}${pct(r.est, r.n)}</td></tr>`), "No sign-ups in 30 days.")}</div>
 <h2>Guestimate vs. what it sold for</h2>${(() => { const A = s.accSum || {}; const rows = s.acc || [];
   return `<div class="g">${tile("Sold items", n(A.sold), "with a known sale price")}${tile("Sold inside the range", A.priced ? `${n(A.inRange)}/${n(A.priced)}` : "–", A.priced ? `${Math.round(100 * n(A.inRange) / n(A.priced))}%` : "no data yet")}${tile("Sold ÷ middle of range", A.median != null ? A.median + "×" : "–", "median; over 1 = we guess low")}${tile("Seller rating", A.avgStars != null ? A.avgStars + "★" : "–", `${n(A.rated)} rated`)}</div>
   <div class="sc" style="margin-top:10px">${table(["Sold", "Item", "Via", "Guestimate", "Sold for", "Result", "Stars"], rows.map(r => `<tr><td>${when(r.at)}</td><td>${esc(r.name)}</td><td>${esc(r.via)}</td><td>${r.hi ? "$" + r.lo + "–$" + r.hi : "–"}</td><td>$${r.sold.toFixed(2)}</td><td class="${r.tag === "in range" ? "" : "err"}">${esc(r.tag)}${r.ratio != null ? " (" + r.ratio + "×)" : ""}</td><td>${r.stars != null ? r.stars + "★" : ""}</td></tr>`), "Nothing has sold with a Guestimate yet.")}</div>`; })()}

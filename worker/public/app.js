@@ -1,5 +1,17 @@
 // Guestimator — front-end (split from Bottle Tree 2026-09-27)
 const $ = s => document.querySelector(s);
+// First touch: remember where this visitor came from (ad, post, site) for 90 days, so sign-ups can
+// be counted by source on the owner page. Only a source name and campaign, nothing personal.
+(function rememberSource() {
+  try {
+    if (/(?:^|;\s*)gs_src=/.test(document.cookie)) return;
+    const q = new URLSearchParams(location.search);
+    let s = q.get("utm_source"), c = q.get("utm_campaign") || "";
+    if (!s && document.referrer) { try { const h = new URL(document.referrer).hostname; if (h && h !== location.hostname) s = h.replace(/^www\./, ""); } catch {} }
+    if (!s) return;
+    document.cookie = "gs_src=" + encodeURIComponent((s + "|" + c).slice(0, 80)) + ";path=/;max-age=7776000;samesite=lax;secure";
+  } catch {}
+})();
 const app = $("#app"), tabs = $("#tabs"), ctx = $("#ctx"), backBtn = $("#backBtn"),
       cartbar = $("#cartbar");
 let state = { view: "home" };

@@ -143,6 +143,18 @@ async function newSession(db, userId) {
 // Runs inside the Worker: appraiser.js talks to Nebius Token Factory and Tavily directly. It used to
 // POST to a FastAPI container, which meant something had to be hosted and awake; nothing does now.
 // Set APPRAISER_URL to fall back to that container (the offline kiosk still runs it).
+// Where a new account came from (2026-10-07, before the first paid ads): the page stores the
+// first utm_source / utm_campaign (or the referring site) in a gs_src cookie, read here once at
+// sign-up. Both doors - email and Google, including Google's redirect POST - carry the cookie.
+async function recordSignupSource(db, id, request) {
+  try {
+    const m = /(?:^|;\s*)gs_src=([^;]+)/.exec(request.headers.get("cookie") || "");
+    if (!m) return;
+    const [src, camp] = decodeURIComponent(m[1]).split("|").map(s => String(s || "").toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 40));
+    if (src) await db.prepare("UPDATE users SET signup_source=?, signup_campaign=? WHERE id=?").bind(src, camp || null, id).run();
+  } catch (e) { console.log("signup source", e && e.message); }
+}
+
 async function runAppraisal(env, appraisalId, item, photos) {
   const db = env.DB;
   try {
@@ -531,6 +543,7 @@ export default {
           await db.prepare("INSERT INTO users (id,email,pw_hash,pw_salt,created_at,credits) VALUES (?,?,?,?,?,?)")
             .bind(id, email, h, salt, ts, signupCredits(env)).run();
           await grantSignup(env, db, id, ts);
+          await recordSignupSource(db, id, request);
           if (!site.isIgs(env, url)) ctx.waitUntil(onboard.welcomeEmail(env, email, env.PUBLIC_ORIGIN || url.origin).catch(e => console.log("welcome email", e)));
           await growth.markGsUser(db, id);
           return J({ email }, 200, { "Set-Cookie": sessionCookie(await newSession(db, id)) });
@@ -578,6 +591,7 @@ export default {
             await db.prepare("INSERT INTO users (id,email,pw_hash,pw_salt,google_sub,created_at,credits) VALUES (?,?,'','',?,?,?)")
               .bind(id, g.email, g.sub, ts, signupCredits(env)).run();
             await grantSignup(env, db, id, ts);
+            await recordSignupSource(db, id, request);
             u = { id, email: g.email };
             if (!site.isIgs(env, url)) ctx.waitUntil(onboard.welcomeEmail(env, g.email, env.PUBLIC_ORIGIN || url.origin).catch(e => console.log("welcome email", e)));
           }
