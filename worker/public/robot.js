@@ -1,6 +1,7 @@
 // GuessBot: a 76-second 8-bit loop shown while Guestimator works out a price. A little robot
 // checks four antiques with a magnifying glass, researches them on an old computer, finds the
-// price, then boxes the items up and ships them (the in-app loop stops short of a price; see drawFrame). Everything is drawn with fillRect on a 160x90 canvas and scaled up with
+// price, then boxes the items up and ships them. In the app the whole loop plays, but the screen
+// never shows a number (the real price isn't known yet; see drawFrame). Everything is drawn with fillRect on a 160x90 canvas and scaled up with
 // image-rendering: pixelated, so it is a few KB and stays crisp at any size. drawFrame(ctx, t)
 // is pure (t in seconds), so the same code renders the MP4 frame by frame.
 (function (root) {
@@ -31,6 +32,7 @@
   };
 
   let g;   // the 2D context for the frame being drawn
+  let inApp = false;   // true while a real estimate is pending: no made-up price on screen
   const R = (x, y, w, h, c) => { g.fillStyle = c; g.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); };
   const P = (x, y, c) => R(x, y, 1, 1, c);
   function text(s, x, y, c, scale = 1) {
@@ -197,7 +199,7 @@
     } else {                           // the answer
       text("WORTH", X + 1, Y + 1, C.scrD);
       const on = u > 19.6 || Math.floor(t * 8) % 2;
-      if (on) text("$40-60", X + 3, Y + 10, C.gold, 2);
+      if (on) text(inApp ? "$???" : "$40-60", X + 3, Y + 10, C.gold, 2);
     }
     R(X, Y + scan, SW, 1, "rgba(61,242,160,.08)");   // scanline
   }
@@ -286,10 +288,10 @@
   }
   function drawFrame(ctx, time, opts = {}) {
     g = ctx;
-    // In the app the real price isn't known yet, so it never shows a made-up answer: it loops
-    // the looking and researching (first 45 s) until the estimate arrives. The MP4 plays it all.
-    const len = opts.inApp ? 45 : LOOP;
-    const t = step(((time % len) + len) % len);
+    // In the app the real price isn't known yet, so the full loop plays (so it doesn't look stuck
+    // repeating the first scene) but the screen shows "$???" and the captions don't claim a price.
+    inApp = !!opts.inApp;
+    const t = step(((time % LOOP) + LOOP) % LOOP);
     g.imageSmoothingEnabled = false;
     if (t < 24) {
       tableScene(t);
@@ -313,7 +315,7 @@
       if (u < 2) robot(lerp(-20, 62, u / 2), t, "walk", { carry: true });
       else { robot(62, t, "type", { look: 2 }); screen(u - 2, t); }
       if (u >= 21 && u < 26) bubble(66, 31, "!", C.green);
-      if (opts.caption !== false) caption(u < 21 ? "RESEARCHING" : "FOUND IT", t);
+      if (opts.caption !== false) caption(u < 21 ? "RESEARCHING" : inApp ? "ADDING IT UP" : "FOUND IT", t);
     } else if (t < PACK0 - 0.5) {
       deskScene(t);
       const u = t - 50;
@@ -324,7 +326,7 @@
         const sx = (i * 37 + 11) % W, sy = ((u * 22 + i * 13) % 70);
         if (u < 7) R(sx, sy, 2, 2, [C.gold, C.rust, C.cobalt, C.greenL][i % 4]);
       }
-      if (opts.caption !== false) caption("PRICE READY", t);
+      if (opts.caption !== false) caption(inApp ? "ALMOST THERE" : "PRICE READY", t);
       if (u > 7) { g.fillStyle = `rgba(36,27,16,${Math.min(1, (u - 7) / 0.5)})`; g.fillRect(0, 0, W, H); }   // fade to packing
     } else {
       const cap = packScene(t);
