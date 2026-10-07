@@ -27,7 +27,7 @@ export function stickerPage(items, origin, { skip = 0, plain = false } = {}) {
 <div class="tx"><div class="cd">${esc(it.code)}</div><div class="tt">${esc(it.title.slice(0, 60))}</div>${it.price_cents ? `<div class="pr">${money(it.price_cents)}</div>` : ""}</div></div>`).join("");
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Item stickers</title><script src="/vendor/qrcode.js"></script>
 <style>@page{size:letter;margin:0}body{font-family:system-ui,sans-serif;margin:0}
-.bar{padding:12px;background:#0f6b59;color:#fff;font-size:14px;line-height:1.5}.bar button,.bar select,.bar a{font:600 14px system-ui;padding:6px 10px;border-radius:8px;border:0;margin:2px}.bar a{background:#fff;color:#0f6b59;text-decoration:none}
+.bar{padding:12px;background:#d97757;color:#fff;font-size:14px;line-height:1.5}.bar button,.bar select,.bar a{font:600 14px system-ui;padding:6px 10px;border-radius:8px;border:0;margin:2px}.bar a{background:#fff;color:#0f6b59;text-decoration:none}
 .sheet{width:8.5in;padding:.5in .1875in 0;box-sizing:border-box;display:grid;grid-template-columns:repeat(3,2.625in);column-gap:.125in;grid-auto-rows:1in}
 .lb{box-sizing:border-box;height:1in;padding:.06in .1in;display:flex;gap:.08in;align-items:center;overflow:hidden;${plain ? "border:1px dashed #999;" : ""}}
 .q svg{width:.8in;height:.8in;display:block}.tx{min-width:0}.cd{font:800 13px ui-monospace,Consolas,monospace;letter-spacing:.5px}

@@ -30,13 +30,13 @@ export function welcomeEmail(env, email, origin) {
     ...(demo ? [`See it work in 30 seconds: ${demo}`] : []),
     ...(env.SUPPORT_EMAIL ? ["", "Just reply to this email if you get stuck."] : []),
   ].join("\n");
-  const html = `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#f4ecdc;margin:0;padding:24px;color:#241b10">
-<div style="max-width:520px;margin:0 auto;background:#fbf6ea;border:1px solid #e0d2b4;border-radius:14px;padding:22px">
+  const html = `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#ffffff;margin:0;padding:24px;color:#241b10">
+<div style="max-width:520px;margin:0 auto;background:#ffffff;border:1px solid #e5e5e5;border-radius:14px;padding:22px">
 <div style="font-weight:800;font-size:20px;margin-bottom:6px">Welcome to Guestimator</div>
 <div style="color:#6a5b44;font-size:14px;margin-bottom:14px">Here's how to sell your first thing.</div>
 ${WELCOME_STEPS.map(([i, t, d], n) => `<div style="display:flex;gap:10px;margin:10px 0"><div style="font-size:22px">${i}</div><div><b>${n + 1}. ${esc(t)}</b><div style="font-size:14px;color:#4a3d2a">${esc(d)}</div></div></div>`).join("")}
 <div style="margin:16px 0;padding:12px;border-radius:10px;background:#efe4cc;font-size:14px"><b>Free, no credits needed:</b> garage &amp; estate sale pages with QR price tags, buyers who pay online, and discounted shipping labels.${freeN(env) ? `<br><b>You start with ${esc(freeCreditsLine(freeN(env)))}.</b> They're already in your account. Rate an estimate and get another free credit.` : ""}<br><span style="color:#6a5b44">After that, estimates and eBay listings use credits - pick a pack in the app, or enter a code if you have one.</span></div>
-<a href="${esc(link)}" style="display:inline-block;background:#241b10;color:#f4ecdc;text-decoration:none;font-weight:700;padding:11px 18px;border-radius:10px">Guestimate something</a>
+<a href="${esc(link)}" style="display:inline-block;background:#d97757;color:#ffffff;text-decoration:none;font-weight:700;padding:11px 18px;border-radius:10px">Guestimate something</a>
 ${demo ? `<div style="margin-top:12px;font-size:14px"><a href="${esc(demo)}" style="color:#241b10;font-weight:700">&#9654; See it work in 30 seconds</a></div>` : ""}
 ${env.SUPPORT_EMAIL ? `<div style="margin-top:14px;font-size:12px;color:#6a5b44">Just reply to this email if you get stuck.</div>` : ""}</div></body></html>`;
   return sendAlert(env, { to: email, subject: "Welcome to Guestimator - sell your first thing", text, html, replyTo: env.SUPPORT_EMAIL || undefined });

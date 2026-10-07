@@ -4,8 +4,8 @@
   "description": "Snap it, price it from what is selling now, and list it on your own eBay account.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0F6B59",
-  "theme_color": "#0F6B59",
+  "background_color": "#FFFFFF",
+  "theme_color": "#FFFFFF",
   "share_target": {
     "action": "/share-target",
     "method": "POST",

@@ -626,23 +626,23 @@ export async function applyStripeEvent(db, ev) {
 
 // ---------------------------------------------------------------- public pages (/sale/*)
 
-const CSS = `*{box-sizing:border-box}body{margin:0;font:16px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;color:#1d2a26;background:#f6f2ea}
-a{color:#0f6b59}.wrap{max-width:980px;margin:0 auto;padding:0 16px}header{background:#0f6b59;color:#fff;padding:18px 0 22px}
-header a{color:#fff;text-decoration:none}.kind{text-transform:uppercase;letter-spacing:.08em;font-size:.78rem;opacity:.85}
+const CSS = `*{box-sizing:border-box}body{margin:0;font:16px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;color:#111111;background:#ffffff}
+a{color:#a55a42}.wrap{max-width:980px;margin:0 auto;padding:0 16px}header{background:#ffffff;color:#111111;padding:18px 0 22px;border-bottom:1px solid #e5e5e5}
+header a{color:#111111;text-decoration:none}header .where a{color:#a55a42}.kind{color:#d97757}.kind{text-transform:uppercase;letter-spacing:.08em;font-size:.78rem;opacity:.85}
 h1{font:700 1.9rem/1.2 Georgia,serif;margin:4px 0 8px}.when{font-size:1.02rem}.where{margin-top:4px;opacity:.95}
 .note{background:#fff7d6;border:1px solid #eadca0;border-radius:10px;padding:10px 12px;margin:14px 0;color:#5a4a10}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px;margin:18px 0 40px}
-.card{background:#fff;border-radius:12px;overflow:hidden;text-decoration:none;color:inherit;box-shadow:0 1px 3px rgba(0,0,0,.08);display:flex;flex-direction:column}
-.card img{width:100%;aspect-ratio:1;object-fit:cover;background:#e8e2d6}.card .b{padding:9px 11px 12px}.card .t{font-size:.92rem;line-height:1.3;max-height:2.6em;overflow:hidden}
+.card{background:#fff;border:1px solid #e5e5e5;border-radius:12px;overflow:hidden;text-decoration:none;color:inherit;box-shadow:0 1px 3px rgba(0,0,0,.08);display:flex;flex-direction:column}
+.card img{width:100%;aspect-ratio:1;object-fit:cover;background:#f2f2f2}.card .b{padding:9px 11px 12px}.card .t{font-size:.92rem;line-height:1.3;max-height:2.6em;overflow:hidden}
 .card .p{font-weight:700;font-size:1.1rem;margin-top:4px}.tag{display:inline-block;font-size:.72rem;font-weight:700;border-radius:6px;padding:2px 7px;margin-top:6px}
-.sold{opacity:.55}.tag.s{background:#e9e4dc;color:#5d5a52}.tag.h{background:#fde7c7;color:#7a4b00}.tag.o{background:#dff1ea;color:#0f6b59}
+.sold{opacity:.55}.tag.s{background:#ededed;color:#555555}.tag.h{background:#fde7c7;color:#7a4b00}.tag.o{background:#fbeae3;color:#a55a42}
 .item{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:22px;margin:22px 0 40px}@media(max-width:720px){.item{grid-template-columns:1fr}}
-.gal img{width:100%;border-radius:12px;background:#e8e2d6;margin-bottom:10px}.price{font:700 2rem Georgia,serif;margin:6px 0}
-.box{background:#fff;border-radius:12px;padding:14px 16px;margin:14px 0;box-shadow:0 1px 3px rgba(0,0,0,.08)}
-label{display:block;font-size:.85rem;margin:8px 0 3px;color:#4b5a55}input,textarea,select{width:100%;padding:10px;border:1px solid #cfc8bb;border-radius:9px;font:inherit;background:#fff}
-.btn{display:inline-block;border:0;border-radius:10px;padding:12px 18px;font:600 1rem system-ui;cursor:pointer;background:#0f6b59;color:#fff;text-decoration:none;margin-top:10px;width:100%;text-align:center}
-.btn.alt{background:#fff;color:#0f6b59;border:1.5px solid #0f6b59}.muted{color:#6b7772;font-size:.88rem}footer{padding:24px 0 40px;color:#6b7772;font-size:.85rem}
-.ok{background:#dff1ea;border:1px solid #b5dccd;border-radius:10px;padding:10px 12px;margin:14px 0}`;
+.gal img{width:100%;border-radius:12px;background:#f2f2f2;margin-bottom:10px}.price{font:700 2rem Georgia,serif;margin:6px 0}
+.box{background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:14px 16px;margin:14px 0;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+label{display:block;font-size:.85rem;margin:8px 0 3px;color:#555555}input,textarea,select{width:100%;padding:10px;border:1px solid #d6d6d6;border-radius:9px;font:inherit;background:#fff}
+.btn{display:inline-block;border:0;border-radius:10px;padding:12px 18px;font:600 1rem system-ui;cursor:pointer;background:#d97757;color:#fff;text-decoration:none;margin-top:10px;width:100%;text-align:center}
+.btn.alt{background:#fff;color:#a55a42;border:1.5px solid #d97757}.muted{color:#5a5a5a;font-size:.88rem}footer{padding:24px 0 40px;color:#5a5a5a;font-size:.85rem}
+.ok{background:#e9f6ee;border:1px solid #bfe3cd;border-radius:10px;padding:10px 12px;margin:14px 0}`;
 
 export function page({ title, desc, body, image, canonical }) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -715,7 +715,7 @@ export function packingChecklist(ship) {
   const box = isShip ? packingChecklist(ship) : "";
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${isShip ? "Packing slip" : "Pickup receipt"} ${esc(ref)}</title>
-<style>@page{size:letter;margin:.6in}body{font-family:system-ui,sans-serif;color:#1d2521;margin:0}.bar{padding:12px;background:#0f6b59;color:#fff}.bar button{font:600 1rem system-ui;padding:8px 14px;border-radius:8px;border:0;margin-left:8px}
+<style>@page{size:letter;margin:.6in}body{font-family:system-ui,sans-serif;color:#1d2521;margin:0}.bar{padding:12px;background:#d97757;color:#fff}.bar button{font:600 1rem system-ui;padding:8px 14px;border-radius:8px;border:0;margin-left:8px}
 .pg{max-width:7in;margin:0 auto;padding:.3in}h1{font:700 1.6rem Georgia,serif;margin:0}.cols{display:flex;gap:.4in;margin:.25in 0}.cols div{flex:1}.lb{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#6b7772}
 .addr{font-size:1.05rem;line-height:1.4}table{width:100%;border-collapse:collapse;margin:.15in 0}td{padding:6px 0;border-bottom:1px solid #ddd}.r{text-align:right}.tot td{font-weight:700;border-bottom:2px solid #1d2521}
 .m{color:#6b7772;font-size:.85rem}.sig{margin-top:.5in;display:flex;gap:.4in}.sig div{flex:1;border-top:1px solid #1d2521;padding-top:4px;font-size:.8rem;color:#6b7772}@media print{.bar{display:none}body.withck .ckp{display:block}}.ckp{display:none;margin-top:.3in;font-size:.85rem;border-top:1px dashed #999;padding-top:.1in}</style></head>
@@ -751,7 +751,7 @@ export async function salePages(request, env, url, parts, viewer) {
     const tags = rows.filter(r => r.status !== "sold").map(r => `<div class="tg"><div class="q" data-u="${esc(`${origin}/sale/${sale.slug}/item/${r.item_id}`)}"></div>
 <div class="tx"><div class="tp">${esc(money(r.price_cents))}</div><div class="tt">${esc((r.ai_title || r.name).slice(0, 70))}</div></div></div>`).join("");
     return H(`<!doctype html><html><head><meta charset="utf-8"><title>Price tags · ${esc(sale.title)}</title><script src="/vendor/qrcode.js"></script>
-<style>@page{size:letter;margin:.4in}body{font-family:system-ui,sans-serif;margin:0}.bar{padding:12px;background:#0f6b59;color:#fff}.bar button{font:600 1rem system-ui;padding:8px 14px;border-radius:8px;border:0}
+<style>@page{size:letter;margin:.4in}body{font-family:system-ui,sans-serif;margin:0}.bar{padding:12px;background:#d97757;color:#fff}.bar button{font:600 1rem system-ui;padding:8px 14px;border-radius:8px;border:0}
 .sheet{display:grid;grid-template-columns:repeat(3,1fr);gap:.12in;padding:.1in}.tg{border:1.5px dashed #999;border-radius:8px;padding:.1in;display:flex;gap:.1in;align-items:center;height:1.55in;break-inside:avoid}
 .q svg,.q img{width:1.1in;height:1.1in}.tp{font:800 26px Georgia,serif}.tt{font-size:11px;line-height:1.25;margin-top:4px;max-height:4em;overflow:hidden}@media print{.bar{display:none}body.withck .ckp{display:block}}.ckp{display:none;margin-top:.3in;font-size:.85rem;border-top:1px dashed #999;padding-top:.1in}</style></head>
 <body><div class="bar">${rows.length} tags for ${esc(sale.title)}. Each QR opens that item's page. <button onclick="print()">Print</button></div><div class="sheet">${tags}</div>
@@ -838,7 +838,7 @@ ${desc ? `<p style="white-space:pre-line">${esc(desc)}</p>` : ""}${buyBox}${hold
 <div class="p">${esc(money(r.price_cents))}</div>${statusTag(r) || (canBuy && r.status === "available" ? `<span class="tag o">Buy online</span>` : "")}</div></a>`).join("");
   const firstThumb = rows.find(r => r.thumb_key);
   const body = `${header}<div class="wrap">${endedNote}${sale.description ? `<p style="white-space:pre-line;margin-top:16px">${esc(sale.description)}</p>` : ""}
-${canBuy ? `<div class="note" style="background:#dff1ea;border-color:#b5dccd;color:#0f4a3e">Can't make it? Many items can be bought online${sale.ship_ok ? " and shipped" : " for pickup"}.</div>` : ""}
+${canBuy ? `<div class="note" style="background:#fbeae3;border-color:#f1c9b8;color:#7a3e28">Can't make it? Many items can be bought online${sale.ship_ok ? " and shipped" : " for pickup"}.</div>` : ""}
 <div class="grid">${cards || `<p class="muted">No items listed yet.</p>`}</div></div>`;
   return H(page({ title: `${sale.title} · ${kind}${inPlace(sale)}`, desc: `${kind}${inPlace(sale)}. ${whenText(sale)}. ${rows.length} items with prices.`,
     image: firstThumb ? `${origin}/p/${firstThumb.thumb_key}` : null, canonical: `${origin}/sale/${sale.slug}`, body }));

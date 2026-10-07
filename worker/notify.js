@@ -24,12 +24,12 @@ export async function sendAlert(env, { to, subject, text, html, replyTo }) {
   }
 }
 
-const shell = (title, rows, link, linkText, footer = "You're getting this because you run this sale on Guestimator.") => `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#f4ecdc;margin:0;padding:24px;color:#241b10">
-<div style="max-width:520px;margin:0 auto;background:#fbf6ea;border:1px solid #e0d2b4;border-radius:14px;padding:20px">
+const shell = (title, rows, link, linkText, footer = "You're getting this because you run this sale on Guestimator.") => `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#ffffff;margin:0;padding:24px;color:#241b10">
+<div style="max-width:520px;margin:0 auto;background:#ffffff;border:1px solid #e5e5e5;border-radius:14px;padding:20px">
 <div style="font-weight:800;font-size:18px;margin-bottom:12px">${esc(title)}</div>
 <table style="border-collapse:collapse;font-size:14px;width:100%">${rows.filter(r => r[1]).map(([k, v]) =>
   `<tr><td style="padding:4px 12px 4px 0;color:#6a5b44;vertical-align:top;white-space:nowrap">${esc(k)}</td><td style="padding:4px 0">${esc(v).replace(/\n/g, "<br>")}</td></tr>`).join("")}</table>
-<div style="margin-top:16px"><a href="${esc(link)}" style="display:inline-block;background:#241b10;color:#f4ecdc;text-decoration:none;font-weight:700;padding:10px 16px;border-radius:10px">${esc(linkText)}</a></div>
+<div style="margin-top:16px"><a href="${esc(link)}" style="display:inline-block;background:#d97757;color:#ffffff;text-decoration:none;font-weight:700;padding:10px 16px;border-radius:10px">${esc(linkText)}</a></div>
 <div style="margin-top:14px;font-size:12px;color:#6a5b44">${esc(footer)}</div>
 </div></body></html>`;
 const plain = (title, rows, link) => [title, "", ...rows.filter(r => r[1]).map(([k, v]) => `${k}: ${v}`), "", link].join("\n");

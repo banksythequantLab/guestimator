@@ -94,7 +94,7 @@ ${r.city ? `<div class="muted" style="font-size:.78rem">${esc(r.city)}, ${esc(r.
 <div class="wrap"><form method="get" action="/market" style="display:flex;gap:8px;margin:16px 0 0;flex-wrap:wrap">
 <input name="q" value="${esc(p.q)}" placeholder="Search the Market" style="flex:1 1 220px"><select name="sort" style="width:auto" onchange="this.form.submit()">
 ${opt("new", "Newest")}${opt("low", "Price: low to high")}${opt("high", "Price: high to low")}</select><button class="btn" style="width:auto;margin:0">Search</button></form>
-<div class="grid">${cards || empty}</div>
+${cards ? `<div class="grid">${cards}</div>` : `<div style="margin:18px 0 30px">${empty}</div>`}
 ${p.page > 1 || more ? `<p style="display:flex;justify-content:space-between">${p.page > 1 ? `<a href="${esc(link(p.page - 1))}">← Previous</a>` : "<span></span>"}${more ? `<a href="${esc(link(p.page + 1))}">Next →</a>` : ""}</p>` : ""}
 <div class="box"><b>Sell yours here, free.</b> Snap 3 photos, Guestimator prices it from what's actually selling, and it goes in your shop on the Market. No listing fees and no cut: buyers pay you through your own Stripe account (Stripe's card fee is the only cost).
 <a class="btn" href="${esc(origin)}/?utm_source=market">Start selling</a></div></div>`;

@@ -284,8 +284,8 @@ export default {
         const native = state.startsWith("n");
         const back = ok => native ? `${APP_SCHEME}://etsy/${ok ? "connected" : "failed"}` : (ok ? "/?etsy=connected" : "/?etsy=failed");
         const fail = msg => H(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Etsy was not connected</title>
-<body style="font-family:system-ui,sans-serif;background:#F4ECDC;color:#241B10;padding:24px"><h1 style="font-size:1.3rem;color:#B4552B">Etsy was not connected</h1><p>${esc(msg)}</p>
-<a href="${esc(back(false))}" style="display:inline-block;background:#0F6B59;color:#fff;padding:12px 18px;border-radius:10px;text-decoration:none;font-weight:700">Back to Guestimator</a>
+<body style="font-family:system-ui,sans-serif;background:#FFFFFF;color:#241B10;padding:24px"><h1 style="font-size:1.3rem;color:#B4552B">Etsy was not connected</h1><p>${esc(msg)}</p>
+<a href="${esc(back(false))}" style="display:inline-block;background:#d97757;color:#fff;padding:12px 18px;border-radius:10px;text-decoration:none;font-weight:700">Back to Guestimator</a>
 <p style="font-size:.75rem;color:#6b5d48;margin-top:24px">${esc(etsy.NOTICE)}</p></body>`, 400, "no-store");
         const st = state ? await db.prepare("SELECT * FROM etsy_oauth_states WHERE state=?").bind(state).first() : null;
         if (st) await db.prepare("DELETE FROM etsy_oauth_states WHERE state=?").bind(state).run();
@@ -405,7 +405,7 @@ export default {
       // One-click unsubscribe from win-back reminders (growth.js): signed per user, no sign-in.
       if (parts[1] === "growth" && parts[2] === "off" && m === "GET") {
         const u = url.searchParams.get("u"), t = url.searchParams.get("t");
-        const page = msg => new Response(`<!doctype html><meta name="viewport" content="width=device-width"><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#f4ecdc;padding:40px;color:#241b10"><div style="max-width:420px;margin:0 auto;background:#fbf6ea;border:1px solid #e0d2b4;border-radius:14px;padding:20px">${msg}</div></body>`,
+        const page = msg => new Response(`<!doctype html><meta name="viewport" content="width=device-width"><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#ffffff;padding:40px;color:#241b10"><div style="max-width:420px;margin:0 auto;background:#ffffff;border:1px solid #e5e5e5;border-radius:14px;padding:20px">${msg}</div></body>`,
           { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
         if (!(await growth.offTokenOk(env, u, t))) return page("That link isn't valid.");
         await growth.turnOff(db, u);
@@ -414,7 +414,7 @@ export default {
       // One-click "stop these weekly emails" from the email itself: signed per user, no sign-in.
       if (parts[1] === "weekly" && parts[2] === "off" && m === "GET") {
         const u = url.searchParams.get("u"), t = url.searchParams.get("t");
-        const page = msg => new Response(`<!doctype html><meta name="viewport" content="width=device-width"><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#f4ecdc;padding:40px;color:#241b10"><div style="max-width:420px;margin:0 auto;background:#fbf6ea;border:1px solid #e0d2b4;border-radius:14px;padding:20px">${msg}</div></body>`,
+        const page = msg => new Response(`<!doctype html><meta name="viewport" content="width=device-width"><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#ffffff;padding:40px;color:#241b10"><div style="max-width:420px;margin:0 auto;background:#ffffff;border:1px solid #e5e5e5;border-radius:14px;padding:20px">${msg}</div></body>`,
           { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
         if (!(await weekly.offTokenOk(env, u, t))) return page("That link isn't valid. Sign in to Guestimator to change your emails.");
         await weekly.turnOff(db, u);
@@ -471,9 +471,9 @@ export default {
         const native = state.startsWith("n");
         const back = ok => native ? `${APP_SCHEME}://ebay/${ok ? "connected" : "failed"}` : (ok ? "/?ebay=connected" : "/");
         const page = (title, msg, ok) => H(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
-<style>body{font-family:system-ui,sans-serif;background:#F4ECDC;color:#241B10;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:20px}
+<style>body{font-family:system-ui,sans-serif;background:#FFFFFF;color:#241B10;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:20px}
 .c{background:#FBF6EA;border:1px solid #E0D2B4;border-radius:14px;padding:22px;max-width:420px;text-align:center}.c h1{font-size:1.3rem;margin:0 0 8px}
-.ok{color:#0F6B59}.bad{color:#B4552B}a{display:inline-block;margin-top:14px;background:#0F6B59;color:#fff;padding:12px 18px;border-radius:10px;text-decoration:none;font-weight:700}</style></head>
+.ok{color:#a55a42}.bad{color:#B4552B}a{display:inline-block;margin-top:14px;background:#d97757;color:#fff;padding:12px 18px;border-radius:10px;text-decoration:none;font-weight:700}</style></head>
 <body><div class="c"><h1 class="${ok ? "ok" : "bad"}">${esc(title)}</h1><p>${esc(msg)}</p><a href="${esc(back(ok))}">Back to Guestimator</a></div></body></html>`, ok ? 200 : 400, "no-store");
         const done = () => new Response(null, { status: 302, headers: { location: back(true), "cache-control": "no-store" } });
         const st = state ? await db.prepare("SELECT * FROM ebay_oauth_states WHERE state=?").bind(state).first() : null;

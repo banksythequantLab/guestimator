@@ -61,15 +61,14 @@ export async function guideStatus(db, itemId, origin) {
   return { eligible: !!g, hidden, url: g && !hidden ? origin + pagePath(g) : null };
 }
 
-export const CSS = `:root{--bg:#f4ecdc;--card:#fbf6ea;--ink:#241b10;--mut:#6a5b44;--line:#e0d2b4;--acc:#0f6b59}
-@media (prefers-color-scheme:dark){:root{--bg:#17130d;--card:#221c14;--ink:#f1e7d3;--mut:#b3a387;--line:#3a3022;--acc:#5cc2a8}}
+export const CSS = `:root{--bg:#ffffff;--card:#ffffff;--ink:#111111;--mut:#5a5a5a;--line:#e5e5e5;--acc:#a55a42;--btn:#d97757}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif}
-.w{max-width:760px;margin:0 auto;padding:16px}header a{color:var(--acc);font-weight:800;text-decoration:none;font-family:Georgia,serif;font-size:1.2rem}
+.w{max-width:760px;margin:0 auto;padding:16px}header a{color:var(--btn);font-weight:800;text-decoration:none;font-family:Georgia,serif;font-size:1.2rem}
 h1{font:700 1.7rem/1.2 Georgia,serif;margin:18px 0 6px}h2{font-size:1.05rem;margin:24px 0 8px}.m{color:var(--mut);font-size:.88rem}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:12px 0}
 .big{font-size:2rem;font-weight:800;font-variant-numeric:tabular-nums}table{width:100%;border-collapse:collapse;font-size:.9rem}
 td,th{padding:7px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{font-size:.75rem;color:var(--mut);text-transform:uppercase}
-.r{text-align:right;white-space:nowrap}.cta{display:inline-block;background:var(--acc);color:#fff;font-weight:800;text-decoration:none;padding:12px 18px;border-radius:12px}
+.r{text-align:right;white-space:nowrap}.cta{display:inline-block;background:var(--btn);color:#fff;font-weight:800;text-decoration:none;padding:12px 18px;border-radius:12px}
 a{color:var(--acc)}ul.l{list-style:none;padding:0}ul.l li{padding:10px 0;border-bottom:1px solid var(--line)}`;
 
 const shell = (title, desc, canonical, body, jsonld) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

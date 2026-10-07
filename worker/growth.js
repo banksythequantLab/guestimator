@@ -116,10 +116,10 @@ const OWNED = "FROM appraisals a JOIN items i ON i.id=a.item_id JOIN sales s ON 
 
 function mail(title, lines, link, linkText, off) {
   const text = [title, "", ...lines, "", link, "", `Don't want these? ${off}`].join("\n");
-  const html = `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#f4ecdc;margin:0;padding:24px;color:#241b10">
-<div style="max-width:520px;margin:0 auto;background:#fbf6ea;border:1px solid #e0d2b4;border-radius:14px;padding:22px">
+  const html = `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#ffffff;margin:0;padding:24px;color:#241b10">
+<div style="max-width:520px;margin:0 auto;background:#ffffff;border:1px solid #e5e5e5;border-radius:14px;padding:22px">
 <div style="font-weight:800;font-size:19px;margin-bottom:10px">${esc(title)}</div>${lines.map(l => `<p style="font-size:14px;margin:8px 0">${esc(l)}</p>`).join("")}
-<a href="${esc(link)}" style="display:inline-block;margin-top:8px;background:#241b10;color:#f4ecdc;text-decoration:none;font-weight:700;padding:11px 18px;border-radius:10px">${esc(linkText)}</a>
+<a href="${esc(link)}" style="display:inline-block;margin-top:8px;background:#d97757;color:#ffffff;text-decoration:none;font-weight:700;padding:11px 18px;border-radius:10px">${esc(linkText)}</a>
 <div style="margin-top:16px;font-size:12px;color:#6a5b44"><a href="${esc(off)}" style="color:#6a5b44">Unsubscribe</a> from these reminders. Sale alerts still come.</div></div></body></html>`;
   return { text, html };
 }

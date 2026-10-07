@@ -160,12 +160,12 @@ export async function emailNudges(env, db, origin, { nowMs = Date.now(), maxSell
       (d.basis === "sold" ? ` (${d.sold_count} recent eBay sales, median ${money(d.sold_median_cents)}).` : "."));
     const link = `${origin}/#ebay-orders`;
     const title = list.length === 1 ? `Still listed: ${list[0].title}` : `${list.length} eBay listings haven't sold yet`;
-    const html = `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#f4ecdc;margin:0;padding:24px;color:#241b10">
-<div style="max-width:520px;margin:0 auto;background:#fbf6ea;border:1px solid #e0d2b4;border-radius:14px;padding:20px">
+    const html = `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#ffffff;margin:0;padding:24px;color:#241b10">
+<div style="max-width:520px;margin:0 auto;background:#ffffff;border:1px solid #e5e5e5;border-radius:14px;padding:20px">
 <div style="font-weight:800;font-size:18px;margin-bottom:10px">${title.replace(/[<>&]/g, "")}</div>
 <p style="font-size:14px">A small price drop is often all a slow listing needs. Where there are enough recent eBay sales, the suggestion is what the same thing actually sold for; otherwise it's 10% off, never below the low end of our estimate.</p>
 <ul style="font-size:14px;padding-left:18px">${lines.map(x => `<li style="margin:4px 0">${x.replace(/[<>&]/g, "")}</li>`).join("")}</ul>
-<a href="${link}" style="display:inline-block;background:#241b10;color:#f4ecdc;text-decoration:none;font-weight:700;padding:10px 16px;border-radius:10px">Review prices</a>
+<a href="${link}" style="display:inline-block;background:#d97757;color:#ffffff;text-decoration:none;font-weight:700;padding:10px 16px;border-radius:10px">Review prices</a>
 <div style="margin-top:14px;font-size:12px;color:#6a5b44">One tap lowers it on eBay, or keep the price and we won't ask again for two weeks.</div></div></body></html>`;
     const r = await sendAlert(env, { to: u.email, subject: title, html,
       text: [title, "", ...lines, "", `Review prices: ${link}`, "", "One tap lowers it on eBay, or keep the price and we won't ask again for two weeks."].join("\n") });

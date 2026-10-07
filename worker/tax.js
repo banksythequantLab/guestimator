@@ -33,7 +33,7 @@ export function taxPage(t, who) {
     <td class="r">${money(c.label_cents)}</td><td class="r">${money(c.cost_cents)}</td><td class="r"><b>${money(c.net_cents)}</b></td></tr>`;
   const T = t.totals;
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${t.year} selling summary</title>
-<style>@page{size:letter;margin:.6in}body{font-family:system-ui,sans-serif;color:#1d2521;margin:0}.bar{padding:12px;background:#0f6b59;color:#fff}.bar a,.bar button{font:600 14px system-ui;padding:6px 10px;border-radius:8px;border:0;margin:2px;background:#fff;color:#0f6b59;text-decoration:none}
+<style>@page{size:letter;margin:.6in}body{font-family:system-ui,sans-serif;color:#1d2521;margin:0}.bar{padding:12px;background:#d97757;color:#fff}.bar a,.bar button{font:600 14px system-ui;padding:6px 10px;border-radius:8px;border:0;margin:2px;background:#fff;color:#0f6b59;text-decoration:none}
 .pg{max-width:7.3in;margin:0 auto;padding:.3in}h1{font:700 1.5rem Georgia,serif;margin:0}table{width:100%;border-collapse:collapse;margin:.2in 0;font-size:.88rem}th,td{padding:6px 4px;border-bottom:1px solid #ddd;text-align:left}.r{text-align:right}
 tfoot td{font-weight:700;border-top:2px solid #1d2521}.m{color:#6b7772;font-size:.8rem;line-height:1.45}@media print{.bar{display:none}}</style></head>
 <body><div class="bar">${t.year} selling summary · <a href="?year=${t.year - 1}">${t.year - 1}</a> <a href="?year=${t.year + 1}">${t.year + 1}</a>

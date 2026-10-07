@@ -68,13 +68,13 @@ export function weeklyEmail(sum, origin, off) {
     sum.listings.length ? "LISTED ON EBAY" : "", ...listLines, "", invLine, "",
     `Review prices and offers: ${link}`, "", `Stop these weekly emails: ${off}`].filter((x, i, a) => !(x === "" && a[i - 1] === "")).join("\n");
   const li = arr => arr.length ? `<ul style="font-size:14px;padding-left:18px">${arr.map(x => `<li style="margin:4px 0">${esc(x)}</li>`).join("")}</ul>` : "";
-  const html = `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#f4ecdc;margin:0;padding:24px;color:#241b10">
-<div style="max-width:560px;margin:0 auto;background:#fbf6ea;border:1px solid #e0d2b4;border-radius:14px;padding:20px">
+  const html = `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#ffffff;margin:0;padding:24px;color:#241b10">
+<div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e5e5;border-radius:14px;padding:20px">
 <div style="font-weight:800;font-size:18px;margin-bottom:10px">${esc(subject)}</div>
 <div style="font-weight:700;margin-top:8px">${n ? "Sold this week" : "Nothing sold this week"}</div>${li(soldLines)}
 ${sum.listings.length ? `<div style="font-weight:700;margin-top:8px">Listed on eBay</div>${li(listLines)}` : ""}
 ${invLine ? `<p style="font-size:14px">${esc(invLine)}</p>` : ""}
-<a href="${esc(link)}" style="display:inline-block;background:#241b10;color:#f4ecdc;text-decoration:none;font-weight:700;padding:10px 16px;border-radius:10px">Review prices &amp; offers</a>
+<a href="${esc(link)}" style="display:inline-block;background:#d97757;color:#ffffff;text-decoration:none;font-weight:700;padding:10px 16px;border-radius:10px">Review prices &amp; offers</a>
 <div style="margin-top:14px;font-size:12px;color:#6a5b44"><a href="${esc(off)}" style="color:#6a5b44">Stop these weekly emails</a></div></div></body></html>`;
   return { subject, text, html };
 }
