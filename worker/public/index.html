@@ -139,7 +139,10 @@ svg.logo{width:22px;height:26px}
 textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit;resize:vertical}
 textarea:focus{outline:2px solid var(--cobalt);border-color:var(--cobalt)}
 .shots{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.shot{display:block;cursor:pointer;text-align:center;margin:0}
+.shot{display:flex;flex-direction:column;text-align:center;margin:0}
+.shotbtns{display:flex;gap:4px;margin-top:auto;padding-top:6px}
+.shotbtns button{flex:1;white-space:nowrap;min-height:36px;padding:4px 2px;border-radius:9px;border:0;font:inherit;font-size:.72rem;font-weight:800;cursor:pointer;background:var(--green);color:var(--on-accent)}
+.shotbtns button.pick{background:var(--panel2);color:var(--ink)}
 .shot .ph{aspect-ratio:1;border:2px dashed var(--line);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.6rem;background:var(--bg);overflow:hidden}
 .shot .ph img{width:100%;height:100%;object-fit:cover}
 .shot .sl{font-size:.78rem;font-weight:800;margin-top:4px;text-transform:none;letter-spacing:0;color:var(--ink)}
@@ -182,6 +185,6 @@ ul.ev{margin:4px 0 0;padding-left:18px;font-size:.88rem}ul.ev li{margin:3px 0}
 <script src="/orders.js?v=2.4"></script>
 <script src="/look.js?v=3"></script>
 <script src="/robot.js?v=2"></script>
-<script src="/app.js?v=8.4"></script>
+<script src="/app.js?v=8.6"></script>
 </body>
 </html>
