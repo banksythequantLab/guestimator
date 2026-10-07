@@ -1,1 +1,5 @@
-²ø1šYì
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <path d="M26 6h26a6 6 0 0 1 6 6v26L32 58a6 6 0 0 1-8.5 0L6 40.5a6 6 0 0 1 0-8.5L26 6z" fill="#D97757"/>
+  <circle cx="45" cy="19" r="5" fill="#FFFFFF"/>
+  <text x="29" y="44" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-style="italic" font-weight="700" font-size="24" fill="#FFFFFF">?</text>
+</svg>
