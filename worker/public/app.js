@@ -793,6 +793,31 @@ function openCamera(title) {
   });
 }
 
+// Small bottom sheet: "Take a photo" or "Choose a photo". The file picker is opened
+// inside the button's own click handler so browsers still treat it as a user tap.
+function photoSource(title, onFile) {
+  return new Promise(resolve => {
+    const ov = document.createElement("div");
+    ov.className = "photo-src";
+    ov.style.cssText = "position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center";
+    ov.innerHTML = `<div role="dialog" aria-label="Add a photo" style="background:var(--panel);color:var(--ink);width:100%;max-width:480px;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + var(--sab));display:flex;flex-direction:column;gap:10px">
+      <div style="font-weight:800;text-align:center">${esc(title || "Add a photo")}</div>
+      <button class="btn" data-a="camera">📷 Take a photo</button>
+      <button class="btn sec" data-a="file">🖼️ Choose a photo</button>
+      <button class="btn sec" data-a="">Cancel</button></div>`;
+    const done = a => { document.removeEventListener("keydown", onKey); ov.remove(); resolve(a); };
+    const onKey = e => { if (e.key === "Escape") done(""); };
+    document.addEventListener("keydown", onKey);
+    ov.onclick = e => {
+      if (e.target === ov) return done("");
+      const b = e.target.closest("button[data-a]"); if (!b) return;
+      if (b.dataset.a === "file") onFile();
+      done(b.dataset.a);
+    };
+    document.body.appendChild(ov);
+  });
+}
+
 // ---------- AI capture flow ----------
 const SHOTS = [
   { kind: "front", label: "Front", hint: "Whole item, straight on, good light" },
@@ -808,7 +833,7 @@ function renderCapture(pre) {
   app.innerHTML = `<h1 class="h1">Add item with AI</h1>
     <div class="muted" style="font-size:.85rem;margin-bottom:6px">Take the shots you can. The marks photo matters most.</div>
     <div class="card"><div class="shots" id="shots">${SHOTS.map(s => `
-      <div class="shot" data-kind="${s.kind}"><input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden>
+      <div class="shot" data-kind="${s.kind}"><input type="file" accept="image/jpeg,image/png,image/webp" hidden>
         <div class="ph" id="ph-${s.kind}">📷</div><div class="sl">${s.label}</div><div class="sh">${s.hint}</div>
         <a href="#" class="pick" style="font-size:.64rem;color:var(--sub);text-decoration:underline">choose file</a></div>`).join("")}</div>
       <div style="height:8px"></div>
@@ -844,7 +869,11 @@ function renderCapture(pre) {
     const kind = tile.dataset.kind, inp = tile.querySelector("input"), s = SHOTS.find(x => x.kind === kind);
     tile.querySelector(".pick").onclick = e => { e.preventDefault(); e.stopPropagation(); inp.click(); };
     tile.onclick = async () => {
+      // Ask first: camera or an existing photo. Going straight to the camera stranded
+      // people who already had the pictures in their gallery or on their computer.
       if (!canUseCamera()) return inp.click();
+      const how = await photoSource(s ? s.label : "Add a photo", () => inp.click());
+      if (how !== "camera") return;
       const f = await openCamera(s ? s.label + " — " + s.hint : "Take a photo");
       if (!f) return;
       const ok = await acceptPhoto(f, kind === "marks" ? "marks photo" : "photo");
@@ -1444,7 +1473,7 @@ function renderRefine(id, b) {
       <div class="thumbs" style="margin:6px 0">${photos.map(p => `<img src="${esc(p.url)}" alt="${esc(p.kind)}" title="${esc(p.kind)}">`).join("")}</div>
       ${room ? `<div class="muted" style="font-size:.82rem;margin-bottom:6px">Add a sharper or closer shot — marks and labels help most. Up to ${room} more.</div>
       <div class="shots" id="rfShots">${SHOTS.map(s => `
-        <div class="shot" data-kind="${s.kind}"><input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden>
+        <div class="shot" data-kind="${s.kind}"><input type="file" accept="image/jpeg,image/png,image/webp" hidden>
           <div class="ph" id="rfph-${s.kind}">📷</div><div class="sl">${s.label}</div><div class="sh">${s.hint}</div>
           <a href="#" class="pick" style="font-size:.64rem;color:var(--sub);text-decoration:underline">choose file</a></div>`).join("")}</div>
       <div style="height:8px"></div>
@@ -1480,7 +1509,11 @@ function renderRefine(id, b) {
     const kind = tile.dataset.kind, inp = tile.querySelector("input"), s = SHOTS.find(x => x.kind === kind);
     tile.querySelector(".pick").onclick = e => { e.preventDefault(); e.stopPropagation(); inp.click(); };
     tile.onclick = async () => {
+      // Ask first: camera or an existing photo. Going straight to the camera stranded
+      // people who already had the pictures in their gallery or on their computer.
       if (!canUseCamera()) return inp.click();
+      const how = await photoSource(s ? s.label : "Add a photo", () => inp.click());
+      if (how !== "camera") return;
       const f = await openCamera(s ? s.label + " — " + s.hint : "Take a photo");
       if (!f) return;
       const ok = await acceptPhoto(f, kind === "marks" ? "marks photo" : "photo");
