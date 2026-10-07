@@ -41,6 +41,10 @@ painted to look like a U-Haul cardboard box, a hand-painted Coca-Cola sign, a qu
 the brand is the SUBJECT of the piece. Name the object by what it physically is (e.g. "hand-painted wooden cabinet
 decorated as a U-Haul moving box"), set maker to the artist if signed or "Unknown", and never identify or price it
 as the branded product itself.
+Photographs often show OTHER things next to the item - a moving box, a table, another piece, a price tag on the
+shelf. Text and objects read off those belong to them, not to the item. When the dealer says something in the
+photos is not part of the item ("the U-Haul sign is a box sitting next to it"), that settles it: leave it out of
+the name, the evidence and the search terms entirely.
 Give a confident identification when the evidence supports it, and an honest confidence when it does not.
 If unsure of value, still give a WIDE non-zero price range rather than zeros.
 Prices are realistic secondary-market dealer prices in ${currency} for the stated condition, not insurance values.
@@ -123,13 +127,15 @@ export function dealerSized(shipping, description) {
 
 export function clampToComps(price, comparables) {
   const ps = (comparables || []).map(cp => Number(cp && cp.price)).filter(p => Number.isFinite(p) && p > 0);
-  if (ps.length < 2 || !price || !(price.high > 0)) return { price, note: null };
-  const lo = Math.round(Math.min(...ps) * 0.6), hi = Math.round(Math.max(...ps) * 1.25);
+  if (!ps.length || !price || !(price.high > 0)) return { price, note: null };
+  // One listing is thin evidence, so it gets looser bounds than two or more.
+  const one = ps.length === 1;
+  const lo = Math.round(Math.min(...ps) * (one ? 0.4 : 0.6)), hi = Math.round(Math.max(...ps) * (one ? 1.5 : 1.25));
   const nl = Math.max(price.low, lo), nh = Math.min(price.high, hi);
   if (!(nl < nh) || (nl === price.low && nh === price.high)) return { price, note: null };
   return { price: { ...price, low: nl, high: nh, suggested_retail: Math.min(nh, Math.max(nl, price.suggested_retail || nl)),
                     floor: Math.min(price.floor || nl, nl) },
-           note: `the range was narrowed from $${price.low}-$${price.high} to $${nl}-$${nh} to stay with the ${ps.length} listings kept as comparables.` };
+           note: `the range was narrowed from $${price.low}-$${price.high} to $${nl}-$${nh} to stay with the ${one ? "one listing" : ps.length + " listings"} kept as comparable${one ? "" : "s"}.` };
 }
 
 export function repricePrompt({ ident, condition, lotInfo, market, hits, soldMarket = null, makerWorks = [], size = null }) {

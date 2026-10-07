@@ -48,7 +48,9 @@ ok("no size -> no size line", !/Size of this item/.test(repricePrompt({ ident: {
 { const cl = clampToComps({ low: 40, high: 2000, suggested_retail: 1500, floor: 30 }, [{ price: 50 }, { price: 80 }]);
   ok("range pulled down to 1.25x the dearest kept comp", cl.price.high === 100 && cl.price.suggested_retail === 100, cl); }
 ok("a range inside the comps is left alone", clampToComps({ low: 40, high: 90 }, [{ price: 50 }, { price: 80 }]).note === null);
-ok("one comp is not enough to clamp", clampToComps({ low: 1, high: 900 }, [{ price: 50 }]).note === null);
+{ const cl = clampToComps({ low: 100, high: 499, suggested_retail: 315, floor: 80 }, [{ price: 499 }]);
+  ok("one comp clamps loosely (0.4x-1.5x)", cl.price.low === 200 && cl.price.high === 499 && /one listing kept as comparable\./.test(cl.note), cl); }
+ok("no comps, no clamp", clampToComps({ low: 1, high: 900 }, []).note === null);
 { const s = dealerSized({ item_weight_lb: 392, item_in: [108, 12, 12], fragile: false }, "Painted cabinet. Size: 56 x 59 x 29 inches. Weight: 80 lb.");
   ok("seller's size and weight replace the guess", s.item_weight_lb === 80 && s.item_in.join() === "59,56,29" && s.fragile === false && /seller/.test(s.basis), s); }
 ok("no size box -> the guess stands", dealerSized({ item_weight_lb: 4 }, "a lamp").item_weight_lb === 4);
