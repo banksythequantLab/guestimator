@@ -35,6 +35,12 @@ You reason from EVIDENCE: photo findings from a vision model, the dealer's own d
 markings the dealer transcribed by hand (treat dealer markings as more reliable than OCR).
 The per-photo object_type guesses come from a small vision model looking at ONE angle each and often
 disagree with each other; the dealer's description, the transcribed marks and patent dates outrank them.
+Words, logos and brand names PAINTED, printed or carved on an object are often its decoration, not its maker.
+When the object's material, construction or size does not fit what that brand actually makes - a wooden cabinet
+painted to look like a U-Haul cardboard box, a hand-painted Coca-Cola sign, a quilt printed with a cereal logo -
+the brand is the SUBJECT of the piece. Name the object by what it physically is (e.g. "hand-painted wooden cabinet
+decorated as a U-Haul moving box"), set maker to the artist if signed or "Unknown", and never identify or price it
+as the branded product itself.
 Give a confident identification when the evidence supports it, and an honest confidence when it does not.
 If unsure of value, still give a WIDE non-zero price range rather than zeros.
 Prices are realistic secondary-market dealer prices in ${currency} for the stated condition, not insurance values.
@@ -143,6 +149,10 @@ Return ONLY a JSON object: {"price_range": {...same shape...}, "comparables": [{
 are poor. You are not revising a previous figure; you are setting one from the listings you have
 been given, so there is no "unchanged" to fall back on.
 Keep at most 4 comparables that are actually similar.
+A comparable must be the same KIND of physical object: same material, same form, roughly the same size. A listing
+that only shares a brand name, a word or a theme with the item is not a comparable - a new cardboard moving box,
+a box multipack or a work jacket is not a hand-painted wooden cabinet decorated like a moving box. If no listing is
+the same kind of object, keep none and price from what such objects usually sell for.
 Every comparable you were given that you do NOT keep must appear in "rejected" with a short, concrete
 reason - "Riviera, a different Homer Laughlin line", "divided plate, not a dinner plate", "rare Pumpkin
 colorway, not comparable to blue". This list is read by the dealer, so say what is different about the
