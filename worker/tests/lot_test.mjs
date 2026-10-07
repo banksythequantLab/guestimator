@@ -29,6 +29,12 @@ eq("explicit count beats capacity", n("lot of 4, 256 gb total", "64gb"), 4);
 
 // A size is not a count. "12 x 18 painting" was read as twelve paintings (2026-09-30).
 eq("dimensions are not a count", n("12 x 18 painting by Harold Hayden 2x154", "Harold Hayden 2x154"), null);
+// A size ending a sentence is still a size. "Cabinet 56 x 29. Are there..." was priced as 56 cabinets (2026-10-07).
+eq("size before a period is not a count", n("Cabinet 56 x 29. Are there any stamps, labels, or markings inside the cabinet: Can't tell", ""), null);
+eq("size at the very end with a period", n("Farm table 30 x 48.", ""), null);
+eq("decimal size before a period", n("Print 8.5 x 11. Framed", ""), null);
+eq("a count still reads before a period", n("4 x 1oz rounds. Nice", ""), 4);
+eq("a decimal unit after a count still reads", n("4x 2.5 oz bars", ""), 4);
 eq("dimensions no spaces", n("16x20 oil on canvas", ""), null);
 eq("decimal dimensions", n("8.5 x 11 print", ""), null);
 eq("three dimensions", n("24 x 12 x 10 oak box", ""), null);

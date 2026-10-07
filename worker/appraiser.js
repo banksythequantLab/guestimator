@@ -1452,8 +1452,10 @@ const COUNT_RE = new RegExp(
   // because "12 x" matched here. A second number carrying a capacity or weight unit is what
   // follows a count ("8x 32gb sticks", "4x 1oz rounds"); a bare second number is the other side
   // of a size ("12 x 18", "8.5 x 11", "16x20"). [\d.] after the number stops the regex backing
-  // off "32gb" to "3" and calling that bare.
-  `|(?:\\b(\\d{1,3})\\s*(?:(?:x|×)(?!\\s*\\d+(?:\\.\\d+)?(?![\\d.])(?!\\s*(?:[kmgt]b|ozt?|g|kg|lbs?|ct|pcs?|pieces?)\\b))|pcs?|pieces?|sticks?|modules?|units?|count|ct)\\b)` +
+  // off "32gb" to "3" and calling that bare. Only a period FOLLOWED BY A DIGIT continues the
+  // number: "Cabinet 56 x 29. Are there..." was read as fifty-six cabinets (2026-10-07) because the
+  // sentence-ending period after 29 used to count as part of the number.
+  `|(?:\\b(\\d{1,3})\\s*(?:(?:x|×)(?!\\s*\\d+(?:\\.\\d+)?(?!\\d|\\.\\d)(?!\\s*(?:[kmgt]b|ozt?|g|kg|lbs?|ct|pcs?|pieces?)\\b))|pcs?|pieces?|sticks?|modules?|units?|count|ct)\\b)` +
   `|(?:\\b(\\d{1,3})\\s*(${CONTAINER})\\b)` +
   // One adjective between the number and the piece word. "4 candle sticks" is a lot of four and
   // was not being read as one, because "candle" sits between the digit and "sticks" - found on
