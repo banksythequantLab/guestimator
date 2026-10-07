@@ -2,7 +2,7 @@
 // Sold prices from SoldComps, with SoldComps stubbed at fetch(): the request we send, how sales are
 // read back and filtered, the fallbacks, and that the repricer is told these are sales. NOT proof
 // that SoldComps returns this shape - that needs one live call with a real key.
-import { ebaySold, mapSold, soldFailure, summarise, repricePrompt } from "../appraiser.js";
+import { ebaySold, mapSold, soldFailure, summarise, repricePrompt, clampToComps } from "../appraiser.js";
 
 let pass = 0, fail = 0;
 const ok = (n, c, got) => { c ? pass++ : (fail++, console.log(`FAIL ${n}${got !== undefined ? "\n     got " + JSON.stringify(got) : ""}`)); };
@@ -40,6 +40,15 @@ ok("network failure -> null, not a throw", (await ebaySold({ SOLDCOMPS_API_KEY: 
 const p = repricePrompt({ ident: { name: "crock" }, condition: "Good", lotInfo: null, market: { count: 3, low: 150, high: 200, median: 175 }, hits: r, soldMarket: sm });
 ok("repricer told sold prices are what buyers paid, no unjudged sold range, asking separately", /SOLD on eBay in the last 90 days: 2 completed sales/.test(p) && !/\$95-\$120/.test(p) && /cite only the matching/.test(p) && /ASKING prices/.test(p) && /"sold": true/.test(p));
 ok("no sold data -> prompt unchanged", !/SOLD on eBay/.test(repricePrompt({ ident: {}, hits: [] })));
+// Painted cabinet, 2026-10-07: $12-$500 against kept comps of $36-$499, and tabletop cabinets kept for a 56-inch one.
+ok("repricer is told the item's size", /Size of this item: about 56 x 29 x 20 inches/.test(repricePrompt({ ident: { name: "cabinet" }, hits: [], size: [56, 29, 20] })));
+ok("no size -> no size line", !/Size of this item/.test(repricePrompt({ ident: {}, hits: [] })));
+{ const cl = clampToComps({ low: 12, high: 500, suggested_retail: 100, floor: 10 }, [{ price: 36 }, { price: 68 }, { price: 100 }, { price: 499 }]);
+  ok("range pulled up to 0.6x the cheapest kept comp", cl.price.low === 22 && cl.price.high === 500 && cl.price.floor === 10 && /narrowed from \$12-\$500/.test(cl.note), cl); }
+{ const cl = clampToComps({ low: 40, high: 2000, suggested_retail: 1500, floor: 30 }, [{ price: 50 }, { price: 80 }]);
+  ok("range pulled down to 1.25x the dearest kept comp", cl.price.high === 100 && cl.price.suggested_retail === 100, cl); }
+ok("a range inside the comps is left alone", clampToComps({ low: 40, high: 90 }, [{ price: 50 }, { price: 80 }]).note === null);
+ok("one comp is not enough to clamp", clampToComps({ low: 1, high: 900 }, [{ price: 50 }]).note === null);
 
 // Parallel rungs (2026-10-05). Each lookup takes 150ms here; the first two find nothing.
 {

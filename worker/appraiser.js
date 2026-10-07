@@ -111,8 +111,25 @@ EXAMPLE of a filled answer for a different item (format only):
 // seen, so a bad first guess survived into the final number rather than being corrected by the
 // evidence. The listings are the better evidence; the prior is a memory. So the prior is withheld
 // and the price is formed from the comparables cold.
-export function repricePrompt({ ident, condition, lotInfo, market, hits, soldMarket = null, makerWorks = [] }) {
+export function clampToComps(price, comparables) {
+  const ps = (comparables || []).map(cp => Number(cp && cp.price)).filter(p => Number.isFinite(p) && p > 0);
+  if (ps.length < 2 || !price || !(price.high > 0)) return { price, note: null };
+  const lo = Math.round(Math.min(...ps) * 0.6), hi = Math.round(Math.max(...ps) * 1.25);
+  const nl = Math.max(price.low, lo), nh = Math.min(price.high, hi);
+  if (!(nl < nh) || (nl === price.low && nh === price.high)) return { price, note: null };
+  return { price: { ...price, low: nl, high: nh, suggested_retail: Math.min(nh, Math.max(nl, price.suggested_retail || nl)),
+                    floor: Math.min(price.floor || nl, nl) },
+           note: `the range was narrowed from $${price.low}-$${price.high} to $${nl}-$${nh} to stay with the ${ps.length} listings kept as comparables.` };
+}
+
+export function repricePrompt({ ident, condition, lotInfo, market, hits, soldMarket = null, makerWorks = [], size = null }) {
+  // The item's size, so a 19-inch tabletop cabinet is not kept as a comparable for a 56-inch one
+  // (painted cabinet, 2026-10-07: kept comps ran $36-$499 because two were tabletop pieces).
+  const dims = (Array.isArray(size) ? size : []).map(Number).filter(n => Number.isFinite(n) && n > 0);
   return `Item: ${JSON.stringify(ident)}\nCondition: ${condition || "Unknown"}\n` +
+    (dims.length >= 2 ? `Size of this item: about ${dims.map(d => Math.round(d)).join(" x ")} inches. A listing for a much ` +
+      `smaller or larger version (a tabletop or miniature version of a full-size piece, or the reverse) is a ` +
+      `different product: reject it and say so.\n` : "") +
     `\nYou are pricing this from the live listings below and from nothing else. You are NOT being\n` +
     `given an earlier estimate to adjust, because an earlier estimate made before these listings\n` +
     `were seen is a memory and these are today's market. Set price_range from this evidence.\n` +
@@ -1970,19 +1987,22 @@ export async function appraise(env, req) {
     warnings.push(`no eBay listing matched the full description, so these prices are for ` +
       `"${broadenedTo}" — comparable items rather than this exact one.`);
   if (hits.length) {
-    const repriceUser = repricePrompt({ ident, condition: listing.condition_grade, lotInfo, market, hits, soldMarket, makerWorks });
+    const repriceUser = repricePrompt({ ident, condition: listing.condition_grade, lotInfo, market, hits, soldMarket, makerWorks,
+      size: first && first.shipping && first.shipping.item_in });
     // The cold pass: a pricing-only ask over the same comparables with no prior in it. Used when
     // the repricer answers without a price AND when it fails outright - a failed repricer used to
     // leave the pre-listing memory price standing: SK Hynix 32GB showed $30-$60 under a sold line
     // of ten sales at $95-$200.
-    const coldPass = async () => {
+    // pool: the listings the repricer kept when it kept any. The whole pool let a $12.60 listing it
+    // had rejected set the bottom of a painted cabinet's range ($12-$500, 2026-10-07).
+    const coldPass = async (pool = hits) => {
       const cold = `Item: ${ident.name}\nCondition: ${listing.condition_grade || "Good"}\n` +
         `Currency: ${currency}\n` +
         (soldMarket ? `Comparables marked "sold": true are completed eBay sales (what buyers paid); ` +
           `use only the ones that are this exact item.\n` : "") +
         (market ? `Live asking prices right now: ${market.count} listed, median $${market.median}. ` +
           `Asking, not sold; some may be other variants.\n` : "") +
-        `\nComparables:\n${JSON.stringify(hits.slice(0, 8), null, 1)}\n\n` +
+        `\nComparables:\n${JSON.stringify(pool.slice(0, 8), null, 1)}\n\n` +
         `Set a dealer retail range from these listings alone.`;
       try {
         const p3 = priceOf(await textJson(c, PRICE_SYSTEM, cold, 300), currency);
@@ -2024,7 +2044,8 @@ export async function appraise(env, req) {
         // would hand the dealer exactly the pre-listing memory this change exists to get rid of.
         // So the fallback is a second COLD ask - a pricing-only call over the same comparables,
         // with no prior in it either.
-        await coldPass();
+        const keptHits = hits.filter(h => (second.comparables || []).some(cp => cp && ((cp.url && cp.url === h.url) || (cp.title && cp.title === h.title))));
+        await coldPass(keptHits.length ? keptHits : hits);
       }
       // Only the pass that set the price explains it. When the cold pass priced it, the repricer's
       // note described a range that was thrown away - SK Hynix 32GB read "$110-$200" in the price
@@ -2053,6 +2074,10 @@ export async function appraise(env, req) {
           `A price built on ${comparables.length} listing${comparables.length === 1 ? "" : "s"} is thinner than the count suggests.`);
     } catch (e) { warnings.push(`comps re-pricing failed: ${e.message}`); await coldPass(); }
     mark("reprice");
+    // The range has to be about the listings it was judged against. A model is free to say an item
+    // is worth less than the cheapest real comp, but not a fifth of it: the painted cabinet came back
+    // $12-$500 against kept comps of $36-$499. Clamp to 0.6x the cheapest and 1.25x the dearest kept.
+    { const cl = clampToComps(price, comparables); if (cl.note) { price = cl.price; warnings.push(cl.note); } }
 
     // The market line is built from every live listing, because the model needs the whole pool in
     // front of it before it can judge any of it. But what the dealer READS has to agree with the
