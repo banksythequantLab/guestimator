@@ -111,6 +111,16 @@ EXAMPLE of a filled answer for a different item (format only):
 // seen, so a bad first guess survived into the final number rather than being corrected by the
 // evidence. The listings are the better evidence; the prior is a memory. So the prior is withheld
 // and the price is formed from the comparables cold.
+// Size and weight the dealer typed in the size box, in place of the model's estimate.
+export function dealerSized(shipping, description) {
+  const s = { ...(shipping && typeof shipping === "object" ? shipping : {}) }, d = String(description || "");
+  const m = d.match(/Size: ([\d.]+) x ([\d.]+)(?: x ([\d.]+))? inches/), w = d.match(/Weight: ([\d.]+) lb/);
+  if (m) { const dims = [m[1], m[2], m[3]].map(Number).filter(n => n > 0); if (dims.length >= 2) { s.item_in = dims.sort((x, y) => y - x); if (dims.length === 2) s.item_in.push(Math.max(1, Math.round(dims[1] / 4))); } }
+  if (w && Number(w[1]) > 0) s.item_weight_lb = Number(w[1]);
+  if (m || w) s.basis = "size/weight as entered by the seller";
+  return s;
+}
+
 export function clampToComps(price, comparables) {
   const ps = (comparables || []).map(cp => Number(cp && cp.price)).filter(p => Number.isFinite(p) && p > 0);
   if (ps.length < 2 || !price || !(price.high > 0)) return { price, note: null };
@@ -1863,6 +1873,9 @@ export async function appraise(env, req) {
   }
   mark("identify");
   forgetAnswered(first, req.description);
+  // The dealer's own size and weight beat the model's guess (the size box writes them as
+  // "Size: 59 x 56 x 29 inches. Weight: 80 lb."). Before anything reads first.shipping.
+  first.shipping = dealerSized(first.shipping, req.description);
 
   const ident = { name: "", category: "", maker: "", origin: "", period: "", style: "",
                   ...pick(first.identification || {}, IDENT_KEYS) };

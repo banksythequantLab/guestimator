@@ -2,7 +2,7 @@
 // Sold prices from SoldComps, with SoldComps stubbed at fetch(): the request we send, how sales are
 // read back and filtered, the fallbacks, and that the repricer is told these are sales. NOT proof
 // that SoldComps returns this shape - that needs one live call with a real key.
-import { ebaySold, mapSold, soldFailure, summarise, repricePrompt, clampToComps } from "../appraiser.js";
+import { ebaySold, mapSold, soldFailure, summarise, repricePrompt, clampToComps, dealerSized } from "../appraiser.js";
 
 let pass = 0, fail = 0;
 const ok = (n, c, got) => { c ? pass++ : (fail++, console.log(`FAIL ${n}${got !== undefined ? "\n     got " + JSON.stringify(got) : ""}`)); };
@@ -49,6 +49,10 @@ ok("no size -> no size line", !/Size of this item/.test(repricePrompt({ ident: {
   ok("range pulled down to 1.25x the dearest kept comp", cl.price.high === 100 && cl.price.suggested_retail === 100, cl); }
 ok("a range inside the comps is left alone", clampToComps({ low: 40, high: 90 }, [{ price: 50 }, { price: 80 }]).note === null);
 ok("one comp is not enough to clamp", clampToComps({ low: 1, high: 900 }, [{ price: 50 }]).note === null);
+{ const s = dealerSized({ item_weight_lb: 392, item_in: [108, 12, 12], fragile: false }, "Painted cabinet. Size: 56 x 59 x 29 inches. Weight: 80 lb.");
+  ok("seller's size and weight replace the guess", s.item_weight_lb === 80 && s.item_in.join() === "59,56,29" && s.fragile === false && /seller/.test(s.basis), s); }
+ok("no size box -> the guess stands", dealerSized({ item_weight_lb: 4 }, "a lamp").item_weight_lb === 4);
+ok("weight alone is used", dealerSized({ item_weight_lb: 9, item_in: [10, 8, 6] }, "Lamp. Weight: 3.5 lb.").item_weight_lb === 3.5);
 
 // Parallel rungs (2026-10-05). Each lookup takes 150ms here; the first two find nothing.
 {

@@ -793,25 +793,32 @@ function openCamera(title) {
   });
 }
 
-// ---------- optional size box ----------
-// A 5-foot cabinet was priced against 19-inch tabletop ones because nobody had told the model how
-// big it was (2026-10-07). Optional W x H x D in inches; written into the description as one
-// "Size: 59 x 56 x 29 inches." sentence, which the estimate reads and the dealer can see and edit.
+// ---------- optional size and weight ----------
+// A 5-foot cabinet was priced against 19-inch tabletop ones, and given a 392 lb shipping weight,
+// because nobody had told the model how big or heavy it was (2026-10-07). Optional W x H x D in
+// inches and a weight in pounds, written into the description as plain sentences ("Size: 59 x 56 x
+// 29 inches. Weight: 80 lb.") that the estimate reads and the dealer can see and edit.
 const SIZE_IN_DESC = /\s*Size: [\d.]+ x [\d.]+(?: x [\d.]+)? inches\.?/;
+const WEIGHT_IN_DESC = /\s*Weight: [\d.]+ lb\.?/;
 function splitSize(desc) {
-  const s = String(desc || ""), m = s.match(/Size: ([\d.]+) x ([\d.]+)(?: x ([\d.]+))? inches/);
-  return { text: s.replace(SIZE_IN_DESC, "").trim(), dims: m ? [m[1], m[2], m[3] || ""] : [] };
+  const s = String(desc || ""), m = s.match(/Size: ([\d.]+) x ([\d.]+)(?: x ([\d.]+))? inches/), w = s.match(/Weight: ([\d.]+) lb/);
+  return { text: s.replace(SIZE_IN_DESC, "").replace(WEIGHT_IN_DESC, "").trim(),
+           dims: [m ? m[1] : "", m ? m[2] : "", m ? m[3] || "" : "", w ? w[1] : ""] };
 }
 const sizeBoxHtml = (p, v = []) => `<div style="height:10px"></div>
-      <label>Size in inches <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">(optional, helps a lot with furniture and big pieces)</span></label>
-      <div style="display:flex;gap:6px">${[["W", "Width"], ["H", "Height"], ["D", "Depth"]].map(([k, ph], i) =>
-        `<input id="${p}${k}" inputmode="decimal" placeholder="${ph}" value="${esc(v[i] || "")}" style="flex:1;min-width:0">`).join("")}</div>`;
+      <label>Size and weight <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">(optional, helps a lot with furniture and big pieces)</span></label>
+      <div style="display:flex;gap:6px">${[["W", "Width", "in"], ["H", "Height", "in"], ["D", "Depth", "in"], ["Lb", "Weight", "lb"]].map(([k, ph, u], i) =>
+        `<div style="flex:1;min-width:0"><input id="${p}${k}" inputmode="decimal" placeholder="${ph}" aria-label="${ph} (${u})" value="${esc(v[i] || "")}" style="width:100%"><div class="muted" style="font-size:.7rem;text-align:center;margin-top:2px">${ph} (${u})</div></div>`).join("")}</div>`;
+const num = (p, k) => parseFloat((($("#" + p + k) || {}).value || "").replace(",", "."));
 function withSize(desc, p) {
-  const d = ["W", "H", "D"].map(k => parseFloat((($("#" + p + k) || {}).value || "").replace(",", "."))).filter(n => n > 0 && n < 1000);
-  const base = String(desc || "").replace(SIZE_IN_DESC, "").trim();
-  if (d.length < 2) return base;
-  const size = `Size: ${d.map(n => +n.toFixed(1)).join(" x ")} inches.`;
-  return base ? base.replace(/[.\s]*$/, "") + ". " + size : size;
+  const d = ["W", "H", "D"].map(k => num(p, k)).filter(n => n > 0 && n < 1000);
+  const lb = num(p, "Lb");
+  const parts = [];
+  if (d.length >= 2) parts.push(`Size: ${d.map(n => +n.toFixed(1)).join(" x ")} inches.`);
+  if (lb > 0 && lb < 5000) parts.push(`Weight: ${+lb.toFixed(1)} lb.`);
+  const base = String(desc || "").replace(SIZE_IN_DESC, "").replace(WEIGHT_IN_DESC, "").trim();
+  if (!parts.length) return base;
+  return (base ? base.replace(/[.\s]*$/, "") + ". " : "") + parts.join(" ");
 }
 
 // ---------- AI capture flow ----------
