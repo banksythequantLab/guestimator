@@ -9,6 +9,7 @@
 
 import { page, esc, stripeReady, cleanSale, newSlug, cents, ipHash } from "./garage.js";
 import { questionAlert } from "./notify.js";
+import { termsLive, TERMS_VERSION } from "./terms.js";
 import { startingPrice } from "./ebay.js";
 import { siteOrigin } from "./site.js";
 
@@ -97,7 +98,7 @@ ${opt("new", "Newest")}${opt("low", "Price: low to high")}${opt("high", "Price: 
 ${cards ? `<div class="grid">${cards}</div>` : `<div style="margin:18px 0 30px">${empty}</div>`}
 ${p.page > 1 || more ? `<p style="display:flex;justify-content:space-between">${p.page > 1 ? `<a href="${esc(link(p.page - 1))}">← Previous</a>` : "<span></span>"}${more ? `<a href="${esc(link(p.page + 1))}">Next →</a>` : ""}</p>` : ""}
 <div class="box"><b>Sell yours here, free.</b> Snap 3 photos, Guestimator prices it from what's actually selling, and it goes in your shop on the Market. No listing fees and no cut: buyers pay you through your own Stripe account (Stripe's card fee is the only cost).
-<a class="btn" href="${esc(origin)}/?utm_source=market">Start selling</a></div></div>`;
+<a class="btn" href="${esc(origin)}/?utm_source=market">Start selling</a></div>${termsLive(env) ? `<p class="muted"><a href="/market-terms">Market terms</a></p>` : ""}</div>`;
   const title = p.q ? `${p.q} for sale · Guestimator Market` : "Guestimator Market · buy direct from sellers, no cut taken";
   return new Response(page({ title, desc: "Buy things priced by Guestimator directly from the people who own them. No marketplace cut.",
     image: rows[0]?.thumb_key ? `${origin}/p/${rows[0].thumb_key}` : null, canonical: `${origin}/market`, body }),
@@ -147,6 +148,14 @@ export async function sellerApi(request, env, url, parts, userId) {
     if (Number.isNaN(price) || !(price >= 100)) return J({ error: "Enter a price of at least $1, like 25 or 7.50" }, 400);
     if (Number.isNaN(ship)) return J({ error: "Enter shipping like 12 or 8.50 (0 for free shipping)" }, 400);
     if (ship === null && !(shop && shop.pickup_ok)) return J({ error: "Enter a shipping price (0 for free shipping), so buyers can get it to them." }, 400);
+    // Market terms: once they are live, a seller agrees once, the first time they list.
+    if (termsLive(env)) {
+      const ut = await db.prepare("SELECT market_terms_at FROM users WHERE id=?").bind(userId).first();
+      if (!ut?.market_terms_at) {
+        if (!b.agree_terms) return J({ error: "Please agree to the Guestimator Market terms first.", need_terms: true, terms_url: `${origin}/market-terms` }, 428);
+        await db.prepare("UPDATE users SET market_terms_at=?, market_terms_version=? WHERE id=?").bind(nowIso(), TERMS_VERSION, userId).run();
+      }
+    }
     let newShop = false;
     if (!shop) {
       // No setup step (2026-10-06): the shop is made quietly, shipping only, named from the
@@ -249,9 +258,10 @@ export async function bulkApi(request, env, url, userId) {
     const done = [], failed = [];
     let newShop = false, shopId = null, visible = false;
     for (const it of list) {
-      const req = new Request(url.toString(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ price: it.price, ship: it.ship }) });
+      const req = new Request(url.toString(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ price: it.price, ship: it.ship, agree_terms: !!b.agree_terms }) });
       const r = await sellerApi(req, env, url, ["api", "market", "items", String(it.id || "")], userId);
       const j = await r.json().catch(() => ({}));
+      if (r.status === 428) return J({ error: j.error, need_terms: true, terms_url: j.terms_url, listed: done.length }, 428);
       if (r.ok) { done.push(it.id); newShop = newShop || !!j.new_shop; shopId = j.shop_id || shopId; visible = !!j.visible; }
       else failed.push({ id: it.id, error: j.error || `error ${r.status}` });
     }

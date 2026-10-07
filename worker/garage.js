@@ -813,7 +813,7 @@ var j=await r.json().catch(function(){return{}});m.textContent=r.ok?'Sent. The s
       trustBox = `<div class="box"><b>Sold by ${esc(sale.title)}</b>
 <div class="muted">${since ? `On Guestimator since ${esc(since)}` : "Selling on Guestimator"}${st?.sold ? ` · ${st.sold} sold on the Market` : ""}</div>
 <div style="margin-top:6px"><b>Returns:</b> ${esc(RETURNS[sale.returns] || "Ask the seller before you buy")}</div>
-<div class="muted" style="margin-top:6px">How paying works: you pay the seller directly through Stripe, and your receipt is in the seller's name. Guestimator doesn't hold your money and takes no cut. Anything about your order is between you and the seller.</div></div>`;
+<div class="muted" style="margin-top:6px">How paying works: you pay the seller directly through Stripe, and your receipt is in the seller's name. Guestimator doesn't hold your money and takes no cut. Anything about your order is between you and the seller.${String(env.MARKET_TERMS_LIVE || "").toLowerCase() === "on" ? ` <a href="/market-terms">Market terms</a>` : ""}</div></div>`;
       askBox = `<div class="box"><b>Ask the seller a question</b><form id="ask"><label>Your name</label><input name="name" required maxlength="60">
 <label>Your email (the seller replies to it)</label><input name="email" type="email" required maxlength="120">
 <label>Question</label><textarea name="message" required maxlength="1000" rows="3" placeholder="e.g. Any chips on the base? Can you ship by Friday?"></textarea>

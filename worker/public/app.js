@@ -1667,6 +1667,16 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
 // if it changed — only on the home or sign-in screen, so a photo or form in progress is never lost.
 const ownVersion = (() => { const s = document.querySelector('script[src*="/app.js"]'); const m = s && s.src.match(/[?&]v=([^&]+)/); return m ? m[1] : null; })();
 let lastVersionCheck = 0;
+// Market terms (terms.js): once they are live the server answers 428 need_terms the first time a
+// seller lists; ask once, then send again with agree_terms.
+async function withMarketTerms(send) {
+  try { return await send(false); }
+  catch (e) {
+    if (!e.need_terms) throw e;
+    if (!confirm("To sell on the Guestimator Market you agree to the Market terms:\n" + (e.terms_url || location.origin + "/market-terms") + "\n\nOK = I agree, list it.")) throw new Error("Not listed: the Market terms weren't accepted.");
+    return await send(true);
+  }
+}
 // "Sell on the Market" card on a finished estimate (market.js sellerApi). Collapsed = just the
 // button, or the listing's status if it's already in the shop. Open = the price/shipping form.
 async function marketPanel(id, collapsed = false) {
@@ -1707,7 +1717,7 @@ async function marketPanel(id, collapsed = false) {
     const body = { price: $("#mkPrice").value, ship: $("#mkShip").value };
     $("#mkGo").disabled = true;
     try {
-      const res = await api(`/market/items/${id}`, { method: "POST", body: JSON.stringify(body) });
+      const res = await withMarketTerms(agree => api(`/market/items/${id}`, { method: "POST", body: JSON.stringify({ ...body, ...(agree ? { agree_terms: true } : {}) }) }));
       toast(res.visible ? "On the Market ✓" : "Saved. It shows on the Market once Stripe is set up.");
       state.mktOpenFor = null; await marketPanel(id, true);
       // Listed first, then the offer: their own shop page (name, city) or a garage/estate sale.

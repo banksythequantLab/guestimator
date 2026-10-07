@@ -40,6 +40,7 @@ import * as owner from "./owner.js";
 import * as share from "./share.js";
 import * as market from "./market.js";
 import * as feedback from "./feedback.js";
+import * as terms from "./terms.js";
 import * as ebaycare from "./ebaycare.js";
 import * as onboard from "./onboard.js";
 import * as growth from "./growth.js";
@@ -267,6 +268,13 @@ export default {
       }
       // ---------- PUBLIC: garage / estate sale pages ----------
       if (parts[0] === "market" && parts.length === 1 && m === "GET") return await market.marketPage(env, url);
+      // Market terms: public once MARKET_TERMS_LIVE is on; until then a DRAFT only the owner sees.
+      if (parts[0] === "market-terms" && parts.length === 1 && m === "GET") {
+        let ok = terms.termsLive(env);
+        if (!ok) { const uidT = await currentUser(request, db); const meT = uidT ? await db.prepare("SELECT email FROM users WHERE id=?").bind(uidT).first() : null; ok = !!(meT && owner.isOwner(env, meT.email)); }
+        if (!ok) return new Response("Not found", { status: 404 });
+        return new Response(terms.termsPage(env), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...(terms.termsLive(env) ? {} : { "x-robots-tag": "noindex" }) } });
+      }
       if (parts[0] === "sale" && parts[1] && m === "GET")
         return await garage.salePages(request, env, url, parts, await currentUser(request, db));
       // ---------- Shippo OAuth callback: a seller connected their own Shippo account ----------

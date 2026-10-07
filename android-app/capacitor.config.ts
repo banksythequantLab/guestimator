@@ -12,7 +12,7 @@ const config: CapacitorConfig = {
   },
   android: {
     allowMixedContent: false,
-    backgroundColor: '#f6f1e7',
+    backgroundColor: '#ffffff',
   },
   plugins: {
     // Only Google is bundled; the others would drag in SDKs we don't use.

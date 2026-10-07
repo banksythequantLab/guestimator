@@ -337,7 +337,7 @@ async function renderMarketBulk() {
     if (missing && !confirm(`${missing} item${missing > 1 ? "s have" : " has"} no shipping price and will be skipped. List the rest?`)) return;
     $("#mbGo").disabled = true; $("#mbGo").textContent = "Listing…";
     try {
-      const r = await api("/market/bulk", { method: "POST", body: JSON.stringify({ items: items.filter(i => String(i.ship).trim() !== "") }) });
+      const r = await withMarketTerms(agree => api("/market/bulk", { method: "POST", body: JSON.stringify({ items: items.filter(i => String(i.ship).trim() !== ""), ...(agree ? { agree_terms: true } : {}) }) }));
       toast(`${r.listed} listed${r.failed.length ? `, ${r.failed.length} not: ${r.failed[0].error}` : ""}${r.visible ? "" : ". They show once Stripe is set up."}`);
       if (r.new_shop && r.shop_id && confirm("They're listed. Want to set up your shop page (name, city, returns) now?")) {
         try { const s = await api("/garage/sales/" + r.shop_id); return renderSaleForm(s.sale); } catch {}
