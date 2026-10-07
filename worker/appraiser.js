@@ -1000,6 +1000,11 @@ export function packOf(title) {
   const lot = detectLot(t, "");
   return Math.max(m ? Number(m[1]) : 1, n ? Number(n[1]) : 1, lot && lot.count > 1 ? lot.count : 1);
 }
+// Speed cap (2026-10-07): the sold-price lookup and the web/maker searches all run side by side,
+// so the slowest one sets the wait. Measured: SoldComps took 6-20s per estimate and the web search
+// up to 27s. Each is now given SEARCH_CAP_MS (default 10s); one that runs over is skipped and the
+// estimate says so, instead of holding everyone up. The eBay listings search is not capped.
+export const searchCapMs = env => Math.max(3000, Math.min(30000, Number(env && env.SEARCH_CAP_MS) || 10000));
 export async function ebaySold(env, query, limit = 30, maxLookups = 3) {
   _soldFail = null; _soldLookups = 0;
   if (!env.SOLDCOMPS_API_KEY) { _soldFail = "sold prices are not switched on"; return null; }
@@ -1019,7 +1024,7 @@ export async function ebaySold(env, query, limit = 30, maxLookups = 3) {
     u.searchParams.set("keyword", kw);
     u.searchParams.set("count", String(limit));
     u.searchParams.set("soldAfter", since);
-    const t = setTimeout(() => ac.abort(), 20000);
+    const t = setTimeout(() => ac.abort(), searchCapMs(env));
     try {
       const r = await fetch(u, { headers: { authorization: `Bearer ${env.SOLDCOMPS_API_KEY}` }, signal: ac.signal });
       if (!r.ok) {
@@ -1034,7 +1039,7 @@ export async function ebaySold(env, query, limit = 30, maxLookups = 3) {
       console.log("soldcomps", JSON.stringify({ kw, returned: (j.items || []).length, kept: kept.length }));
       return { returned: (j.items || []).length, kept };
     } catch (e) {
-      return { fail: e.name === "AbortError" ? "the sold-price lookup timed out" : `the sold-price lookup failed (${e.message})` };
+      return { fail: e.name === "AbortError" ? `the sold-price lookup took longer than ${Math.round(searchCapMs(env) / 1000)} seconds, so it was skipped` : `the sold-price lookup failed (${e.message})` };
     } finally { clearTimeout(t); }
   };
   const acs = ladder.map(() => new AbortController());
@@ -1065,7 +1070,7 @@ let _searchFail = null;
 
 async function tavily(env, query, domains, limit) {
   const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), 20000);
+  const t = setTimeout(() => ac.abort(), searchCapMs(env));
   try {
     const body = { api_key: env.TAVILY_API_KEY, query, max_results: limit };
     if (domains) body.include_domains = domains;
