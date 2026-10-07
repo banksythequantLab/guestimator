@@ -793,6 +793,27 @@ function openCamera(title) {
   });
 }
 
+// ---------- optional size box ----------
+// A 5-foot cabinet was priced against 19-inch tabletop ones because nobody had told the model how
+// big it was (2026-10-07). Optional W x H x D in inches; written into the description as one
+// "Size: 59 x 56 x 29 inches." sentence, which the estimate reads and the dealer can see and edit.
+const SIZE_IN_DESC = /\s*Size: [\d.]+ x [\d.]+(?: x [\d.]+)? inches\.?/;
+function splitSize(desc) {
+  const s = String(desc || ""), m = s.match(/Size: ([\d.]+) x ([\d.]+)(?: x ([\d.]+))? inches/);
+  return { text: s.replace(SIZE_IN_DESC, "").trim(), dims: m ? [m[1], m[2], m[3] || ""] : [] };
+}
+const sizeBoxHtml = (p, v = []) => `<div style="height:10px"></div>
+      <label>Size in inches <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">(optional, helps a lot with furniture and big pieces)</span></label>
+      <div style="display:flex;gap:6px">${[["W", "Width"], ["H", "Height"], ["D", "Depth"]].map(([k, ph], i) =>
+        `<input id="${p}${k}" inputmode="decimal" placeholder="${ph}" value="${esc(v[i] || "")}" style="flex:1;min-width:0">`).join("")}</div>`;
+function withSize(desc, p) {
+  const d = ["W", "H", "D"].map(k => parseFloat((($("#" + p + k) || {}).value || "").replace(",", "."))).filter(n => n > 0 && n < 1000);
+  const base = String(desc || "").replace(SIZE_IN_DESC, "").trim();
+  if (d.length < 2) return base;
+  const size = `Size: ${d.map(n => +n.toFixed(1)).join(" x ")} inches.`;
+  return base ? base.replace(/[.\s]*$/, "") + ". " + size : size;
+}
+
 // ---------- AI capture flow ----------
 const SHOTS = [
   { kind: "front", label: "Front", hint: "Whole item, straight on, good light" },
@@ -819,6 +840,7 @@ function renderCapture(pre) {
     <div class="card">
       <label>Brief description</label>
       <textarea id="cDesc" rows="3" placeholder="What do you know? Where it came from, how old you think it is, condition…"></textarea>
+      ${sizeBoxHtml("cSz")}
       <div style="height:10px"></div>
       <label>Any writing, stamps or marks on it</label>
       <textarea id="cMarks" rows="2" placeholder="Copy exactly what you can read, e.g. 'Stickley', 'Made in Occupied Japan', '1847 Rogers Bros'"></textarea>
@@ -879,7 +901,7 @@ function renderCapture(pre) {
   $("#cGo").onclick = async () => {
     const files = [...Object.entries(shots).map(([k, f]) => ({ kind: k, f })), ...more.map(f => ({ kind: "other", f }))];
     if (!files.length) return toast("Take at least one photo");
-    const description = $("#cDesc").value.trim(), markings = $("#cMarks").value.trim();
+    const description = withSize($("#cDesc").value.trim(), "cSz"), markings = $("#cMarks").value.trim();
     // Photographs alone are not enough, and the dealer standing in front of the item knows more
     // than any camera does. Four rolls of nickels shot end-on were read as shotgun shells; the
     // words "four rolls of war nickels" would have settled it in one line.
@@ -1456,7 +1478,8 @@ function renderRefine(id, b) {
     </div>
     <div class="card">
       <label>What you know about it</label>
-      <textarea id="rfDesc" rows="3" placeholder="What it is, where it came from, age, condition…">${esc(item.description || "")}</textarea>
+      <textarea id="rfDesc" rows="3" placeholder="What it is, where it came from, age, condition…">${esc(splitSize(item.description).text)}</textarea>
+      ${sizeBoxHtml("rfSz", splitSize(item.description).dims)}
       <div style="height:10px"></div>
       <label>Any writing, stamps or marks on it</label>
       <textarea id="rfMarks" rows="2" placeholder="Copy exactly what you can read">${esc(item.markings || "")}</textarea>
@@ -1504,7 +1527,7 @@ function renderRefine(id, b) {
       const v = (($("#rfQ" + n) || {}).value || "").trim();
       return v ? `${String(q).replace(/\?+$/, "")}: ${v}` : null;
     }).filter(Boolean);
-    const desc = [$("#rfDesc").value.trim(), ...answers].filter(Boolean).join(". ");
+    const desc = withSize([$("#rfDesc").value.trim(), ...answers].filter(Boolean).join(". "), "rfSz");
     const markings = $("#rfMarks").value.trim();
     if (!desc && !markings) {
       $("#rfDesc").focus(); $("#rfDesc").style.borderColor = "var(--rust)";

@@ -29,11 +29,12 @@ const mk = async name => { const { json } = await call("POST", "/api/items", { n
     JSON.stringify({ identification: { name }, price_range: { low: 10, high: 40, suggested_retail: 25 } }), new Date().toISOString()); return json.id; };
 const a = await mk("Lamp"), b = await mk("Vase"), c = await mk("Clock");
 
-ok("draft text still has open decisions", T.termsReady() === false);
+ok("no open decisions left in the text", T.termsReady() === true);
+env.MARKET_TERMS_LIVE = "";
 who = "anon"; ok("draft hidden from the public", (await call("GET", "/market-terms")).status === 404);
 who = "sam"; ok("draft hidden from sellers", (await call("GET", "/market-terms")).status === 404);
 who = "boss"; let r = await call("GET", "/market-terms");
-ok("owner sees the draft, marked", r.status === 200 && r.text.includes("DRAFT, not in effect") && r.text.includes("Items you can&#39;t list") && r.text.includes("<mark"));
+ok("owner sees the draft, marked", r.status === 200 && r.text.includes("DRAFT, not in effect") && r.text.includes("Items you can&#39;t list"));
 who = "sam";
 ok("not live: listing needs no agreement", (await call("POST", `/api/market/items/${a}`, { price: "25", ship: "5" })).status === 200);
 who = "anon"; ok("not live: Market has no terms link", !(await call("GET", "/market")).text.includes("/market-terms"));

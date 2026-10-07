@@ -53,7 +53,9 @@
     "GOOGLE_REDIRECT": "on",
     // Free credits for new accounts: 5 = price and list 2 items, then price a 3rd (Derek, 2026-10-05).
     "SIGNUP_CREDITS": "5",
-    "DEMO_VIDEO_URL": "https://youtube.com/shorts/i4Mi9YwJobE",
+    "DEMO_VIDEO_URL": "https://youtube.com/shorts/aL_T2E7ChFk",
+    // Market terms are final (Derek, 2026-10-07): public at /market-terms, sellers agree once.
+    "MARKET_TERMS_LIVE": "on",
     "SHIPPO_MONTHLY_CAP": "30",
     "LABEL_FEE_CENTS": "0",
     "NEBIUS_BASE_URL": "https://api.tokenfactory.nebius.com/v1/",
