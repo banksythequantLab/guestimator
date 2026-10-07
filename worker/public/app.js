@@ -843,6 +843,7 @@ function renderCapture(pre) {
     const kind = tile.dataset.kind, inp = tile.querySelector(".upin"), s = SHOTS.find(x => x.kind === kind);
     // Two direct buttons: Camera takes a picture, Upload picks an existing one.
     tile.querySelector(".pick").onclick = e => { e.preventDefault(); e.stopPropagation(); inp.click(); };
+    tile.querySelector(".ph").onclick = () => tile.querySelector(".cam").click(); // tapping the picture spot = Camera
     tile.querySelector(".cam").onclick = async e => {
       e.preventDefault(); e.stopPropagation();
       if (!canUseCamera()) return tile.querySelector(".camin").click();
@@ -1481,6 +1482,7 @@ function renderRefine(id, b) {
     const kind = tile.dataset.kind, inp = tile.querySelector(".upin"), s = SHOTS.find(x => x.kind === kind);
     // Two direct buttons: Camera takes a picture, Upload picks an existing one.
     tile.querySelector(".pick").onclick = e => { e.preventDefault(); e.stopPropagation(); inp.click(); };
+    tile.querySelector(".ph").onclick = () => tile.querySelector(".cam").click(); // tapping the picture spot = Camera
     tile.querySelector(".cam").onclick = async e => {
       e.preventDefault(); e.stopPropagation();
       if (!canUseCamera()) return tile.querySelector(".camin").click();
