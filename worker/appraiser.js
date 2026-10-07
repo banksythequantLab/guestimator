@@ -2045,7 +2045,13 @@ export async function appraise(env, req) {
         // So the fallback is a second COLD ask - a pricing-only call over the same comparables,
         // with no prior in it either.
         const keptHits = hits.filter(h => (second.comparables || []).some(cp => cp && ((cp.url && cp.url === h.url) || (cp.title && cp.title === h.title))));
-        await coldPass(keptHits.length ? keptHits : hits);
+        // Every listing judged a different object (painted cabinet, 2026-10-07: all 12 were small
+        // wall and tabletop pieces) -> pricing "from the comparables" would price from the rejects.
+        // Keep the appraiser's own estimate and say plainly that no listing backs it.
+        if (!keptHits.length && !(second.comparables || []).length && (second.rejected || []).length)
+          warnings.push(`no listing found was the same kind of object, so this price is the appraiser's ` +
+            `estimate of what such pieces sell for, not a figure taken from listings. Treat it as a starting point.`);
+        else await coldPass(keptHits.length ? keptHits : hits);
       }
       // Only the pass that set the price explains it. When the cold pass priced it, the repricer's
       // note described a range that was thrown away - SK Hynix 32GB read "$110-$200" in the price
