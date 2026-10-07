@@ -1,16 +1,16 @@
-// GuessBot: a 60-second 8-bit loop shown while Guestimator works out a price. A little robot
-// checks four antiques with a magnifying glass, then researches them on an old computer and
-// finds the price (the in-app loop stops short of a price; see drawFrame). Everything is drawn with fillRect on a 160x90 canvas and scaled up with
+// GuessBot: a 76-second 8-bit loop shown while Guestimator works out a price. A little robot
+// checks four antiques with a magnifying glass, researches them on an old computer, finds the
+// price, then boxes the items up and ships them (the in-app loop stops short of a price; see drawFrame). Everything is drawn with fillRect on a 160x90 canvas and scaled up with
 // image-rendering: pixelated, so it is a few KB and stays crisp at any size. drawFrame(ctx, t)
 // is pure (t in seconds), so the same code renders the MP4 frame by frame.
 (function (root) {
   "use strict";
-  const W = 160, H = 90, LOOP = 60, FPS = 12;
+  const W = 160, H = 90, LOOP = 76, FPS = 12;
   const C = {
     wall: "#F4ECDC", stripe: "#EFE3CC", floor: "#B98F5E", plank: "#A67D4F", ink: "#241B10",
     metal: "#8FB3C9", metalD: "#5E8199", metalL: "#C4DBE8", visor: "#1D2A35", eye: "#7CF2D4",
     gold: "#E0B458", goldD: "#B8862F", glass: "#BFE8FF", green: "#0F6B59", greenL: "#3FBBA0",
-    cobalt: "#1E44C4", rust: "#B4552B", red: "#E0503A", white: "#FFFFFF", wood: "#7A5230", woodD: "#5B3B20",
+    cobalt: "#1E44C4", box: "#C8955A", boxD: "#9E6F3C", boxL: "#DDB07A", tape: "#E8D49A", orange: "#D97757", rust: "#B4552B", red: "#E0503A", white: "#FFFFFF", wood: "#7A5230", woodD: "#5B3B20",
     beige: "#D9CFB4", beigeD: "#B3A784", screen: "#0B2A22", scrL: "#3DF2A0", scrD: "#1C7A55", shadow: "rgba(36,27,16,.18)",
   };
   // 3x5 pixel font: only the characters the scenes use.
@@ -87,6 +87,9 @@
     if (pose === "cheer") {
       R(x - 1, top + 6, 3, 9, C.metalD); R(x + 16, top + 6, 3, 9, C.metalD);
       R(x - 2, top + 4, 5, 3, C.ink); R(x + 15, top + 4, 5, 3, C.ink);
+    } else if (pose === "carry") {
+      // both arms straight out in front; the caller draws what is being held
+      R(x + 13, top + 15, 8, 3, C.metalD); R(x + 13, top + 19, 8, 3, C.metalD);
     } else if (pose === "type") {
       const a = Math.floor(t * 10) % 2;
       R(x + 15, top + 15, 7, 3, C.metalD); R(x + 21, top + 16 + a, 3, 2, C.ink);
@@ -123,7 +126,7 @@
   function teapot(x, y) { R(x + 2, y - 8, 8, 7, C.rust); R(x + 4, y - 10, 4, 2, C.rust); R(x + 5, y - 11, 2, 1, C.goldD); R(x + 10, y - 7, 2, 2, C.rust); R(x + 11, y - 9, 1, 2, C.rust); R(x, y - 7, 2, 4, C.rust); R(x + 3, y - 6, 2, 1, "#E07A50"); }
   function lamp(x, y) { R(x + 4, y - 2, 4, 2, C.goldD); R(x + 5, y - 10, 2, 8, C.gold); R(x + 1, y - 15, 10, 5, C.green); R(x + 2, y - 16, 8, 1, C.green); R(x + 2, y - 14, 2, 3, C.greenL); }
   const TABLE_Y = 58;
-  function tableScene(t) {
+  function tableScene(t, gone) {
     // wall with stripes, window, floor
     R(0, 0, W, FLOOR, C.wall);
     for (let x = 4; x < W; x += 10) R(x, 0, 3, FLOOR, C.stripe);
@@ -132,7 +135,7 @@
     R(0, FLOOR + 9, W, 1, C.plank);
     // table
     R(38, TABLE_Y, 118, 3, C.wood); R(38, TABLE_Y + 3, 118, 1, C.woodD); R(42, TABLE_Y + 4, 3, FLOOR - TABLE_Y - 4, C.woodD); R(149, TABLE_Y + 4, 3, FLOOR - TABLE_Y - 4, C.woodD);
-    for (const it of ITEMS) it.draw(it.x, TABLE_Y);
+    ITEMS.forEach((it, i) => { if (!gone || !gone[i]) it.draw(it.x, TABLE_Y); });
   }
   // 0-4 s walk in; then each item: 1.4 s walk + 3.1 s inspect (4.5 s), four items -> 22 s.
   function tablePhase(t) {
@@ -199,6 +202,81 @@
     R(X, Y + scan, SW, 1, "rgba(61,242,160,.08)");   // scanline
   }
 
+
+  // ---------- scene 4: box it up and ship it ----------
+  const PACK0 = 58, BOXX = 2, BOXW = 22, BOXH = 14, HOME = 26, SPEED = 70;
+  // per item: walk to it, pick it up, walk back to the box, drop it in
+  const PLAN = (() => {
+    let s = 0; const out = [];
+    ITEMS.forEach((it, i) => {
+      const at = it.x - 22, d = Math.abs(at - HOME) / SPEED;
+      out.push({ i, at, t0: s, t1: s + d, t2: s + d + 0.4, t3: s + 2 * d + 0.4, t4: s + 2 * d + 0.9 });
+      s += 2 * d + 0.9;
+    });
+    return { items: out, end: s };
+  })();
+  const T_TAPE = PACK0 + PLAN.end, T_TRUCK = T_TAPE + 1.4, T_LOAD = T_TRUCK + 1.5, T_GO = T_LOAD + 1.6, T_WAVE = T_GO + 1.5;
+  function box(x, y, closed, packed) {
+    // items already inside poke out over the rim a little
+    if (!closed) packed.forEach((on, i) => { if (on) ITEMS[i].draw(x + 2 + i * 4 - 3, y + BOXH - 1); });
+    R(x, y, BOXW, BOXH, C.boxD); R(x + 1, y + 1, BOXW - 2, BOXH - 2, C.box); R(x + 1, y + 1, BOXW - 2, 1, C.boxL);
+    if (closed) {
+      R(x, y - 1, BOXW, 2, C.boxD); R(x + 9, y - 1, 4, BOXH, C.tape);                 // flaps shut + tape
+      R(x + 3, y + 5, 16, 7, C.white); text("SOLD", x + 3, y + 6, C.ink);             // label
+    } else {
+      R(x - 4, y - 3, 6, 2, C.boxD); R(x + BOXW - 2, y - 3, 6, 2, C.boxD);             // open flaps
+    }
+  }
+  function truck(x) {
+    const y = FLOOR - 30;
+    R(x, y, 56, 24, C.ink); R(x + 1, y + 1, 54, 22, C.white); R(x + 1, y + 13, 54, 3, C.orange);
+    R(x + 1, y + 1, 2, 22, "#E7E2D8");                                                   // rear door edge
+    R(x + 56, y + 8, 16, 16, C.ink); R(x + 57, y + 9, 14, 14, C.orange); R(x + 63, y + 10, 7, 6, C.glass);
+    R(x + 70, y + 19, 3, 2, C.gold);                                                     // headlight
+    [x + 10, x + 44, x + 64].forEach(wx => { ring(wx, FLOOR - 3, 3, C.ink, C.visor); P(wx, FLOOR - 3, C.beige); });
+  }
+  function packScene(t) {
+    const u = t - PACK0, gone = [false, false, false, false], packed = [false, false, false, false];
+    let rx = HOME, pose = "idle", look = 1, hold = -1, fly = null;
+    for (const p of PLAN.items) {
+      if (u >= p.t1 + 0.2) gone[p.i] = true;
+      if (u >= p.t4) packed[p.i] = true;
+      if (u >= p.t0 && u < p.t4) {
+        if (u < p.t1) { rx = lerp(HOME, p.at, (u - p.t0) / (p.t1 - p.t0)); pose = "walk"; look = 2; }
+        else if (u < p.t2) { rx = p.at; pose = u < p.t1 + 0.2 ? "type" : "carry"; look = 2; if (u >= p.t1 + 0.2) hold = p.i; }
+        else if (u < p.t3) { rx = lerp(p.at, HOME, (u - p.t2) / (p.t3 - p.t2)); pose = "carry"; look = 0; hold = p.i; }
+        else { rx = HOME; pose = "idle"; look = 0; fly = { i: p.i, k: (u - p.t3) / 0.5 }; }
+      }
+    }
+    const done = u >= PLAN.end;
+    tableScene(t, gone);
+    let bx = BOXX, by = FLOOR - BOXH, carried = false;
+    if (t >= T_LOAD) {                                     // robot carries the box to the truck
+      const k = (t - T_LOAD) / 1.6;
+      if (k < 0.5) { carried = true; rx = lerp(HOME, 40, k / 0.5); pose = "carry"; look = 2; }
+      else { rx = lerp(40, HOME, (k - 0.5) / 0.5); pose = "walk"; look = 0; }
+    }
+    const tx = t < T_TRUCK ? W + 4 : t < T_LOAD ? lerp(W + 4, 58, (t - T_TRUCK) / 1.4)
+             : t < T_GO ? 58 : lerp(58, W + 20, ((t - T_GO) / 1.5) ** 2);
+    if (t >= T_TRUCK) truck(tx);
+    if (!carried && t < T_LOAD) box(bx, by, done && t >= T_TAPE + 0.6, packed);
+    if (done && t >= T_TAPE && t < T_TAPE + 0.6) R(bx + 9, by - 1, 4, Math.round(BOXH * (t - T_TAPE) / 0.6), C.tape);  // tape going on
+    if (t >= T_WAVE) { pose = "cheer"; look = 1; rx = HOME; }
+    robot(rx, t, pose, { look, carry: false });
+    const top = FLOOR - 30 + (pose === "walk" ? (Math.floor(t * 8) % 2) : 0);
+    if (hold >= 0) ITEMS[hold].draw(Math.round(rx) + 15, top + 22);
+    if (carried) box(Math.round(rx) + 10, top + 10, true, packed);
+    if (fly && fly.k < 1) {                               // drop it in with a little arc
+      const k = Math.max(0, fly.k), sx = HOME + 15, sy = top + 22, ex = BOXX + 6, ey = FLOOR - 4;
+      ITEMS[fly.i].draw(Math.round(lerp(sx, ex, k)), Math.round(lerp(sy, ey, k) - Math.sin(k * Math.PI) * 10));
+    }
+    if (t >= T_WAVE && t < T_WAVE + 3) for (let i = 0; i < 12; i++) {
+      const sx = (i * 41 + 7) % W, sy = (((t - T_WAVE) * 22 + i * 17) % 70);
+      R(sx, sy, 2, 2, [C.gold, C.orange, C.cobalt, C.greenL][i % 4]);
+    }
+    return t < T_TAPE ? "PACKING IT UP" : t < T_LOAD ? "TAPED UP" : t < T_WAVE ? "SHIPPING" : "SOLD AND SHIPPED";
+  }
+
   // ---------- frame ----------
   function caption(s, t) {
     const dots = ".".repeat(1 + Math.floor(t * 2) % 3);
@@ -236,7 +314,7 @@
       else { robot(62, t, "type", { look: 2 }); screen(u - 2, t); }
       if (u >= 21 && u < 26) bubble(66, 31, "!", C.green);
       if (opts.caption !== false) caption(u < 21 ? "RESEARCHING" : "FOUND IT", t);
-    } else {
+    } else if (t < PACK0 - 0.5) {
       deskScene(t);
       const u = t - 50;
       screen(25, t);
@@ -247,7 +325,13 @@
         if (u < 7) R(sx, sy, 2, 2, [C.gold, C.rust, C.cobalt, C.greenL][i % 4]);
       }
       if (opts.caption !== false) caption("PRICE READY", t);
-      if (u > 9) { g.fillStyle = `rgba(36,27,16,${Math.min(1, (u - 9) / 1)})`; g.fillRect(0, 0, W, H); }   // fade to loop
+      if (u > 7) { g.fillStyle = `rgba(36,27,16,${Math.min(1, (u - 7) / 0.5)})`; g.fillRect(0, 0, W, H); }   // fade to packing
+    } else {
+      const cap = packScene(t);
+      if (opts.caption !== false) caption(cap, t);
+      const inn = t - (PACK0 - 0.5);
+      if (inn < 0.5) { g.fillStyle = `rgba(36,27,16,${1 - inn / 0.5})`; g.fillRect(0, 0, W, H); }
+      if (t > LOOP - 1) { g.fillStyle = `rgba(36,27,16,${Math.min(1, t - (LOOP - 1))})`; g.fillRect(0, 0, W, H); }   // fade to loop
     }
   }
 
@@ -270,5 +354,7 @@
     raf = requestAnimationFrame(tick);
     return () => { alive = false; cancelAnimationFrame(raf); };
   }
-  root.GuessBot = { drawFrame, mount, W, H, LOOP, FPS };
+  // pixel text on any canvas (the video wrapper uses it for its titles)
+  const textOn = (ctx, s, x, y, c, scale = 1) => { g = ctx; text(s, x, y, c, scale); };
+  root.GuessBot = { drawFrame, mount, textOn, textW, W, H, LOOP, FPS };
 })(typeof window !== "undefined" ? window : globalThis);
