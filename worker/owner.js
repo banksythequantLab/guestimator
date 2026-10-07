@@ -9,6 +9,7 @@ import { adminEmail } from "./shipops.js";
 import * as feedback from "./feedback.js";
 import { parsePromoCodes } from "./billing.js";
 import * as growth from "./growth.js";
+import * as quota from "./quota.js";
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const money = c => "$" + (Number(c || 0) / 100).toFixed(2);
@@ -75,7 +76,8 @@ export async function ownerStats(db, env, ms = Date.now()) {
   const winback = await growth.winbackCandidates(env, db, adminEmail(env));
   const unsent = await growth.winbackUnsent(db);
   const winbackPreview = growth.winbackFreeMail(env, env.PUBLIC_ORIGIN || "https://app.theguestimator.com", Math.min(20, Math.max(1, Math.floor(Number(env.SIGNUP_CREDITS ?? 5)) || 5)), "(their own unsubscribe link)").text;
-  return { at: iso(ms), funnel, winback, unsent, winbackPreview, users, est, paid, ebay, garage, market, promos, feedback: await feedback.ownerList(db).catch(() => []), labels: { used: await labelpay.monthCount(db, ms), cap: labelpay.houseCap(env), pay_on: labelpay.payOn(env), payments: labelPays, problems: labelProblems, voids },
+  const alerts = await quota.recentAlerts(db).catch(() => []);
+  return { at: iso(ms), alerts, funnel, winback, unsent, winbackPreview, users, est, paid, ebay, garage, market, promos, feedback: await feedback.ownerList(db).catch(() => []), labels: { used: await labelpay.monthCount(db, ms), cap: labelpay.houseCap(env), pay_on: labelpay.payOn(env), payments: labelPays, problems: labelProblems, voids },
            errors: { jobs: jobErrors, last: lastErrors, estimates: estErrors, listings: listErrors }, recent };
 }
 
@@ -145,6 +147,7 @@ ${L.payments.map(p => tile(`Payments: ${p.status}`, n(p.n), money(p.cents), p.st
 ${tile("Voids pending", n(L.voids.pending), `${n(L.voids.refused)} refused by Shippo`, n(L.voids.refused) > 0)}</div>
 ${L.problems.length ? `<h2>Label payments to check (30 days)</h2><div class="sc">${table(["When", "Status", "Seller", "Order", "Charged", "Stripe", "Why"],
   L.problems.map(p => `<tr><td>${when(p.updated_at)}</td><td class="${p.status === "refunded" ? "" : "err"}">${esc(p.status)}</td><td>${esc(p.email)}</td><td>${esc(p.kind)} ${esc(p.order_id)}</td><td>${money(p.total_cents)}</td><td>${esc(p.payment_intent || "")}</td><td>${esc(p.error || "")}</td></tr>`), "")}</div>` : ""}
+<h2>Service limits (7 days)</h2>${(s.alerts || []).length ? `<div class="sc">${table(["Service", "Last hit", "Times", "Message", "What to do"], s.alerts.map(a => `<tr><td class="err"><b>${esc(a.name)}</b></td><td>${when(a.last_seen)}</td><td>${n(a.hits)}</td><td>${esc(a.message)}</td><td>${esc(a.fix)}</td></tr>`), "")}</div>` : `<div class="m">No paid service has run out in the last 7 days.</div>`}
 <h2>Background jobs & failures</h2><div class="g">
 ${tile("Job failures (7 days)", s.errors.jobs.reduce((a, j) => a + j.n, 0), s.errors.jobs.map(j => `${esc(j.job)} ×${j.n}`).join(" · ") || "none", s.errors.jobs.length > 0)}
 ${tile("Estimates failed (7 days)", n(s.est.err7), n(s.est.stuck) ? `${n(s.est.stuck)} stuck pending` : "", n(s.est.stuck) > 0)}

@@ -19,6 +19,7 @@ async function grantSignup(env, db, userId, ts) {
     .bind(crypto.randomUUID(), userId, n, JSON.stringify({ reason: "free estimates for new accounts" }), ts).run();
 }
 import { appraise, sizeOnly, writeListingCopy } from "./appraiser.js";
+import * as quota from "./quota.js";
 import * as ebay from "./ebay.js";
 import * as garage from "./garage.js";
 import { quoteShipping } from "./shipping.js";
@@ -171,6 +172,7 @@ async function runAppraisal(env, appraisalId, item, photos) {
     }
     await db.prepare("UPDATE appraisals SET status='done', result_json=?, model_text=?, model_vision=?, completed_at=? WHERE id=?")
       .bind(text, result.models?.text || null, result.models?.vision || null, now(), appraisalId).run();
+    await quota.checkResult(env, result);   // a paid service out of quota -> owner email + owner page
     // pre-fill AI copy on the item (dealer still approves before it goes live)
     await db.prepare("UPDATE items SET ai_title=?, ai_description=? WHERE id=?")
       .bind(result.listing?.title || null, result.listing?.description || null, item.id).run();
@@ -179,6 +181,7 @@ async function runAppraisal(env, appraisalId, item, photos) {
   } catch (e) {
     await db.prepare("UPDATE appraisals SET status='error', error=?, completed_at=? WHERE id=?")
       .bind(String(e && e.message || e).slice(0, 1000), now(), appraisalId).run();
+    await quota.checkError(env, String(e && e.message || e));
     // a failed run must not cost the dealer an estimate
     const ap = await db.prepare("SELECT funded_by FROM appraisals WHERE id=?").bind(appraisalId).first();
     const owner = await db.prepare("SELECT s.user_id FROM items i JOIN sales s ON s.id=i.sale_id WHERE i.id=?").bind(item.id).first();
