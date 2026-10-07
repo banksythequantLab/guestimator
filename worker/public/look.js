@@ -5,7 +5,7 @@
 // before first paint by gsLook in index.html.
 
 const LOOK_KEY = "gs-look";
-const HIGHLIGHTS = [["#d97757", "Orange (default)"], ["#2563eb", "Blue"], ["#e11d48", "Red"], ["#ca8a04", "Gold"],
+const HIGHLIGHTS = [["mono", "No color: pure black & white"], ["#d97757", "Orange (default)"], ["#2563eb", "Blue"], ["#e11d48", "Red"], ["#ca8a04", "Gold"],
                     ["#16a34a", "Green"], ["#0d9488", "Teal"], ["#7c3aed", "Purple"], ["#db2777", "Pink"]];
 function getLook() { try { return JSON.parse(localStorage.getItem(LOOK_KEY) || "null") || { ...window.GS_DEFAULT_LOOK }; } catch { return { ...window.GS_DEFAULT_LOOK }; } }
 function setLook(L) {
@@ -27,15 +27,18 @@ function renderLook() {
     <div id="hlBox" style="margin-top:16px;${L.skin === "mono" ? "" : "display:none"}">
       <b>Highlight color</b><div class="muted" style="font-size:.82rem">Buttons, links and selected things use it.</div>
       <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">${HIGHLIGHTS.map(([c, n]) => `<button type="button" class="hl" data-c="${c}" title="${n}" aria-label="${n}"
-        style="width:38px;height:38px;border-radius:50%;background:${c};border:3px solid ${L.accent === c ? "var(--ink)" : "transparent"};padding:0"></button>`).join("")}
-        <label style="display:flex;align-items:center;gap:6px;font-size:.85rem;margin:0">Any color <input type="color" id="hlPick" value="${esc(L.accent)}" style="width:44px;height:38px;padding:0;border:0;background:none"></label></div>
+        style="width:38px;height:38px;border-radius:50%;background:${c === "mono" ? "linear-gradient(135deg,#111 50%,#fff 50%)" : c};border:3px solid ${L.accent === c ? "var(--cobalt)" : c === "mono" ? "var(--line)" : "transparent"};${L.accent === c ? "box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--ink);" : ""}padding:0"></button>`).join("")}
+        <label style="display:flex;align-items:center;gap:6px;font-size:.85rem;margin:0">Any color <input type="color" id="hlPick" value="${esc(L.accent === "mono" ? "#111111" : L.accent)}" style="width:44px;height:38px;padding:0;border:0;background:none"></label></div>
     </div></div>
     <div class="card"><b>Preview</b><div class="muted" style="font-size:.85rem;margin:4px 0 10px">This is how buttons and links look now. <a href="#" onclick="return false" style="color:var(--cobalt)">A link</a></div>
       <button class="btn">📷 Guestimate something</button><button class="btn sec" style="margin-top:8px">A second button</button>
       <div class="seg"><button type="button" class="on">Selected</button><button type="button">Not selected</button></div></div>
     <div class="muted" style="font-size:.8rem;margin:0 4px 20px">Saved on this device.</div>`;
   const save = patch => { Object.assign(L, patch); setLook(L); renderLook(); };
-  app.querySelectorAll("[data-seg] button").forEach(b => b.onclick = () => save({ [b.parentElement.dataset.seg]: b.dataset.v }));
+  // Tapping "Black & white" turns the whole screen black & white right away (no highlight color);
+  // a color dot below adds one back.
+  app.querySelectorAll("[data-seg] button").forEach(b => b.onclick = () => save(b.parentElement.dataset.seg === "skin" && b.dataset.v === "mono"
+    ? { skin: "mono", accent: "mono" } : { [b.parentElement.dataset.seg]: b.dataset.v }));
   app.querySelectorAll(".hl").forEach(b => b.onclick = () => save({ accent: b.dataset.c }));
   $("#hlPick").onchange = e => save({ accent: e.target.value });
 }

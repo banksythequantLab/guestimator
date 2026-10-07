@@ -97,6 +97,10 @@ ok("look.js loaded before app.js", html.indexOf("/look.js") > 0 && html.indexOf(
   ok("gsLook: dark + mono + yellow highlight", attrs["data-theme"] === "dark" && attrs["data-skin"] === "mono" && props["--green"] === "#ffd400" && props["--on-accent"] === "#000", { attrs, props });
   g.gsLook({ mode: "dark", skin: "mono", accent: "#1e1b4b" });
   ok("gsLook: dark highlight lightened for links on black", props["--cobalt"] !== "#1e1b4b" && props["--on-accent"] === "#fff", props);
+  g.gsLook({ mode: "light", skin: "mono", accent: "mono" });
+  ok("gsLook: pure black & white (light): black buttons, white text", props["--green"] === "#111111" && props["--on-accent"] === "#fff" && props["--cobalt"] === "#111111", props);
+  g.gsLook({ mode: "dark", skin: "mono", accent: "mono" });
+  ok("gsLook: pure black & white (dark): white buttons, black text", props["--green"] === "#f5f5f5" && props["--on-accent"] === "#000", props);
   g.gsLook({ mode: "system", skin: "classic" });
   ok("gsLook: back to classic clears overrides", !attrs["data-theme"] && !attrs["data-skin"] && !props["--green"]);
 }

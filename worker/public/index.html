@@ -19,7 +19,8 @@ window.gsLook = function (L) {
   ["--green", "--green-d", "--cobalt", "--ok", "--on-accent"].forEach(function (k) { s.removeProperty(k); });
   var dark = L.mode === "dark" || (L.mode !== "light" && window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches);
   if (L.skin === "mono") {
-    var a = /^#[0-9a-f]{6}$/i.test(L.accent || "") ? L.accent : window.GS_DEFAULT_LOOK.accent, n = parseInt(a.slice(1), 16), r = n >> 16 & 255, g = n >> 8 & 255, b = n & 255;
+    // accent "mono" = no color at all: buttons and links in black (white when dark).
+    var a = L.accent === "mono" ? (dark ? "#f5f5f5" : "#111111") : /^#[0-9a-f]{6}$/i.test(L.accent || "") ? L.accent : window.GS_DEFAULT_LOOK.accent, n = parseInt(a.slice(1), 16), r = n >> 16 & 255, g = n >> 8 & 255, b = n & 255;
     var mix = function (t, f) { return "#" + [r, g, b].map(function (c) { return ("0" + Math.round(c + (t - c) * f).toString(16)).slice(-2); }).join(""); };
     // WCAG relative luminance and contrast, so text in or on the highlight stays readable.
     var rl = function (h) { var v = parseInt(h.slice(1), 16); return [v >> 16 & 255, v >> 8 & 255, v & 255].map(function (c) { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); })
@@ -176,8 +177,8 @@ ul.ev{margin:4px 0 0;padding-left:18px;font-size:.88rem}ul.ev li{margin:3px 0}
 <script src="/billing.js?v=0.9"></script>
 <script src="/sales.js?v=2.2"></script>
 <script src="/orders.js?v=2.4"></script>
-<script src="/look.js?v=2"></script>
+<script src="/look.js?v=3"></script>
 <script src="/robot.js?v=2"></script>
-<script src="/app.js?v=8.1"></script>
+<script src="/app.js?v=8.2"></script>
 </body>
 </html>
