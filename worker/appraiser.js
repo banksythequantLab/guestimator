@@ -1752,11 +1752,11 @@ export function blindRunError(photos, findings) {
   if (!(findings || []).length || !findings.every(f => f && f.error)) return null;
   // The cause is usually knowable, and the HEIC one a dealer can fix themselves in two taps.
   return photosLookHeic(photos)
-    ? `Your photos are in Apple's HEIC format and the appraiser cannot read them, so it has ` +
+    ? `Your photos are in Apple's HEIC format and Guestimator cannot read them, so it has ` +
       `nothing to go on but your description — which is not enough to price something. ` +
       `On iPhone: Settings > Camera > Formats > Most Compatible, then photograph the item ` +
       `again and retry. Your estimate has not been used.`
-    : `The appraiser could not read any of your ${n} photo${n === 1 ? "" : "s"}, so it has nothing ` +
+    : `Guestimator could not read any of your ${n} photo${n === 1 ? "" : "s"}, so it has nothing ` +
       `to go on but your description — which is not enough to price something. Retry, or replace ` +
       `the photos if they are very dark, blurred or unusual. Your estimate has not been used.`;
 }
@@ -1979,7 +1979,7 @@ export async function appraise(env, req) {
   const ebayWhy = ebayFailure();
   if (ebayWhy && ebayWhy !== "no eBay API keys are configured")
     warnings.push(`LIVE EBAY PRICES UNAVAILABLE — ${ebayWhy}. Today's asking prices did not reach ` +
-      `this appraisal, so treat the number below as an estimate rather than the market.`);
+      `this Guestimate, so treat the number below as an estimate rather than the market.`);
   // Nothing matched the exact description, so these prices are for the nearest comparable thing.
   // The dealer should know that before trusting the range on a piece with unusual markings.
   const broadenedTo = ebayBroadenedTo();
@@ -2049,8 +2049,8 @@ export async function appraise(env, req) {
         // wall and tabletop pieces) -> pricing "from the comparables" would price from the rejects.
         // Keep the appraiser's own estimate and say plainly that no listing backs it.
         if (!keptHits.length && !(second.comparables || []).length && (second.rejected || []).length)
-          warnings.push(`no listing found was the same kind of object, so this price is the appraiser's ` +
-            `estimate of what such pieces sell for, not a figure taken from listings. Treat it as a starting point.`);
+          warnings.push(`no listing found was the same kind of object, so this price is Guestimator's own ` +
+            `guess at what such pieces sell for, not a figure taken from listings. Treat it as a starting point.`);
         else await coldPass(keptHits.length ? keptHits : hits);
       }
       // Only the pass that set the price explains it. When the cold pass priced it, the repricer's

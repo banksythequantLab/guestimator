@@ -1427,7 +1427,7 @@ export default {
               !String(b.markings ?? item.markings ?? "").trim())
             return J({ error: "Tell us what it is, even roughly — a photo on its own is identified wrong too often.",
                        needs_description: true }, 400);
-          if (!env.APPRAISER_URL && !env.NEBIUS_API_KEY) return J({ error: "appraiser not configured" }, 503);
+          if (!env.APPRAISER_URL && !env.NEBIUS_API_KEY) return J({ error: "Guestimating is switched off right now" }, 503);
           // Belt and braces on top of the rename: even under the new name, the model's own
           // listing copy is never accepted as what the dealer said. Losing a dealer's own words
           // cannot be undone, so this stays even though it should now be unreachable.
