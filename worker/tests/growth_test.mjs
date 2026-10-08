@@ -91,5 +91,21 @@ who = "nobody";
 ok("unsubscribe link works without signing in", (await call("GET", link)).text.includes("No more reminder emails") && db.raw.prepare("SELECT marketing_off FROM gs_users WHERE user_id=?").get(id("amy")).marketing_off === 1);
 ok("tampered link refused", (await call("GET", link.replace(/t=(\w)/, (_, c) => "t=" + (c === "0" ? "1" : "0")))).text.includes("isn't valid"));
 
+// ---------- early 'ready to sell' nudge ----------
+mails.length = 0;
+await reg("fay");
+const fi = (await call("POST", "/api/items", { name: "Oak cabinet", description: "two doors" })).json.id;
+db.raw.prepare("INSERT INTO appraisals (id,item_id,status,created_at) VALUES (?,?,'done',?)").run(crypto.randomUUID(), fi, ago(5));
+db.raw.prepare("UPDATE gs_users SET created_at=? WHERE user_id=?").run(ago(6), id("fay"));
+await reg("gus");   // priced yesterday: too soon
+const gi = (await call("POST", "/api/items", { name: "Tin toy", description: "" })).json.id;
+db.raw.prepare("INSERT INTO appraisals (id,item_id,status,created_at) VALUES (?,?,'done',?)").run(crypto.randomUUID(), gi, ago(1));
+s = await G.winbackSweep(env, db, "https://g.test", now);
+ok("early nudge: priced 3-14 days ago, nothing listed", s.filter(x => x.kind === "early").map(x => x.user).join() === id("fay"), s);
+const em = mails.find(m => m.to === "fay@example.com");
+ok("names the item, says 0% Market, has unsubscribe", !!em && /Oak cabinet/.test(em.subject) && em.text.includes("0%") && em.text.includes("/api/growth/off?u="), em && em.subject);
+ok("early nudge goes once", (await G.winbackSweep(env, db, "https://g.test", now + 7200e3)).filter(x => x.kind === "early").length === 0);
+ok("not sent once it's listed on eBay", (() => { db.raw.prepare("UPDATE gs_users SET early_at=NULL WHERE user_id=?").run(id("fay")); try { db.raw.prepare("INSERT INTO ebay_listings (id,item_id,user_id,sku,status,created_at,updated_at) VALUES (?,?,?,'sku-fay','published',?,?)").run(crypto.randomUUID(), fi, id("fay"), ago(0), ago(0)); } catch (e) { console.log('listing insert', e.message); } return true; })()
+  && (await G.winbackSweep(env, db, "https://g.test", now + 9000e3)).filter(x => x.kind === "early").length === 0);
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

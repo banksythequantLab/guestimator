@@ -332,7 +332,8 @@ export default {
         const g = idm && await priceguide.guideById(db, idm[1]);
         if (!g) return new Response(`<!doctype html><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width"><p style="font-family:system-ui;padding:24px">That price page isn't here. <a href="/prices">See the price guide</a>.</p>`, { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
         if (url.pathname !== priceguide.pagePath(g)) return Response.redirect(origin + priceguide.pagePath(g), 301);
-        return new Response(priceguide.guidePage(g, origin), { headers: { "content-type": "text/html; charset=utf-8", ...pub } });
+        const more = (await priceguide.allGuides(db, 7)).filter(o => o.listing_id !== g.listing_id);
+      return new Response(priceguide.guidePage(g, origin, more), { headers: { "content-type": "text/html; charset=utf-8", ...pub } });
       }
       // ---------- share target without the service worker (first visit, or SW not installed yet):
       // the photos can't be kept, so just open the app rather than showing an error ----------

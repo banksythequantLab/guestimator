@@ -112,6 +112,8 @@ export const offTokenOk = async (env, userId, t) => !!userId && typeof t === "st
 export const turnOff = (db, userId) => db.prepare("UPDATE gs_users SET marketing_off=1 WHERE user_id=?").bind(userId).run();
 
 export const W1_AFTER_D = 3, W1_UNTIL_D = 30, W2_QUIET_D = 30, W2_AGAIN_D = 90;
+// Early nudge: priced something 3+ days ago (and within the last 14), nothing of it listed yet. Once per account.
+export const EARLY_AFTER_D = 3, EARLY_UNTIL_D = 14;
 const OWNED = "FROM appraisals a JOIN items i ON i.id=a.item_id JOIN sales s ON s.id=i.sale_id WHERE s.user_id=g.user_id";
 
 function mail(title, lines, link, linkText, off) {
@@ -252,6 +254,32 @@ export async function winbackSweep(env, db, origin, ms = Date.now()) {
       `${origin}/`, "See my items", await offLink(env, origin, g.user_id));
     await sendAlert(env, { to: g.email, subject: `Your ${items.length === 1 ? "item is" : `${items.length} items are`} still waiting to sell`, ...e });
     sent.push({ kind: "quiet", user: g.user_id, items: items.length });
+  }
+  // (3) Early: priced in the last couple of weeks but nothing listed. Skips anyone the 30-day email
+  // just reached, and only ever goes once.
+  const w3 = (await db.prepare(
+    `SELECT g.user_id, u.email FROM gs_users g JOIN users u ON u.id=g.user_id
+      WHERE g.early_at IS NULL AND COALESCE(g.marketing_off,0)=0
+        AND (SELECT MIN(a.created_at) ${OWNED} AND a.status='done') <= ? AND (SELECT MAX(a.created_at) ${OWNED} AND a.status='done') >= ?
+        AND NOT EXISTS (SELECT 1 FROM ebay_listings l WHERE l.user_id=g.user_id) LIMIT 25`)
+    .bind(iso(ms - EARLY_AFTER_D * DAY), iso(ms - EARLY_UNTIL_D * DAY)).all()).results || [];
+  for (const g of w3) {
+    if (sent.some(x => x.user === g.user_id)) continue;
+    const items = (await db.prepare(
+      `SELECT COALESCE(i.ai_title, i.name) t FROM items i JOIN sales s ON s.id=i.sale_id WHERE s.user_id=? AND i.status<>'sold'
+         AND COALESCE(i.listing_status,'') NOT IN ('live','sold') AND EXISTS (SELECT 1 FROM appraisals a WHERE a.item_id=i.id AND a.status='done')
+       ORDER BY i.created_at DESC LIMIT 50`).bind(g.user_id).all()).results || [];
+    if (!items.length) continue;
+    const m = await db.prepare("UPDATE gs_users SET early_at=? WHERE user_id=? AND early_at IS NULL").bind(iso(ms), g.user_id).run();
+    if (!(m.meta && m.meta.changes)) continue;
+    const one = items.length === 1, first = items[0].t;
+    const e = mail(one ? `Your ${first} is ready to sell` : `${items.length} Guestimates are ready to sell`, [
+      one ? `You priced your ${first}. The listing is one tap away.` : `You priced ${items.slice(0, 3).map(x => x.t).join(", ")}${items.length > 3 ? ` and ${items.length - 3} more` : ""}.`,
+      "Open it in Guestimator and tap List on eBay: we write the title, description and price on your own eBay account, and you check every word before it goes up.",
+      "Rather sell locally? Put it on the Guestimator Market instead. We take 0% of the sale."],
+      `${origin}/`, one ? "List it" : "See my items", await offLink(env, origin, g.user_id));
+    await sendAlert(env, { to: g.email, subject: one ? `Ready to list your ${first}?` : `Your ${items.length} priced items are ready to list`, ...e });
+    sent.push({ kind: "early", user: g.user_id, items: items.length });
   }
   return sent;
 }

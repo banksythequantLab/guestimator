@@ -70,5 +70,17 @@ ok("draft item isn't eligible", !(await P.guideStatus(db, "i2", "https://g.test"
 db.raw.prepare("UPDATE items SET guide_hidden=NULL WHERE id='i1'").run();
 ok("shown again", (await get(path)).status === 200);
 
+// SEO extras: aggregate offer when nothing is live, breadcrumbs, links to other guides
+{
+  const PG = await import("../priceguide.js");
+  const g = { listing_id: "1", title: "Tin toy", range: { low: 10, high: 30 }, market: { count: 4, low: 12, high: 40, median: 20 }, sold: null,
+    about: {}, comps: [], estimated_at: "2026-10-01", updated_at: "2026-10-01", live: null, sold_on_ebay: false };
+  const o = { ...g, listing_id: "2", title: "Brass lamp" };
+  const h = PG.guidePage(g, "https://g.test", [o]);
+  ok("no live listing -> AggregateOffer from comparable listings", h.includes('"@type":"AggregateOffer"') && h.includes('"lowPrice":"12.00"') && h.includes('"offerCount":4'));
+  ok("breadcrumbs in JSON-LD", h.includes('"@type":"BreadcrumbList"') && h.includes('"item":"https://g.test/prices"'));
+  ok("links to other price-guide pages", h.includes("More from the price guide") && h.includes('href="/price/brass-lamp-2"'));
+  ok("no market data -> no offers at all", !PG.guidePage({ ...g, market: null }, "https://g.test").includes('"offers"'));
+}
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

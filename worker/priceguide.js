@@ -78,13 +78,17 @@ const shell = (title, desc, canonical, body, jsonld) => `<!doctype html><html la
 <style>${CSS}</style></head><body><div class="w"><header><a href="/prices">Guestimator price guide</a></header>${body}
 <p class="m" style="margin-top:28px">Guestimates are market estimates from public eBay data at the date shown, not certified appraisals. Prices change; check before you buy or sell. As an eBay Partner, Guestimator may be paid a commission when you buy through links on this page.</p></div></body></html>`;
 
-export function guidePage(g, origin) {
+export function guidePage(g, origin, more = []) {
   const url = origin + pagePath(g), r = g.range;
   const title = `${g.title}: what it's worth (${dollars(r.low)}–${dollars(r.high)})`;
   const desc = `${g.title} is worth about ${dollars(r.low)}–${dollars(r.high)} based on ${g.sold ? `${g.sold.count} recent eBay sales` : g.market ? `${g.market.count} comparable eBay listings` : "current eBay listings"} (${day(g.estimated_at)}). Get a Guestimate of yours.`;
   const about = [g.about.maker && `Maker: ${g.about.maker}`, g.about.category && `Category: ${g.about.category}`, g.about.period && `Period: ${g.about.period}`].filter(Boolean);
   const jsonld = { "@context": "https://schema.org", "@type": "Product", name: g.title, ...(g.about.maker ? { brand: { "@type": "Brand", name: g.about.maker } } : {}),
-    ...(g.live ? { offers: { "@type": "Offer", price: g.live.price.toFixed(2), priceCurrency: "USD", availability: "https://schema.org/InStock", url: g.live.url } } : {}) };
+    ...(g.live ? { offers: { "@type": "Offer", price: g.live.price.toFixed(2), priceCurrency: "USD", availability: "https://schema.org/InStock", url: g.live.url } }
+      : g.market && g.market.low > 0 && g.market.high > 0 ? { offers: { "@type": "AggregateOffer", lowPrice: Number(g.market.low).toFixed(2), highPrice: Number(g.market.high).toFixed(2), offerCount: g.market.count, priceCurrency: "USD" } } : {}) };
+  // Breadcrumbs: Price guide > this item (helps search engines show where the page sits).
+  const crumbs = { "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: [
+    { "@type": "ListItem", position: 1, name: "Price guide", item: origin + "/prices" }, { "@type": "ListItem", position: 2, name: g.title, item: url }] };
   const body = `<h1>${esc(g.title)}: what it's worth</h1><div class="m">Guestimated ${esc(day(g.estimated_at))}</div>
 <div class="card"><div class="m">Guestimate</div><div class="big">${dollars(r.low)} – ${dollars(r.high)}</div>
 ${g.sold ? `<div style="margin-top:6px"><b>Recently sold on eBay:</b> median ${dollars(g.sold.median)} across ${g.sold.count} sales <span class="m">(checked ${esc(day(g.sold.as_of))})</span></div>` : ""}
@@ -95,8 +99,9 @@ ${about.length ? `<h2>About it</h2><div>${about.map(esc).join(" · ")}</div>` : 
 ${g.comps.length ? `<h2>Comparable listings we priced it against</h2><table><thead><tr><th>Listing</th><th>Condition</th><th class="r">Price</th></tr></thead><tbody>
 ${g.comps.map(c => `<tr><td>${c.url ? `<a href="${esc(epn(c.url, "gs-guide-comp"))}" rel="sponsored nofollow noopener" target="_blank">${esc(c.title)}</a>` : esc(c.title)}${c.sold ? " <b>(sold)</b>" : ""}</td><td>${esc(c.condition || "")}</td><td class="r">${dollars(c.price)}</td></tr>`).join("")}</tbody></table>` : ""}
 <div class="card" style="margin-top:22px"><h2 style="margin-top:0">Have one to sell?</h2><p>Snap 2–4 photos and Guestimator prices yours from what's selling now, then lists it on your own eBay account. You check every word first.</p>
-<a class="cta" href="/?utm_source=price_guide">Guestimate mine</a></div>`;
-  return shell(title, desc, url, body, jsonld);
+<a class="cta" href="/?utm_source=price_guide">Guestimate mine</a></div>
+${more.length ? `<h2>More from the price guide</h2><ul class="l">${more.slice(0, 6).map(o => `<li><a href="${esc(pagePath(o))}">${esc(o.title)}</a><div class="m">${dollars(o.range.low)}–${dollars(o.range.high)}</div></li>`).join("")}</ul>` : ""}`;
+  return shell(title, desc, url, body, [jsonld, crumbs]);
 }
 
 export function indexPage(guides, origin) {
