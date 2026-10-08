@@ -51,7 +51,7 @@ export function guideOf(row) {
     live: live ? { price: row.price_cents / 100, url: row.listing_url || `https://www.ebay.com/itm/${row.listing_id}` } : null,
     sold_on_ebay: !!row.sold_here,
     // One comparable or none, and no sale: the public page says it's a rough guess, as the app does.
-    thin: !r.unknown && comps.length <= 1 && !comps.some(c => c.sold) && !(Number(row.sold_count) >= 3),
+    thin: !!r.unknown || comps.length <= 1 && !comps.some(c => c.sold) && !(Number(row.sold_count) >= 3),
   };
 }
 
