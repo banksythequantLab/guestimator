@@ -511,7 +511,7 @@ function ebayPanelHtml(b, canList) {
   if (ebayStatus && !ebayStatus.configured) return "";
   return `<div class="card" style="border-color:var(--cobalt)">
       <label>Sell it</label>
-      <div class="muted" style="font-size:.85rem;margin-bottom:10px">We'll write the eBay listing from this estimate — you check every word before anything goes live.</div>
+      <div class="muted" style="font-size:.85rem;margin-bottom:10px">${b.appraisal ? "We'll write the eBay listing from this estimate — you check every word before anything goes live." : "We'll set it up on eBay from your title, description and photos — you set the price and check everything before it goes live."}</div>
       ${el && el.status === "error" ? `<div style="font-size:.82rem;color:var(--rust);margin-bottom:8px">Last try didn't go through: ${esc(el.error || "")}</div>` : ""}
       <button class="btn" id="ebayList" style="background:var(--cobalt)">List it on eBay</button>
     </div>`;
@@ -857,6 +857,9 @@ function renderCapture(pre) {
       <span class="muted" id="moreCount" style="font-size:.82rem;margin-left:8px"></span>
     </div>
     <div class="card">
+      <label>What is it?</label>
+      <input id="cTitle" maxlength="80" placeholder="e.g. Oak two-door cabinet">
+      <div style="height:10px"></div>
       <label>Brief description</label>
       <textarea id="cDesc" rows="3" placeholder="What do you know? Where it came from, how old you think it is, condition…"></textarea>
       ${sizeBoxHtml("cSz")}
@@ -866,6 +869,8 @@ function renderCapture(pre) {
       <div style="height:12px"></div>
       <button class="btn" id="cGo">✨ Guestimate it</button>
       <div style="height:6px"></div>
+      <button class="btn sec" id="cSkip">Add without a Guestimate</button>
+      <div class="muted" style="font-size:.78rem;margin:4px 0 6px">Already know your price? Add it and list it on eBay or the Guestimator Market yourself. No credit used. You can still Guestimate it later.</div>
       <button class="btn sec" id="cCancel">Cancel</button>
     </div>`;
   const more = [];
@@ -917,6 +922,22 @@ function renderCapture(pre) {
     if (pre.text && !$("#cDesc").value) $("#cDesc").value = pre.text;
   })();
   $("#cCancel").onclick = renderHome;
+  $("#cSkip").onclick = async () => {
+    const files = [...Object.entries(shots).map(([k, f]) => ({ kind: k, f })), ...more.map(f => ({ kind: "other", f }))];
+    const name = $("#cTitle").value.trim();
+    if (!name) { $("#cTitle").focus(); $("#cTitle").style.borderColor = "var(--rust)"; return toast("Give it a name - that's the listing title"); }
+    if (!files.length) return toast("Take at least one photo - buyers need to see it");
+    const btn = $("#cSkip"); btn.disabled = true; btn.textContent = "Uploading…";
+    try {
+      const { id } = await api("/items", { method: "POST", body: JSON.stringify({ name, description: withSize($("#cDesc").value.trim(), "cSz"), markings: $("#cMarks").value.trim() }) });
+      const fd = new FormData();
+      for (const { kind, f } of files) fd.append("photos", await shrink(f), f.name || (kind + ".jpg"));
+      fd.append("kinds", files.map(x => x.kind).join(","));
+      const up = await fetch("/api/items/" + id + "/photos", { method: "POST", body: fd, credentials: "same-origin" });
+      if (!up.ok) throw new Error((await up.json()).error || "upload failed");
+      renderItemDetail(id);
+    } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "Add without a Guestimate"; }
+  };
   $("#cGo").onclick = async () => {
     const files = [...Object.entries(shots).map(([k, f]) => ({ kind: k, f })), ...more.map(f => ({ kind: "other", f }))];
     if (!files.length) return toast("Take at least one photo");
@@ -931,7 +952,7 @@ function renderCapture(pre) {
     }
     $("#cGo").disabled = true; $("#cGo").textContent = "Uploading…";
     try {
-      const { id } = await api("/items", { method: "POST", body: JSON.stringify({ name: "New item", description, markings }) });
+      const { id } = await api("/items", { method: "POST", body: JSON.stringify({ name: $("#cTitle").value.trim() || "New item", description, markings }) });
       const fd = new FormData();
       for (const { kind, f } of files) fd.append("photos", await shrink(f), f.name || (kind + ".jpg"));
       fd.append("kinds", files.map(x => x.kind).join(","));
@@ -1140,8 +1161,8 @@ async function renderItemDetail(id) {
     </div>` : ""}
     ${r && !nc && appraisal.status === "done" ? rateCardHtml(appraisal.rating) : ""}
 ${r && !nc && !r.unknown && appraisal.status === "done" && pr && pr.high > 0 ? `<button class="btn sec" id="shareEst" style="margin:-4px 0 12px">📤 Share this price</button><div id="guideOpt" style="margin:-4px 0 12px;font-size:.82rem"></div>` : ""}
-    ${ebayPanelHtml(b, !!(r && !nc && appraisal.status === "done"))}
-    ${r && !nc && !r.unknown && appraisal.status === "done" && item.listing_status !== "sold" ? `<div class="card" id="mktCard" style="border-color:var(--cobalt)"><b>🛒 Sell it on the Guestimator Market</b>
+    ${ebayPanelHtml(b, !!(r && !nc && appraisal.status === "done") || (!appraisal && photos.length > 0))}
+    ${((r && !nc && !r.unknown && appraisal.status === "done") || (!appraisal && photos.length > 0)) && item.listing_status !== "sold" ? `<div class="card" id="mktCard" style="border-color:var(--cobalt)"><b>🛒 Sell it on the Guestimator Market</b>
       <div class="muted" style="font-size:.8rem;margin:2px 0 8px">Anyone can find it and buy it on the Guestimator Market. They pay you directly. We take no cut.</div><div id="mktBody"><button class="btn" id="mktOpen" style="background:var(--cobalt)">Sell on the Market</button></div></div>` : ""}
     ${r && !nc && !r.unknown && appraisal.status === "done" && appraisal.big_piece && item.listing_status !== "sold" ? `<div class="card" id="aptCard"><b>🛋️ Big piece? AptDeco picks it up</b>
       <div class="muted" style="font-size:.8rem;margin:2px 0 8px">AptDeco sells furniture and big decor nationwide (not Alaska or Hawaii) and handles pickup and delivery for you. Unlike the Guestimator Market they keep a share: sellers get up to 70% of the sale. Use your Guestimate above to set the price.</div>
@@ -1163,7 +1184,7 @@ ${r && !nc && !r.unknown && appraisal.status === "done" && pr && pr.high > 0 ? `
       <input id="costIn" inputmode="decimal" placeholder="$0.00" value="${b.finance && b.finance.cost_cents != null ? (b.finance.cost_cents / 100).toFixed(2) : ""}" style="width:90px">
       <button class="btn sec sm" id="costSave">Save</button></div></div>
     <div class="row" style="gap:8px;margin-bottom:16px;flex-wrap:wrap">
-      ${!pending && photos.length ? `<button class="btn sec sm" id="reappraise">↻ Re-run the estimate</button>` : ""}
+      ${!pending && photos.length ? `<button class="btn sec sm" id="reappraise">${appraisal ? "↻ Re-run the estimate" : "✨ Guestimate it"}</button>` : ""}
       <a class="btn sec sm" href="/stickers?ids=${esc(id)}" target="_blank" rel="noopener" style="text-decoration:none">🏷 Print sticker</a>
       ${r && appraisal.status === "done" ? `<button class="btn sec sm" id="xpost">📋 Cross-post kit</button>` : ""}
       <button class="btn sec sm" id="delItem" style="color:var(--rust)">Delete item</button>

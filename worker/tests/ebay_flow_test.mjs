@@ -158,6 +158,22 @@ ok("selection-only value restored to eBay's spelling", d.aspects.Type[0] === "Cr
 ok("condition fits the category (Used)", d.condition === "USED_EXCELLENT");
 ok("price starts at suggested retail", d.price === 135);
 ok("image is an absolute public URL", d.images[0] === `https://g.test/p/${item}/a.jpg`);
+// ---------- no Guestimate: the seller's own title, size and photos (2026-10-08) ----------
+{
+  const cr0 = db.raw.prepare("SELECT credits FROM users WHERE id=?").get(me.id).credits;
+  const { json: nj } = await call("POST", "/api/items", { name: "Oak two-door cabinet", description: "Painted. Size: 59 x 29 x 29 inches. Weight: 50 lb." });
+  const noPhoto = await call("POST", `/api/items/${nj.id}/ebay/draft`, {});
+  ok("no Guestimate and no photo -> asks for a photo", noPhoto.status === 400 && /photo/i.test(noPhoto.json.error), noPhoto.json);
+  db.raw.prepare("INSERT INTO photos (id,item_id,r2_key,kind,content_type,bytes,sort,created_at) VALUES (?,?,?,?,?,?,?,?)")
+    .run(crypto.randomUUID(), nj.id, `${nj.id}/m.jpg`, "front", "image/jpeg", 1000, 0, new Date().toISOString());
+  const md = await call("POST", `/api/items/${nj.id}/ebay/draft`, {});
+  const m = md.json.draft || {};
+  ok("no Guestimate -> draft from the seller's own title", md.status === 200 && m.title === "Oak two-door cabinet", md.json);
+  ok("price left for the seller to set", m.price === null);
+  ok("their size and weight carried into shipping", JSON.stringify((m.shipping || {}).item_in) === "[59,29,29]" && m.shipping.item_weight_lb === 50, m.shipping);
+  ok("drafting without a Guestimate uses no credit", db.raw.prepare("SELECT credits FROM users WHERE id=?").get(me.id).credits === cr0);
+  db.raw.prepare("DELETE FROM ebay_listings WHERE item_id=?").run(nj.id);
+}
 ok("nothing required missing", d.missing.length === 0);
 const creditsBefore = db.raw.prepare("SELECT credits FROM users WHERE id=?").get(me.id).credits;
 

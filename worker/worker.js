@@ -18,7 +18,7 @@ async function grantSignup(env, db, userId, ts) {
   if (n > 0) await db.prepare("INSERT INTO billing_events (id,user_id,source,type,credits_delta,raw_json,created_at) VALUES (?,?,'admin','signup_free',?,?,?)")
     .bind(crypto.randomUUID(), userId, n, JSON.stringify({ reason: "free estimates for new accounts" }), ts).run();
 }
-import { appraise, sizeOnly, writeListingCopy } from "./appraiser.js";
+import { appraise, sizeOnly, writeListingCopy, dealerSized } from "./appraiser.js";
 import * as quota from "./quota.js";
 import * as partners from "./partners.js";
 import * as ebay from "./ebay.js";
@@ -1199,15 +1199,21 @@ export default {
         if (parts[3] === "ebay" && parts[4] === "draft" && m === "POST") {
           if (!ebay.ebayConfigured(env)) return J({ error: "eBay listing isn't switched on yet." }, 503);
           const bundle = await itemBundle(db, iid);
-          if (!bundle.appraisal?.result || bundle.appraisal.status !== "done")
-            return J({ error: "Get an estimate first — the listing is written from it." }, 409);
+          // No Guestimate (2026-10-08, "a button to add without guestimating"): the seller knows the
+          // price, so the draft is built from their own title, description, size and photos - eBay
+          // still suggests the category and item specifics, and the price box starts empty.
+          const ap0 = bundle.appraisal;
+          if (ap0 && ap0.status === "pending") return J({ error: "The Guestimate is still running - give it a minute." }, 409);
+          const manual = !(ap0 && ap0.status === "done" && ap0.result);
+          if (manual && !(bundle.photos || []).length) return J({ error: "Add at least one photo first" }, 400);
           const last = await db.prepare("SELECT * FROM ebay_listings WHERE item_id=? ORDER BY created_at DESC LIMIT 1").bind(iid).first();
           if (last?.status === "published")
             return J({ draft: null, listing: { status: "published", url: last.listing_url, listing_id: last.listing_id } });
           const db0 = await readJson(request);
           // "List on eBay" tapped before the listing text was written (it now follows the estimate).
-          if (!bundle.appraisal.result.listing?.description) await ensureListingCopy(env, db, bundle.appraisal.id, item, bundle.appraisal.result);
-          const draft = await ebay.buildDraft(env, { item, photos: bundle.photos, result: bundle.appraisal.result,
+          if (!manual && !bundle.appraisal.result.listing?.description) await ensureListingCopy(env, db, bundle.appraisal.id, item, bundle.appraisal.result);
+          const sz = manual ? dealerSized(null, item.description) : null;
+          const draft = await ebay.buildDraft(env, { item, photos: bundle.photos, result: manual ? (sz.item_in || sz.item_weight_lb ? { shipping: sz } : null) : bundle.appraisal.result,
                                                      origin: env.PUBLIC_ORIGIN || url.origin, categoryId: db0.category_id });
           const ts = now();
           if (last) await db.prepare("UPDATE ebay_listings SET draft_json=?, category_id=?, updated_at=? WHERE id=?")
