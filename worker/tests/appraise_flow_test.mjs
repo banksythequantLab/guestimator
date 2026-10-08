@@ -70,7 +70,7 @@ const W = r => (r.warnings || []).join(" | ");
 
 // ---------- ok ----------
 let r = await run("ok");
-ok("ok: repricer's price stands", r.price_range.low === 140 && r.price_range.high === 180, r.price_range);
+ok("ok: the three matching sales ($126-$190, median $160) set the range, not the repricer's $140-$180 (sold-first, 2026-10-08)", r.price_range.low === 128 && r.price_range.high === 190 && r.price_range.suggested_retail === 160, r.price_range);
 ok("ok: its note explains it", /REPRICER-NOTE/.test(r.price_range.basis) && !/MEMORY-BASIS/.test(r.price_range.basis), r.price_range.basis);
 ok("ok: no cold pass", seen.cold.length === 0 && !/second pass/.test(W(r)), W(r));
 ok("ok: sold line = the sales the model kept", r.sold_market && r.sold_market.count === 3 && r.sold_market.low === 126 && r.sold_market.high === 190, r.sold_market);
@@ -85,8 +85,8 @@ ok("ok: model kept only sales -> no unjudged asking line, no market warnings", r
 
 // ---------- noprice ----------
 r = await run("noprice");
-ok("noprice: cold pass sets the price", r.price_range.low === 120 && r.price_range.high === 170 && seen.cold.length === 1, r.price_range);
-ok("noprice: prices from $20 up are whole dollars", r.price_range.high === 170 && r.price_range.suggested_retail === 150, r.price_range);
+ok("noprice: cold pass runs, then the matching sales set the range", r.price_range.low === 128 && r.price_range.high === 190 && seen.cold.length === 1, r.price_range);
+ok("noprice: prices from $20 up are whole dollars", [r.price_range.low, r.price_range.high, r.price_range.suggested_retail].every(Number.isInteger), r.price_range);
 ok("noprice: dealer told which pass priced it", /second pass over the comparables/.test(W(r)), W(r));
 ok("noprice: the discarded repricer note is NOT shown", !/REPRICER-NOTE/.test(r.price_range.basis) && /COLD-BASIS/.test(r.price_range.basis), r.price_range.basis);
 ok("noprice: kept sales still drive the sold line", r.sold_market && r.sold_market.count === 3, r.sold_market);

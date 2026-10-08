@@ -23,9 +23,17 @@ export async function accuracyRows(db, limit = 40) {
       SELECT item_id, price_cents, sold_at, 'in person' FROM garage_sale_items
         WHERE status = 'sold' AND price_cents > 0 AND sold_at IS NOT NULL
           AND item_id NOT IN (SELECT item_id FROM garage_orders WHERE status IN ('paid', 'fulfilled') AND item_id IS NOT NULL)
+      UNION ALL
+      -- marked sold in person with no sale page (item_finance); the RAM lot that sold at $99 a stick
+      SELECT item_id, sold_cents, sold_at, 'in person' FROM item_finance
+        WHERE sold_cents > 0 AND sold_at IS NOT NULL
+          AND item_id NOT IN (SELECT item_id FROM garage_sale_items WHERE status = 'sold' AND item_id IS NOT NULL)
+          AND item_id NOT IN (SELECT item_id FROM ebay_orders WHERE status <> 'CANCELLED' AND item_id IS NOT NULL)
     )
     SELECT s.item_id, s.cents, s.at, s.via, i.ai_title, i.name,
-      (SELECT a.result_json FROM appraisals a WHERE a.item_id = s.item_id AND a.status = 'done' ORDER BY a.created_at DESC LIMIT 1) AS rj,
+      -- the Guestimate as it stood when it sold; a re-run afterwards is not what the seller priced from
+      COALESCE((SELECT a.result_json FROM appraisals a WHERE a.item_id = s.item_id AND a.status = 'done' AND a.created_at <= s.at ORDER BY a.created_at DESC LIMIT 1),
+               (SELECT a.result_json FROM appraisals a WHERE a.item_id = s.item_id AND a.status = 'done' ORDER BY a.created_at DESC LIMIT 1)) AS rj,
       (SELECT r.stars FROM estimate_ratings r WHERE r.item_id = s.item_id ORDER BY r.updated_at DESC LIMIT 1) AS stars
     FROM sold s JOIN items i ON i.id = s.item_id ORDER BY s.at DESC LIMIT ?`).bind(limit).all()).results || [];
   return rows.map(r => {

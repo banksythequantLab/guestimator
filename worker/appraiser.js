@@ -157,6 +157,32 @@ export function scrubDenied(result, description) {
   return result;
 }
 
+// Sold first (2026-10-08). Measured on the first real sales: Samsung 32GB RDIMMs sold at $98 and
+// $100 with two matching eBay sales at a $103 median sitting in the result - but the range said
+// $100-$248 because asking prices (median $170) pulled it up. 8x SK Hynix 32GB sold at $99 a stick
+// against asks with a $227 median and no matching sales. 16GB sticks sold at $60 against a $71 ask.
+// So: two or more matching sales SET the range. With no matching sales, asking prices are a
+// ceiling, not a centre - used things sell below asking (45-85% of the median ask on those sales).
+const med = a => { const s = [...a].sort((x, y) => x - y), m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+export function anchorToEvidence(price, { sold = [], askMedian = 0, askCount = 0 } = {}) {
+  if (!price || !(price.high > 0)) return { price, note: null };
+  const S = (sold || []).map(Number).filter(p => Number.isFinite(p) && p > 0).sort((a, b) => a - b);
+  if (S.length >= 2) {
+    const m = med(S);
+    const lo = Math.round(Math.min(Math.max(S[0], m * 0.8), m * 0.85)), hi = Math.round(Math.max(Math.min(S[S.length - 1], m * 1.25), m * 1.15));
+    if (lo === price.low && hi === price.high) return { price, note: null };
+    return { price: { ...price, low: lo, high: hi, suggested_retail: Math.round(m), floor: Math.min(Number(price.floor) || lo, lo) },
+             note: `priced from ${S.length} actual eBay sales of this item (median $${Math.round(m)}), which outweigh asking prices; the first pass said $${price.low}-$${price.high}.` };
+  }
+  const a = Number(askMedian);
+  if (Number(askCount) >= 3 && a > 0 && price.high > a * 1.05) {
+    const lo = Math.round(a * 0.45), hi = Math.round(a);
+    return { price: { ...price, low: lo, high: hi, suggested_retail: Math.round(a * 0.65), floor: Math.min(Number(price.floor) || lo, lo) },
+             note: `no completed sales matched, so this is set from ${askCount} asking prices (median $${Math.round(a)}). Used items usually sell below asking - on Guestimator's own sales so far, 45-85% of the median ask - so the range runs from 45% to 100% of it; the first pass said $${price.low}-$${price.high}.` };
+  }
+  return { price, note: null };
+}
+
 export function clampToComps(price, comparables) {
   const ps = (comparables || []).map(cp => Number(cp && cp.price)).filter(p => Number.isFinite(p) && p > 0);
   if (!ps.length || !price || !(price.high > 0)) return { price, note: null };
@@ -2159,6 +2185,9 @@ export async function appraise(env, req) {
     // and the raw fallback showed $100–$1,100 with a 2x32GB kit in it. Nothing kept, nothing shown.
     if (keptSold.length) soldShown = { ...summarise(keptSold, "eBay sold, last 90 days"), recent: keptSold };
     else if (comparables.length) soldShown = null;
+    // Sales set the price; with none, asking prices cap it (anchorToEvidence). Per piece, before any lot multiply.
+    { const an = anchorToEvidence(price, { sold: keptSold.map(x => x.price), askMedian: marketShown && marketShown.median, askCount: marketShown && marketShown.count });
+      if (an.note) { price = an.price; warnings.push(an.note); price.basis = `${price.basis || ""} ${an.note[0].toUpperCase()}${an.note.slice(1)}`.trim(); } }
 
     // Two markets under one set of search terms. The dealer owns one of them, and which one
     // changes the price several-fold, so neither a single range nor a quiet trim is honest.
