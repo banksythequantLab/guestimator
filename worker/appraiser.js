@@ -160,6 +160,10 @@ export function scrubDenied(result, description) {
 export function clampToComps(price, comparables) {
   const ps = (comparables || []).map(cp => Number(cp && cp.price)).filter(p => Number.isFinite(p) && p > 0);
   if (!ps.length || !price || !(price.high > 0)) return { price, note: null };
+  // One ASKING price is not enough to steer the range: the painted cabinet (2026-10-08) was pulled
+  // up to $740-$1,850 by a single Etsy shop's $1,850 ask, after running $130-$260 the run before.
+  // One actual sale still counts; one listing nobody has bought from does not.
+  if (ps.length === 1 && !(comparables || []).some(cp => cp && cp.sold)) return { price, note: null };
   // One listing is thin evidence, so it gets looser bounds than two or more.
   const one = ps.length === 1;
   const lo = Math.round(Math.min(...ps) * (one ? 0.4 : 0.6)), hi = Math.round(Math.max(...ps) * (one ? 1.5 : 1.25));
@@ -2402,6 +2406,8 @@ export async function appraise(env, req) {
     ]),
     price_range: price,
     comparables,
+    // Few real comparables: the app labels the range a rough guess instead of a price.
+    thin_evidence: (comparables || []).filter(cp => cp && Number(cp.price) > 0).length <= 1 && !(comparables || []).some(cp => cp && cp.sold),
     listing,
     questions_for_dealer: clean(strs(first.questions_for_dealer)),
     shipping: shippingEstimate(first.shipping, lotInfo),

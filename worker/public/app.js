@@ -1125,9 +1125,9 @@ async function renderItemDetail(id) {
           <div class="muted" style="font-size:.8rem;margin-top:4px">The range below is a rough guess from similar items listed now. Set your own price if you know better, or add a clearer photo of any marks and re-run.</div>
         </div>` : ""}
       <div class="kpis" style="margin:12px 0">
-        <div class="kpi"><div class="n">$${Math.round(pr.low)}–$${Math.round(pr.high)}</div><div class="l">${r.unknown ? "Rough guess" : "Price range"}</div></div>
+        <div class="kpi"><div class="n">$${Math.round(pr.low)}–$${Math.round(pr.high)}</div><div class="l">${r.unknown || r.thin_evidence ? "Rough guess" : "Price range"}</div></div>
         <div class="kpi"><div class="n">$${Math.round(pr.suggested_retail)}</div><div class="l">Suggested · floor $${Math.round(pr.floor)}</div></div>
-      </div>`}
+      </div>${r.thin_evidence && !r.unknown ? `<div class="muted" style="font-size:.8rem;margin:-6px 0 10px;padding:8px 10px;border-left:4px solid var(--gold,#B8862F);background:var(--bg);border-radius:8px">Few real sales to go on (${(r.comparables || []).length ? "one comparable listing" : "no comparable listings"}), so treat this as a rough guess. Check the comparables, or set your own price if you know better.</div>` : ""}`}
       ${r.lot ? `<div style="margin:8px 0;padding:8px 10px;border-left:3px solid var(--amber,#b8860b);background:var(--bg);font-size:.82rem">
           <b>$${r.lot.unit_retail} each × ${r.lot.count} pieces</b> — $${r.lot.unit_low}–$${r.lot.unit_high} per piece
           <div class="muted" style="margin-top:3px">Counted because ${esc(r.lot.how)}. The totals above are the whole lot; sold one at a time the per-piece price is what matters — check that it looks right.</div>
