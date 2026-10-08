@@ -1,0 +1,21 @@
+// Run: node worker/tests/ownerweekly_test.mjs
+import { d1 } from "./d1shim.mjs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import * as O from "../ownerweekly.js";
+const here = dirname(fileURLToPath(import.meta.url));
+let pass = 0, fail = 0;
+const ok = (n, c, got) => { c ? pass++ : (fail++, console.log("FAIL " + n + (got !== undefined ? "\n     got " + JSON.stringify(got) : ""))); };
+const db = d1(join(here, "..", "migrations"));
+const mails = [];
+const env = { DB: db, ADMIN_EMAIL: "owner@example.com", EMAIL: { send: async m => { mails.push(m); return { messageId: "m" }; } } };
+const mon = Date.parse("2026-10-12T13:20:00Z"), tue = Date.parse("2026-10-13T14:00:00Z"), sunEarly = Date.parse("2026-10-12T09:00:00Z");
+ok("week key is that Monday", O.weekKey(tue) === "2026-10-12" && O.weekKey(mon) === "2026-10-12");
+ok("not before Monday 13:00 UTC", (await O.sendOwnerWeekly(env, db, "https://g.test", sunEarly)).why === "not the window" && mails.length === 0);
+let r = await O.sendOwnerWeekly(env, db, "https://g.test", mon);
+ok("sends on Monday to the owner", r.sent && mails.length === 1 && mails[0].to === "owner@example.com", r);
+ok("has the sections and the owner link", ["Sign-ups", "Guestimates", "Sales (30 days)", "Guestimate vs. what it sold for", "Partners", "Problems"].every(h => mails[0].text.includes(h)) && mails[0].text.includes("https://g.test/owner"), mails[0].text);
+ok("once per week", (await O.sendOwnerWeekly(env, db, "https://g.test", mon + 900e3)).why === "already sent this week" && mails.length === 1);
+ok("no owner email -> nothing sent", (await O.sendOwnerWeekly({ ...env, ADMIN_EMAIL: "", LABEL_USERS: "" }, db, "https://g.test", mon + 7 * 864e5)).sent === false);
+console.log("ownerweekly_test: " + pass + " passed, " + fail + " failed");
+if (fail) process.exitCode = 1;

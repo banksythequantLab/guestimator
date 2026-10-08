@@ -31,6 +31,7 @@ import * as nudges from "./nudges.js";
 import * as profit from "./profit.js";
 import { priceCheck } from "./pricecheck.js";
 import * as weekly from "./weekly.js";
+import * as ownerweekly from "./ownerweekly.js";
 import { packageFor, flatRateFits } from "./packing.js";
 import * as stickers from "./stickers.js";
 import * as watchers from "./watchers.js";
@@ -1547,6 +1548,8 @@ export default {
     try { await growth.winbackSweep(env, db, origin); } catch (e) { await owner.opsFail(db, "winback failed", e); console.log("winback failed", String(e && e.message || e)); }
     // Monday selling summary (no-op outside the window; once a week per seller).
     try { await weekly.emailWeekly(env, db, origin); } catch (e) { await owner.opsFail(db, "weekly summary failed", e); console.log("weekly summary failed", String(e && e.message || e)); }
+    // The owner's own Monday report (once a week, to ADMIN_EMAIL).
+    try { await ownerweekly.sendOwnerWeekly(env, db, origin); } catch (e) { await owner.opsFail(db, "owner weekly failed", e); console.log("owner weekly failed", String(e && e.message || e)); }
   },
 
   // An appraisal takes ~2 minutes of waiting on Token Factory. ctx.waitUntil() only buys 30s after the
