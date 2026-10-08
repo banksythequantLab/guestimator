@@ -1143,6 +1143,10 @@ ${r && !nc && !r.unknown && appraisal.status === "done" && pr && pr.high > 0 ? `
     ${ebayPanelHtml(b, !!(r && !nc && appraisal.status === "done"))}
     ${r && !nc && !r.unknown && appraisal.status === "done" && item.listing_status !== "sold" ? `<div class="card" id="mktCard" style="border-color:var(--cobalt)"><b>🛒 Sell it on the Guestimator Market</b>
       <div class="muted" style="font-size:.8rem;margin:2px 0 8px">Anyone can find it and buy it on the Guestimator Market. They pay you directly. We take no cut.</div><div id="mktBody"><button class="btn" id="mktOpen" style="background:var(--cobalt)">Sell on the Market</button></div></div>` : ""}
+    ${r && !nc && !r.unknown && appraisal.status === "done" && appraisal.big_piece && item.listing_status !== "sold" ? `<div class="card" id="aptCard"><b>🛋️ Big piece? AptDeco picks it up</b>
+      <div class="muted" style="font-size:.8rem;margin:2px 0 8px">AptDeco sells furniture and big decor nationwide (not Alaska or Hawaii) and handles pickup and delivery for you. Unlike the Guestimator Market they keep a share: sellers get up to 70% of the sale. Use your Guestimate above to set the price.</div>
+      <a class="btn sec" href="/go/aptdeco?item=${encodeURIComponent(id)}" target="_blank" rel="noopener sponsored">List it on AptDeco ↗</a>
+      <div class="muted" style="font-size:.7rem;margin-top:6px">Guestimator may earn a referral fee from AptDeco. It never comes out of your sale price.</div></div>` : ""}
     ${r && !nc && appraisal.status === "done" ? salePanelHtml() : ""}
     ${item.listing_status !== "sold" ? `<div class="card" id="soldCard" style="padding:12px 16px${state.fromSticker === id ? ";border-color:var(--green)" : ""}"><div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
       <div style="flex:1;min-width:140px"><b style="font-size:.9rem">Sold it in person?</b><div class="muted" style="font-size:.75rem">Takes it off eBay and counts it in your profit report.</div></div>

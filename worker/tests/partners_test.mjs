@@ -1,0 +1,26 @@
+// Run: node worker/tests/partners_test.mjs
+import { d1 } from "./d1shim.mjs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import * as P from "../partners.js";
+const here = dirname(fileURLToPath(import.meta.url));
+let pass = 0, fail = 0;
+const ok = (n, c, got) => { c ? pass++ : (fail++, console.log("FAIL " + n + (got !== undefined ? "\n     got " + JSON.stringify(got) : ""))); };
+ok("cabinet by name", P.isBigPiece({ identification: { name: "Hand-painted wooden cabinet" } }));
+ok("big by size", P.isBigPiece({ identification: { name: "Painted box" }, shipping: { item_in: [59, 29, 29] } }));
+ok("big by weight", P.isBigPiece({ identification: { name: "Cast iron sculpture" }, shipping: { item_in: [12, 10, 8], item_weight_lb: 55 } }));
+ok("teacup is not", !P.isBigPiece({ identification: { name: "Bone china teacup", category: "Ceramics" }, shipping: { item_in: [4, 4, 3], item_weight_lb: 0.4 } }));
+ok("RAM stick is not", !P.isBigPiece({ identification: { name: "Samsung 32GB DDR4 RDIMM" }, shipping: { item_in: [6, 2, 1], item_weight_lb: 0.1 } }));
+ok("'table' word inside another word is not furniture", !P.isBigPiece({ identification: { name: "Collectable stamps" } }));
+ok("no result", !P.isBigPiece(null));
+ok("plain link with no affiliate id", P.aptdecoLink({}) === "https://www.aptdeco.com/sell/new");
+ok("Awin link with id, destination encoded", P.aptdecoLink({ AWIN_AFFID: "123456" }) === "https://www.awin1.com/cread.php?awinmid=93197&awinaffid=123456&ued=https%3A%2F%2Fwww.aptdeco.com%2Fsell%2Fnew");
+ok("junk id ignored", P.aptdecoLink({ AWIN_AFFID: "abc" }) === "https://www.aptdeco.com/sell/new");
+const db = d1(join(here, "..", "migrations"));
+const r = await P.goAptdeco({ DB: db, AWIN_AFFID: "77" }, new URL("https://g.test/go/aptdeco?item=it1"));
+ok("redirects to AptDeco", r.status === 302 && /awinaffid=77/.test(r.headers.get("location")));
+ok("click counted", (await P.clicks30(db)) === 1);
+const r2 = await P.goAptdeco({ DB: null }, new URL("https://g.test/go/aptdeco"));
+ok("still redirects if counting fails", r2.status === 302);
+console.log("partners_test: " + pass + " passed, " + fail + " failed");
+if (fail) process.exitCode = 1;

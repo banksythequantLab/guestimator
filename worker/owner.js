@@ -10,6 +10,7 @@ import * as feedback from "./feedback.js";
 import { parsePromoCodes } from "./billing.js";
 import * as growth from "./growth.js";
 import * as quota from "./quota.js";
+import * as partners from "./partners.js";
 import * as accuracy from "./accuracy.js";
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -78,11 +79,12 @@ export async function ownerStats(db, env, ms = Date.now()) {
   const unsent = await growth.winbackUnsent(db);
   const winbackPreview = growth.winbackFreeMail(env, env.PUBLIC_ORIGIN || "https://app.theguestimator.com", Math.min(20, Math.max(1, Math.floor(Number(env.SIGNUP_CREDITS ?? 5)) || 5)), "(their own unsubscribe link)").text;
   const alerts = await quota.recentAlerts(db).catch(() => []);
+  const aptClicks = await partners.clicks30(db);
   const sources = (await db.prepare(`SELECT COALESCE(u.signup_source, '(unknown)') src, COALESCE(u.signup_campaign, '') camp, COUNT(*) n,
       SUM(EXISTS (SELECT 1 FROM sales s JOIN items i ON i.sale_id=s.id JOIN appraisals a ON a.item_id=i.id WHERE s.user_id=u.id)) est
     FROM users u WHERE u.created_at>=? GROUP BY 1,2 ORDER BY n DESC LIMIT 20`).bind(d30).all().catch(() => ({ results: [] }))).results || [];
   const acc = await accuracy.accuracyRows(db).catch(() => []);
-  return { at: iso(ms), alerts, sources, acc, accSum: accuracy.summary(acc), funnel, winback, unsent, winbackPreview, users, est, paid, ebay, garage, market, promos, feedback: await feedback.ownerList(db).catch(() => []), labels: { used: await labelpay.monthCount(db, ms), cap: labelpay.houseCap(env), pay_on: labelpay.payOn(env), payments: labelPays, problems: labelProblems, voids },
+  return { at: iso(ms), alerts, aptClicks, sources, acc, accSum: accuracy.summary(acc), funnel, winback, unsent, winbackPreview, users, est, paid, ebay, garage, market, promos, feedback: await feedback.ownerList(db).catch(() => []), labels: { used: await labelpay.monthCount(db, ms), cap: labelpay.houseCap(env), pay_on: labelpay.payOn(env), payments: labelPays, problems: labelProblems, voids },
            errors: { jobs: jobErrors, last: lastErrors, estimates: estErrors, listings: listErrors }, recent };
 }
 
@@ -133,6 +135,7 @@ ${tile("eBay sales", n(s.ebay.sold30), `30 days · ${money(s.ebay.gmv30)}`)}
 ${tile("Garage sales live", n(s.garage.live), "")}
 ${tile("Garage online sales", n(s.garage.sold30), `30 days · ${money(s.garage.gmv30)}`)}</div>
 <h2>Guestimator Market</h2><div class="g">
+${tile("AptDeco clicks (30 days)", n(s.aptClicks), "big pieces sent to AptDeco")}
 ${tile("Market page views", n((s.market || {}).views7), `7 days · ${n((s.market || {}).views30)} in 30 days`)}
 ${tile("Shops opened", n((s.market || {}).shops), `${n((s.market || {}).shops_ready)} can take payment (Stripe ready)`)}
 ${tile("Items buyers can see", n((s.market || {}).visible), `${n((s.market || {}).listed)} in shops in all`)}

@@ -20,6 +20,7 @@ async function grantSignup(env, db, userId, ts) {
 }
 import { appraise, sizeOnly, writeListingCopy } from "./appraiser.js";
 import * as quota from "./quota.js";
+import * as partners from "./partners.js";
 import * as ebay from "./ebay.js";
 import * as garage from "./garage.js";
 import { quoteShipping } from "./shipping.js";
@@ -232,6 +233,7 @@ async function itemBundle(db, itemId) {
   let appraisal = null;
   if (ap) appraisal = { id: ap.id, status: ap.status, error: ap.error, created_at: ap.created_at, completed_at: ap.completed_at,
                         result: ap.result_json ? JSON.parse(ap.result_json) : null };
+  if (appraisal) appraisal.big_piece = partners.isBigPiece(appraisal.result);   // AptDeco option (partners.js)
   // Estimates made before the two-tries rule (2026-10-05) still carry their questions; apply the
   // rule when they are read, so an item already in a question loop opens as "unknown" instead.
   const res0 = appraisal?.result;
@@ -283,6 +285,7 @@ export default {
       }
       // ---------- PUBLIC: garage / estate sale pages ----------
       if (parts[0] === "market" && parts.length === 1 && m === "GET") return await market.marketPage(env, url);
+    if (parts[0] === "go" && parts[1] === "aptdeco" && parts.length === 2 && m === "GET") return await partners.goAptdeco(env, url);
       // Market terms: public once MARKET_TERMS_LIVE is on; until then a DRAFT only the owner sees.
       if (parts[0] === "market-terms" && parts.length === 1 && m === "GET") {
         let ok = terms.termsLive(env);
