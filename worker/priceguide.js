@@ -50,6 +50,8 @@ export function guideOf(row) {
     comps, estimated_at: row.estimated_at, updated_at: row.updated_at || row.estimated_at,
     live: live ? { price: row.price_cents / 100, url: row.listing_url || `https://www.ebay.com/itm/${row.listing_id}` } : null,
     sold_on_ebay: !!row.sold_here,
+    // One comparable or none, and no sale: the public page says it's a rough guess, as the app does.
+    thin: !r.unknown && comps.length <= 1 && !comps.some(c => c.sold) && !(Number(row.sold_count) >= 3),
   };
 }
 
@@ -114,7 +116,8 @@ export function guidePage(g, origin, more = []) {
   const crumbs = { "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: [
     { "@type": "ListItem", position: 1, name: "Price guide", item: origin + "/prices" }, { "@type": "ListItem", position: 2, name: g.title, item: url }] };
   const body = `<h1>${esc(g.title)}: what it's worth</h1><div class="m">Guestimated ${esc(day(g.estimated_at))}</div>
-<div class="card"><div class="m">Guestimate</div><div class="big">${dollars(r.low)} – ${dollars(r.high)}</div>
+<div class="card"><div class="m">${g.thin ? "Guestimate · rough guess" : "Guestimate"}</div><div class="big">${dollars(r.low)} – ${dollars(r.high)}</div>
+${g.thin ? `<div class="m" style="margin-top:4px">Few real sales to compare against (${g.comps.length ? "one comparable listing" : "none found"}), so treat this range as a rough guess.</div>` : ""}
 ${g.sold ? `<div style="margin-top:6px"><b>Recently sold on eBay:</b> median ${dollars(g.sold.median)} across ${g.sold.count} sales <span class="m">(checked ${esc(day(g.sold.as_of))})</span></div>` : ""}
 ${g.market ? `<div style="margin-top:4px"><b>Asking now:</b> ${dollars(g.market.low)}–${dollars(g.market.high)} across ${g.market.count} comparable listings, median ${dollars(g.market.median)}</div>` : ""}
 ${g.sold_on_ebay ? `<div style="margin-top:6px">✓ One of these sold on eBay through Guestimator.</div>` : ""}</div>

@@ -99,5 +99,11 @@ ok("shown again", (await get(path)).status === 200);
   ok("in the index and sitemap", (await get("/prices")).text.includes(op) && (await get("/sitemap.xml")).text.includes(op));
   ok("eBay-listed items don't offer opt-in", !(await P.guideStatus(db, "i1", "https://g.test")).optin.eligible);
 }
+{ const PG = await import("../priceguide.js");
+  const base = { identification: { name: "Oil painting" }, price_range: { low: 200, high: 500 } };
+  const one = PG.guideOf({ listing_id: "g000000000001", status: "optin", title: "Oil painting", result_json: JSON.stringify({ ...base, comparables: [{ title: "x", price: 300 }] }) });
+  const four = PG.guideOf({ listing_id: "g000000000002", status: "optin", title: "Oil painting", result_json: JSON.stringify({ ...base, comparables: [1,2,3,4].map(n => ({ title: "x" + n, price: 100 * n })) }) });
+  ok("one comparable -> public page says rough guess", one.thin && PG.guidePage(one, "https://g.test").includes("rough guess"));
+  ok("four comparables -> no rough-guess note", !four.thin && !PG.guidePage(four, "https://g.test").includes("rough guess")); }
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
