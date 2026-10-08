@@ -845,7 +845,8 @@ const SHOTS = [
 function renderCapture(pre) {
   state.tab = "items"; setChrome();
   const shots = {};
-  app.innerHTML = `<h1 class="h1">Add item with AI</h1>
+  app.innerHTML = `<button class="back" id="cBack" style="padding:8px 0">‹ Back</button>
+    <h1 class="h1">Add item with AI</h1>
     <div class="muted" style="font-size:.85rem;margin-bottom:6px">Take the shots you can. The marks photo matters most.</div>
     <div class="card"><div class="shots" id="shots">${SHOTS.map(s => `
       <div class="shot" data-kind="${s.kind}"><input type="file" class="upin" accept="image/jpeg,image/png,image/webp" hidden><input type="file" class="camin" accept="image/jpeg,image/png,image/webp" capture="environment" hidden>
@@ -921,7 +922,15 @@ function renderCapture(pre) {
     bumpMore();
     if (pre.text && !$("#cDesc").value) $("#cDesc").value = pre.text;
   })();
-  $("#cCancel").onclick = renderHome;
+  // Back / Cancel: changed their mind. Nothing is saved until a button below is tapped, so this
+  // only asks first when there is something on the screen to lose.
+  const leave = () => {
+    const typed = ["#cTitle", "#cDesc", "#cMarks"].some(s => $(s) && $(s).value.trim());
+    if ((Object.keys(shots).length || more.length || typed) && !confirm("Leave without adding this item? Your photos and notes won't be kept.")) return;
+    renderHome();
+  };
+  $("#cCancel").onclick = leave;
+  $("#cBack").onclick = leave;
   $("#cSkip").onclick = async () => {
     const files = [...Object.entries(shots).map(([k, f]) => ({ kind: k, f })), ...more.map(f => ({ kind: "other", f }))];
     const name = $("#cTitle").value.trim();
