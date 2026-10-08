@@ -233,7 +233,7 @@ async function itemBundle(db, itemId) {
   let appraisal = null;
   if (ap) appraisal = { id: ap.id, status: ap.status, error: ap.error, created_at: ap.created_at, completed_at: ap.completed_at,
                         result: ap.result_json ? JSON.parse(ap.result_json) : null };
-  if (appraisal) appraisal.big_piece = partners.isBigPiece(appraisal.result);   // AptDeco option (partners.js)
+  if (appraisal) { appraisal.big_piece = partners.isBigPiece(appraisal.result); appraisal.trade_in = partners.isTradeIn(appraisal.result); }   // AptDeco option (partners.js)
   // Estimates made before the two-tries rule (2026-10-05) still carry their questions; apply the
   // rule when they are read, so an item already in a question loop opens as "unknown" instead.
   const res0 = appraisal?.result;
@@ -285,7 +285,7 @@ export default {
       }
       // ---------- PUBLIC: garage / estate sale pages ----------
       if (parts[0] === "market" && parts.length === 1 && m === "GET") return await market.marketPage(env, url);
-    if (parts[0] === "go" && parts[1] === "aptdeco" && parts.length === 2 && m === "GET") return await partners.goAptdeco(env, url);
+    if (parts[0] === "go" && parts.length === 2 && m === "GET" && Object.hasOwn(partners.PARTNERS, parts[1])) return await partners.go(env, url, parts[1]);
       // Market terms: public once MARKET_TERMS_LIVE is on; until then a DRAFT only the owner sees.
       if (parts[0] === "market-terms" && parts.length === 1 && m === "GET") {
         let ok = terms.termsLive(env);
@@ -328,7 +328,7 @@ export default {
         if (url.pathname === "/robots.txt") return new Response(priceguide.robots(origin), { headers: { "content-type": "text/plain; charset=utf-8", ...pub } });
         if (url.pathname === "/sitemap.xml") return new Response(priceguide.sitemap(await priceguide.allGuides(db), origin, await market.sitemapEntries(env, db).catch(() => [])), { headers: { "content-type": "application/xml; charset=utf-8", ...pub } });
         if (url.pathname === "/prices") return new Response(priceguide.indexPage(await priceguide.allGuides(db), origin), { headers: { "content-type": "text/html; charset=utf-8", ...pub } });
-        const idm = url.pathname.match(/^\/price\/(?:[a-z0-9-]*-)?(\d{6,20})\/?$/);
+        const idm = url.pathname.match(/^\/price\/(?:[a-z0-9-]*-)?(\d{6,20}|g[0-9a-f]{12})\/?$/);
         const g = idm && await priceguide.guideById(db, idm[1]);
         if (!g) return new Response(`<!doctype html><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width"><p style="font-family:system-ui;padding:24px">That price page isn't here. <a href="/prices">See the price guide</a>.</p>`, { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
         if (url.pathname !== priceguide.pagePath(g)) return Response.redirect(origin + priceguide.pagePath(g), 301);
@@ -1115,7 +1115,8 @@ export default {
         if (parts[3] === "guide" && m === "GET") return J(await priceguide.guideStatus(db, iid, env.PUBLIC_ORIGIN || url.origin));
         if (parts[3] === "guide" && m === "POST") {
           const b = await readJson(request);
-          await db.prepare("UPDATE items SET guide_hidden=? WHERE id=?").bind(b.hidden ? 1 : null, iid).run();
+          if (b.hidden !== undefined) await db.prepare("UPDATE items SET guide_hidden=? WHERE id=?").bind(b.hidden ? 1 : null, iid).run();
+          if (b.public !== undefined) await db.prepare("UPDATE items SET guide_public=?, guide_hidden=NULL WHERE id=?").bind(b.public ? 1 : null, iid).run();
           return J(await priceguide.guideStatus(db, iid, env.PUBLIC_ORIGIN || url.origin));
         }
         if (parts.length === 3 && m === "DELETE") {

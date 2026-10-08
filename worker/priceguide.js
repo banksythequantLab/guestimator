@@ -22,6 +22,15 @@ const BASE = `SELECT l.listing_id, l.listing_url, l.status, l.price_cents, l.sol
   WHERE l.listing_id IS NOT NULL AND l.status<>'draft' AND l.status<>'error'
     AND l.created_at=(SELECT MAX(created_at) FROM ebay_listings y WHERE y.item_id=l.item_id AND y.listing_id IS NOT NULL)`;
 const SHOWN = " AND COALESCE(i.guide_hidden,0)=0";
+// Opted in (2026-10-08): a finished Guestimate the seller chose to publish without an eBay listing.
+// Same page, same rules - no photos, no seller, no location - keyed "g" + 12 hex of the item id.
+export const optKey = itemId => "g" + String(itemId || "").replace(/[^0-9a-f]/gi, "").slice(0, 12).toLowerCase();
+const OPT = `SELECT 'g' || lower(substr(replace(i.id,'-',''),1,12)) AS listing_id, NULL AS listing_url, 'optin' AS status, NULL AS price_cents,
+    NULL AS sold_count, NULL AS sold_median_cents, NULL AS sold_checked_at, a.created_at AS updated_at,
+    COALESCE(i.ai_title, i.name) AS title, i.listing_status, a.result_json, a.created_at AS estimated_at, 0 AS sold_here
+  FROM items i JOIN appraisals a ON a.id=(SELECT id FROM appraisals x WHERE x.item_id=i.id AND x.status='done' ORDER BY x.created_at DESC LIMIT 1)
+  WHERE COALESCE(i.guide_public,0)=1 AND COALESCE(i.guide_hidden,0)=0
+    AND NOT EXISTS (SELECT 1 FROM ebay_listings e WHERE e.item_id=i.id AND e.listing_id IS NOT NULL AND e.status<>'draft' AND e.status<>'error')`;
 
 /** Turns a row into what a page may show. Nothing about the seller survives this. */
 export function guideOf(row) {
@@ -46,10 +55,18 @@ export function guideOf(row) {
 
 export async function allGuides(db, limit = 5000) {
   const { results } = await db.prepare(`${BASE}${SHOWN} ORDER BY l.updated_at DESC LIMIT ?`).bind(limit).all();
-  return (results || []).map(guideOf).filter(Boolean);
+  let opt = [];
+  try { opt = (await db.prepare(`${OPT} ORDER BY a.created_at DESC LIMIT ?`).bind(limit).all()).results || []; } catch (e) { console.log("guide opt-in", e && e.message); }
+  return [...(results || []), ...opt].map(guideOf).filter(Boolean)
+    .sort((x, y) => String(y.updated_at || "").localeCompare(String(x.updated_at || ""))).slice(0, limit);
 }
 export async function guideById(db, listingId) {
-  const row = await db.prepare(`${BASE}${SHOWN} AND l.listing_id=?`).bind(String(listingId)).first();
+  const id = String(listingId);
+  if (/^g[0-9a-f]{12}$/.test(id)) {
+    const row = await db.prepare(`${OPT} AND lower(substr(replace(i.id,'-',''),1,12))=?`).bind(id.slice(1)).first();
+    return row ? guideOf(row) : null;
+  }
+  const row = await db.prepare(`${BASE}${SHOWN} AND l.listing_id=?`).bind(id).first();
   return row ? guideOf(row) : null;
 }
 
@@ -58,7 +75,14 @@ export async function guideStatus(db, itemId, origin) {
   const row = await db.prepare(`${BASE} AND l.item_id=?`).bind(itemId).first();
   const hidden = !!(await db.prepare("SELECT guide_hidden FROM items WHERE id=?").bind(itemId).first())?.guide_hidden;
   const g = row ? guideOf(row) : null;
-  return { eligible: !!g, hidden, url: g && !hidden ? origin + pagePath(g) : null };
+  if (g) return { eligible: true, hidden, url: !hidden ? origin + pagePath(g) : null, optin: { eligible: false, on: false } };
+  // Not on eBay: the seller can still publish a finished Guestimate (opt-in, off by default).
+  const it = await db.prepare("SELECT guide_public FROM items WHERE id=?").bind(itemId).first();
+  const on = !!(it && it.guide_public);
+  const ap = await db.prepare("SELECT result_json FROM appraisals WHERE item_id=? AND status='done' ORDER BY created_at DESC LIMIT 1").bind(itemId).first();
+  const og = ap ? guideOf({ listing_id: optKey(itemId), status: "optin", result_json: ap.result_json, title: "x" }) : null;
+  const pg = on && !hidden && og ? await guideById(db, optKey(itemId)) : null;
+  return { eligible: false, hidden, url: pg ? origin + pagePath(pg) : null, optin: { eligible: !!og, on } };
 }
 
 export const CSS = `:root{--bg:#ffffff;--card:#ffffff;--ink:#111111;--mut:#5a5a5a;--line:#e5e5e5;--acc:#a55a42;--btn:#d97757}

@@ -125,6 +125,38 @@ export function dealerSized(shipping, description) {
   return s;
 }
 
+// Things the seller says are NOT part of the item: "No uhaul sign it is a box sitting next to it"
+// (2026-10-08). The identify prompt already says the seller settles this, but the model still
+// named the oak cabinet "...with U-Haul motifs" and wrote "UHaul Graphics" into the listing
+// title, so the seller's word is applied here, after the model, where it can't be ignored.
+const DENY_STOP = new Set(["any", "the", "a", "an", "other", "visible", "real", "such"]);
+export function deniedTerms(description) {
+  const d = String(description || "").toLowerCase(), out = new Set();
+  const add = t => { const k = String(t || "").replace(/[^a-z0-9]/g, ""); if (k.length >= 3 && !DENY_STOP.has(String(t).trim())) out.add(k); };
+  for (const m of d.matchAll(/\bno\s+([a-z0-9][a-z0-9.'-]*(?:\s[a-z0-9.'-]+)?)\s+(?:signs?|logos?|labels?|stickers?|decals?|graphics?|motifs?|branding|lettering|writing|text)\b/g)) add(m[1]);
+  for (const m of d.matchAll(/\b([a-z0-9][a-z0-9.'-]*(?:\s[a-z0-9.'-]+)?)\s+(?:signs?|logos?|labels?|stickers?|box|boxes)\s+(?:is|are|was|were)\s+not\s+part\b/g)) add(m[1]);
+  return [...out];
+}
+export function scrubDenied(result, description) {
+  const terms = deniedTerms(description);
+  if (!terms.length || !result || typeof result !== "object") return result;
+  const pats = terms.map(k => k.split("").map(ch => ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[\\s.'-]?"));
+  const any = new RegExp(`\\b(?:${pats.join("|")})\\b`, "i");
+  const phrase = new RegExp(`(?:\\s*(?:,|and|with|&)\\s*)?(?:the\\s+)?\\b(?:${pats.join("|")})\\b(?:\\s+(?:motifs?|graphics?|logos?|references?|signs?|branding|text|lettering|decals?|stickers?|labels?|imagery))?`, "gi");
+  const tidy = t => String(t || "").replace(phrase, "").replace(/\s{2,}/g, " ").replace(/\s+([,.;:])/g, "$1")
+    .replace(/(?:\s*(?:,|with|and|&|featuring|decorated with))+\s*$/i, "").trim();
+  const id = result.identification;
+  if (id && any.test(id.name || "")) id.name = tidy(id.name) || id.name;
+  const l = result.listing;
+  if (l) {
+    if (any.test(l.title || "")) l.title = tidy(l.title) || l.title;
+    if (any.test(l.description || "")) l.description = String(l.description).split(/(?<=[.!?])\s+/).filter(x => !any.test(x)).join(" ");
+    if (Array.isArray(l.tags)) l.tags = l.tags.filter(x => !any.test(String(x)));
+  }
+  if (Array.isArray(result.evidence)) result.evidence = result.evidence.filter(x => !any.test(String(x)));
+  return result;
+}
+
 export function clampToComps(price, comparables) {
   const ps = (comparables || []).map(cp => Number(cp && cp.price)).filter(p => Number.isFinite(p) && p > 0);
   if (!ps.length || !price || !(price.high > 0)) return { price, note: null };
@@ -2291,7 +2323,7 @@ export async function appraise(env, req) {
   if (!(price.high > 0) && !warnings.some(w => /no price|neither pricing pass/i.test(w)))
     warnings.push("no price could be set for this item; enter one by hand, or re-run the estimate");
 
-  return {
+  return scrubDenied({
     timings_ms: { ...marks, total: Date.now() - t0 },
     // Other works by the named maker (auction/dealer pages) that informed the price; context, not comps.
     maker_works: makerWorks || [],
@@ -2376,5 +2408,5 @@ export async function appraise(env, req) {
     photo_findings: findings,
     models: { text: c.text, vision: c.vision, brain: "worker" },
     warnings,
-  };
+  }, req.description);
 }

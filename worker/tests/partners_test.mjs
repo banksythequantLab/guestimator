@@ -22,5 +22,18 @@ ok("redirects to AptDeco", r.status === 302 && /awinaffid=77/.test(r.headers.get
 ok("click counted", (await P.clicks30(db)) === 1);
 const r2 = await P.goAptdeco({ DB: null }, new URL("https://g.test/go/aptdeco"));
 ok("still redirects if counting fails", r2.status === 302);
+// uShip + Decluttr (2026-10-08)
+ok("phone -> Decluttr", P.isTradeIn({ identification: { name: "Apple iPhone 12 64GB" }, price_range: { low: 150, high: 220 } }));
+ok("Lego set -> Decluttr", P.isTradeIn({ identification: { name: "LEGO Star Wars 75192", category: "Toys" }, price_range: { low: 400, high: 700 } }));
+ok("console table is furniture, not a game console", !P.isTradeIn({ identification: { name: "Mahogany console table" } }));
+ok("game console counts", P.isTradeIn({ identification: { name: "Sony PlayStation 4 Slim" }, shipping: { item_in: [12, 10, 3], item_weight_lb: 5 } }));
+ok("rare high-value piece is not a trade-in", !P.isTradeIn({ identification: { name: "Sealed Nintendo NES game" }, price_range: { low: 2000, high: 6000 } }));
+ok("RAM stick is not a trade-in", !P.isTradeIn({ identification: { name: "Samsung 32GB DDR4 RDIMM" } }));
+ok("Decluttr Awin link uses mid 8053", P.decluttrLink({ AWIN_AFFID: "77" }) === "https://www.awin1.com/cread.php?awinmid=8053&awinaffid=77&ued=https%3A%2F%2Fwww.decluttr.com%2F" && P.decluttrLink({}) === "https://www.decluttr.com/");
+ok("uShip: Impact link when set, plain site otherwise, junk ignored", P.ushipLink({ USHIP_LINK: "https://uship.pxf.io/abc" }) === "https://uship.pxf.io/abc" && P.ushipLink({}) === "https://www.uship.com/" && P.ushipLink({ USHIP_LINK: "javascript:alert(1)" }) === "https://www.uship.com/");
+const r3 = await P.go({ DB: db }, new URL("https://g.test/go/uship?item=it2"), "uship");
+const r4 = await P.go({ DB: db }, new URL("https://g.test/go/decluttr?item=it3"), "decluttr");
+ok("uShip + Decluttr redirect and count per partner", r3.status === 302 && r4.status === 302 && JSON.stringify(await P.allClicks30(db)) === JSON.stringify({ aptdeco: 1, decluttr: 1, uship: 1 }), await P.allClicks30(db));
+ok("unknown partner is a 404", (await P.go({ DB: db }, new URL("https://g.test/go/x"), "constructor")).status === 404);
 console.log("partners_test: " + pass + " passed, " + fail + " failed");
 if (fail) process.exitCode = 1;

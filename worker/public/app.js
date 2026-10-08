@@ -1139,14 +1139,20 @@ async function renderItemDetail(id) {
       <div class="muted" style="font-size:.72rem;margin-top:8px">${esc(r.models.text)} + ${esc(r.models.vision)} on Nebius</div>
     </div>` : ""}
     ${r && !nc && appraisal.status === "done" ? rateCardHtml(appraisal.rating) : ""}
-${r && !nc && !r.unknown && appraisal.status === "done" && pr && pr.high > 0 ? `<button class="btn sec" id="shareEst" style="margin:-4px 0 12px">📤 Share this price</button>` : ""}
+${r && !nc && !r.unknown && appraisal.status === "done" && pr && pr.high > 0 ? `<button class="btn sec" id="shareEst" style="margin:-4px 0 12px">📤 Share this price</button><div id="guideOpt" style="margin:-4px 0 12px;font-size:.82rem"></div>` : ""}
     ${ebayPanelHtml(b, !!(r && !nc && appraisal.status === "done"))}
     ${r && !nc && !r.unknown && appraisal.status === "done" && item.listing_status !== "sold" ? `<div class="card" id="mktCard" style="border-color:var(--cobalt)"><b>🛒 Sell it on the Guestimator Market</b>
       <div class="muted" style="font-size:.8rem;margin:2px 0 8px">Anyone can find it and buy it on the Guestimator Market. They pay you directly. We take no cut.</div><div id="mktBody"><button class="btn" id="mktOpen" style="background:var(--cobalt)">Sell on the Market</button></div></div>` : ""}
     ${r && !nc && !r.unknown && appraisal.status === "done" && appraisal.big_piece && item.listing_status !== "sold" ? `<div class="card" id="aptCard"><b>🛋️ Big piece? AptDeco picks it up</b>
       <div class="muted" style="font-size:.8rem;margin:2px 0 8px">AptDeco sells furniture and big decor nationwide (not Alaska or Hawaii) and handles pickup and delivery for you. Unlike the Guestimator Market they keep a share: sellers get up to 70% of the sale. Use your Guestimate above to set the price.</div>
       <a class="btn sec" href="/go/aptdeco?item=${encodeURIComponent(id)}" target="_blank" rel="noopener sponsored">List it on AptDeco ↗</a>
-      <div class="muted" style="font-size:.7rem;margin-top:6px">Guestimator may earn a referral fee from AptDeco. It never comes out of your sale price.</div></div>` : ""}
+      <div class="muted" style="font-size:.8rem;margin:12px 0 6px"><b>Sold it to someone far away?</b> uShip finds carriers for big, heavy items: list the move and carriers quote a price.</div>
+      <a class="btn sec" href="/go/uship?item=${encodeURIComponent(id)}" target="_blank" rel="noopener sponsored">Get shipping quotes on uShip ↗</a>
+      <div class="muted" style="font-size:.7rem;margin-top:6px">Guestimator may earn a referral fee from AptDeco or uShip. It never comes out of your sale price.</div></div>` : ""}
+    ${r && !nc && !r.unknown && appraisal.status === "done" && appraisal.trade_in && item.listing_status !== "sold" ? `<div class="card" id="tradeCard"><b>📱 Want it gone today? Decluttr</b>
+      <div class="muted" style="font-size:.8rem;margin:2px 0 8px">Decluttr buys phones, tablets, game consoles, video games, CDs, DVDs and Lego for a fixed price you see before you send it. It's usually less than an eBay sale, but there's no listing and no buyer to wait for. Compare their offer with your Guestimate above.</div>
+      <a class="btn sec" href="/go/decluttr?item=${encodeURIComponent(id)}" target="_blank" rel="noopener sponsored">See Decluttr's offer ↗</a>
+      <div class="muted" style="font-size:.7rem;margin-top:6px">Guestimator may earn a referral fee from Decluttr. It never comes out of your price.</div></div>` : ""}
     ${r && !nc && appraisal.status === "done" ? salePanelHtml() : ""}
     ${item.listing_status !== "sold" ? `<div class="card" id="soldCard" style="padding:12px 16px${state.fromSticker === id ? ";border-color:var(--green)" : ""}"><div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
       <div style="flex:1;min-width:140px"><b style="font-size:.9rem">Sold it in person?</b><div class="muted" style="font-size:.75rem">Takes it off eBay and counts it in your profit report.</div></div>
@@ -1288,6 +1294,7 @@ ${r && !nc && !r.unknown && appraisal.status === "done" && pr && pr.high > 0 ? `
   };
   state.view = "item"; state.itemId = id;
   if ($("#guideBox")) guideBox(id);
+  if ($("#guideOpt")) guideOptBox(id);
   if ($("#etsyBox")) etsyBox(id);
   // The 8-bit robot (robot.js) keeps its place across the 4-second re-renders instead of
   // starting over each time: it is timed from when this estimate was first seen pending.
@@ -1383,6 +1390,20 @@ async function etsyBox(id) {
   };
 }
 
+// Not listed on eBay: the seller can still put a finished Guestimate on the public price guide.
+// Off unless they tick it. No photos, name or location are ever shown.
+async function guideOptBox(id) {
+  const box = $("#guideOpt"); if (!box) return;
+  let g; try { g = await api(`/items/${id}/guide`); } catch { return; }
+  if (!g.optin || !g.optin.eligible) { box.innerHTML = ""; return; }
+  box.innerHTML = `<label class="row" style="gap:8px;align-items:center;font-weight:400;margin:0"><input type="checkbox" id="guidePub" ${g.optin.on ? "checked" : ""} style="width:auto">
+    <span>Add this Guestimate to the public <a href="/prices" target="_blank" rel="noopener" style="color:var(--cobalt)">price guide</a>${g.url ? ` · <a href="${esc(g.url)}" target="_blank" rel="noopener" style="color:var(--cobalt)">see its page ↗</a>` : ""}</span></label>
+    <div class="muted" style="font-size:.74rem;margin-top:2px">Shows the item's name, price range and comparables. Never your photos, name or location. Untick any time.</div>`;
+  $("#guidePub").onchange = async e => {
+    try { await api(`/items/${id}/guide`, { method: "POST", body: JSON.stringify({ public: e.target.checked }) }); toast(e.target.checked ? "Added to the price guide" : "Removed from the price guide"); guideOptBox(id); }
+    catch (err) { toast(err.message); e.target.checked = !e.target.checked; }
+  };
+}
 // Public price guide (/price/...): the item's page link, and the seller's switch to keep it off.
 async function guideBox(id) {
   const box = $("#guideBox"); if (!box) return;

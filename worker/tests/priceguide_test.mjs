@@ -82,5 +82,22 @@ ok("shown again", (await get(path)).status === 200);
   ok("links to other price-guide pages", h.includes("More from the price guide") && h.includes('href="/price/brass-lamp-2"'));
   ok("no market data -> no offers at all", !PG.guidePage({ ...g, market: null }, "https://g.test").includes('"offers"'));
 }
+// Opt-in (2026-10-08): a finished Guestimate published without an eBay listing
+{
+  const OID = "abcdef01-2345-6789-abcd-ef0123456789";
+  db.raw.prepare("INSERT INTO items (id,sale_id,name,price_cents,created_at,ai_title) VALUES (?,?,?,0,?,?)").run(OID, "s1", "thing", now, "Oak cabinet");
+  db.raw.prepare("INSERT INTO appraisals (id,item_id,status,result_json,created_at) VALUES (?,?,'done',?,?)").run("a-opt", OID, result(), now);
+  let s9 = await P.guideStatus(db, OID, "https://g.test");
+  ok("not listed: off by default, but can opt in", !s9.eligible && s9.optin.eligible && !s9.optin.on && !s9.url, s9);
+  ok("not on the guide until opted in", !(await P.allGuides(db)).some(g => g.listing_id === "gabcdef012345"));
+  db.raw.prepare("UPDATE items SET guide_public=1 WHERE id=?").run(OID);
+  s9 = await P.guideStatus(db, OID, "https://g.test");
+  const op = "/price/oak-cabinet-gabcdef012345";
+  ok("opted in: page URL", s9.optin.on && s9.url === "https://g.test" + op, s9);
+  const pg = await get(op);
+  ok("opt-in page renders, no 'for sale', seller never shown", pg.status === 200 && pg.text.includes("Oak cabinet") && !pg.text.includes("This one is for sale") && !pg.text.includes("secretseller42"));
+  ok("in the index and sitemap", (await get("/prices")).text.includes(op) && (await get("/sitemap.xml")).text.includes(op));
+  ok("eBay-listed items don't offer opt-in", !(await P.guideStatus(db, "i1", "https://g.test")).optin.eligible);
+}
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
