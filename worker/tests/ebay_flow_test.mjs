@@ -172,7 +172,8 @@ ok("image is an absolute public URL", d.images[0] === `https://g.test/p/${item}/
   ok("price left for the seller to set", m.price === null);
   ok("their size and weight carried into shipping", JSON.stringify((m.shipping || {}).item_in) === "[59,29,29]" && m.shipping.item_weight_lb === 50, m.shipping);
   ok("drafting without a Guestimate uses no credit", db.raw.prepare("SELECT credits FROM users WHERE id=?").get(me.id).credits === cr0);
-  db.raw.prepare("DELETE FROM ebay_listings WHERE item_id=?").run(nj.id);
+  const del = await call("DELETE", `/api/items/${nj.id}`);
+  ok("deleting the item removes its unpublished eBay draft", del.status === 200 && !db.raw.prepare("SELECT 1 FROM ebay_listings WHERE item_id=?").get(nj.id));
 }
 ok("nothing required missing", d.missing.length === 0);
 const creditsBefore = db.raw.prepare("SELECT credits FROM users WHERE id=?").get(me.id).credits;

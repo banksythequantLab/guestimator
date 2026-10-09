@@ -1145,6 +1145,9 @@ export default {
           await db.prepare("DELETE FROM photos WHERE item_id=?").bind(iid).run();
           await db.prepare("DELETE FROM appraisals WHERE item_id=?").bind(iid).run();
           await db.prepare("DELETE FROM estimate_shares WHERE item_id=?").bind(iid).run();   // a deleted item's share page goes too
+          // Unpublished eBay drafts go with the item (2026-10-09: they were left behind as orphans).
+          // Anything that reached eBay keeps its row for the order/sale history.
+          await db.prepare("DELETE FROM ebay_listings WHERE item_id=? AND (listing_id IS NULL OR status IN ('draft','error'))").bind(iid).run();
           const r = await db.prepare("DELETE FROM items WHERE id=?").bind(iid).run();
           return J({ deleted: r.meta.changes });
         }
