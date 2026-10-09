@@ -100,7 +100,8 @@ function renderSaleForm(sale, then, kind) {
       <option value="" ${!s.returns ? "selected" : ""}>Not set: buyers are told to ask you</option>
       <option value="none" ${s.returns === "none" ? "selected" : ""}>No returns, unless it isn't as described</option>
       <option value="14" ${s.returns === "14" ? "selected" : ""}>Returns within 14 days of delivery</option>
-      <option value="30" ${s.returns === "30" ? "selected" : ""}>Returns within 30 days of delivery</option></select></div>
+      <option value="30" ${s.returns === "30" ? "selected" : ""}>Returns within 30 days of delivery</option>
+      <option value="asis" ${s.returns === "asis" ? "selected" : ""}>Sold as is: no returns, no implied warranties (dealers)</option></select></div>
     <div class="dated"><label>Phone for accepted holds (optional)</label><input id="sPhone" type="tel" maxlength="30" value="${esc(s.contact_phone || "")}"></div>
     <label style="margin-top:12px">Online buying</label>
     <label class="row" style="gap:8px;font-weight:400"><input type="checkbox" id="sOnline" style="width:auto" ${s.online_ok ? "checked" : ""}> Let people buy online (needs Stripe connected)</label>

@@ -152,6 +152,14 @@ ok("abandoned order cancelled", db.raw.prepare("SELECT status FROM garage_orders
   ok("terms off: no agree box", !(await call("GET", `/sale/${shop.slug}/item/${crock}`)).text.includes('name="agree"'));
 }
 
+// "Sold as is" (2026-10-09): conspicuous in the buy box, only when the shop chose it
+{
+  db.raw.prepare("UPDATE garage_sales SET returns='asis' WHERE id=?").run(shopId);
+  const pg = await call("GET", `/sale/${shop.slug}/item/${crock}`);
+  ok("as is: boxed SOLD AS IS in the buy box, merchantability named", /Buy it now<\/b><div style="border:2px solid[^"]*"><b[^>]*>SOLD AS IS, WITH ALL FAULTS/.test(pg.text) && pg.text.includes("merchantability") && pg.text.includes("Sold as is: no returns and no implied warranties"));
+  db.raw.prepare("UPDATE garage_sales SET returns='30' WHERE id=?").run(shopId);
+  ok("not as is: no banner", !(await call("GET", `/sale/${shop.slug}/item/${crock}`)).text.includes("SOLD AS IS"));
+}
 // garage sale checkout: no fee either, by default (Guestimator lists, it takes no cut)
 r = await call("POST", "/api/public/garage/checkout", new URLSearchParams({ sale: db.raw.prepare("SELECT slug FROM garage_sales WHERE id=?").get(gsId).slug, item: vase, fulfilment: "ship" }));
 sc = calls.filter(c => c.url.endsWith("/v1/checkout/sessions")).pop();

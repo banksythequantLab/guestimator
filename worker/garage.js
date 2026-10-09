@@ -37,7 +37,13 @@ export const KINDS = { garage: "Garage sale", yard: "Yard sale", estate: "Estate
 // Stripe's own card fee on their own account.
 export const SHOP_ENDS = "9999-12-31";
 // The seller's returns promise (garage_sales.returns), as buyers read it. Absent = ask the seller.
-export const RETURNS = { none: "No returns, unless it isn't as described", "14": "Returns accepted within 14 days of delivery", "30": "Returns accepted within 30 days of delivery" };
+export const RETURNS = { none: "No returns, unless it isn't as described", "14": "Returns accepted within 14 days of delivery", "30": "Returns accepted within 30 days of delivery",
+  asis: "Sold as is: no returns and no implied warranties" };
+// "As is" (2026-10-09): a dealer is a "merchant" under N.J.S.A. 12A:2-104, so its sales carry the
+// implied warranty of merchantability (12A:2-314) unless it is excluded by "as is" language that
+// calls the buyer's attention to it (12A:2-316(3)(a)). Shown in capitals, boxed, in the buy box
+// itself, so the buyer sees it before paying. Express promises (the description) still stand.
+const asIsBox = sale => sale && sale.returns === "asis" ? `<div style="border:2px solid #1a1a1a;border-radius:8px;padding:8px 10px;margin:6px 0 10px"><b style="font-size:1.05rem;letter-spacing:.02em">SOLD AS IS, WITH ALL FAULTS</b><div style="font-size:.85rem;margin-top:2px">The seller gives no implied warranties, including the implied warranties of merchantability and fitness for a particular purpose. The item must still match its description.</div></div>` : "";
 // " in Austin, TX", or nothing for a shop that has no location yet.
 const inPlace = s => s.city ? ` in ${s.city}, ${s.state}` : "";
 export const isShop = s => !!s && s.kind === "shop";
@@ -796,7 +802,7 @@ export async function salePages(request, env, url, parts, viewer) {
         : o?.status === "refund_needed" ? `<div class="note">Your payment went through, but this item sold at the sale a moment earlier. The seller will refund you.</div>` : "";
     }
     if (url.searchParams.get("cancelled")) banner = `<div class="note">Checkout was cancelled. Nothing was charged.</div>`;
-    const buyBox = !canBuy || !open ? "" : `<div class="box"><b>Buy it now</b>
+    const buyBox = !canBuy || !open ? "" : `<div class="box"><b>Buy it now</b>${asIsBox(sale)}
 <form method="post" action="/api/public/garage/checkout"><input type="hidden" name="sale" value="${esc(sale.slug)}"><input type="hidden" name="item" value="${esc(r.item_id)}">
 ${sale.pickup_ok ? `<label><input type="radio" name="fulfilment" value="pickup" style="width:auto" ${sale.pickup_ok ? "checked" : ""}> ${isShop(sale) ? `Local pickup near ${esc(sale.city)}, ${esc(sale.state)}` : "Pick up at the sale"} · ${esc(money(onP))}</label>` : ""}
 ${sale.ship_ok && r.ship_cents != null ? `<label><input type="radio" name="fulfilment" value="ship" style="width:auto" ${!sale.pickup_ok ? "checked" : ""}> Ship to me · ${esc(money(onP))} + ${r.ship_cents ? esc(money(r.ship_cents)) + " shipping" : "free shipping"}</label>` : ""}
