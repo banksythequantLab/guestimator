@@ -20,5 +20,21 @@ await reg("c@example.com", "");
 ok("no cookie -> unknown (null)", row("c@example.com").s === null);
 await reg("d@example.com", "gs_src=" + encodeURIComponent("Ev<il>'; DROP|x y"));
 ok("junk is cleaned, not stored raw", row("d@example.com").s === "evildrop" && row("d@example.com").c === "xy", row("d@example.com"));
+// utm_content rides along in the campaign (2026-10-08: two Zeely campaigns, image vs. video)
+await reg("e@example.com", "gs_src=" + encodeURIComponent("zeely|free_guestimate|presenter_video"));
+ok("ad content kept with the campaign", row("e@example.com").c === "free_guestimate-presenter_video", row("e@example.com"));
+// Visits from tagged links, signed up or not
+const hit = (body, ua) => worker.fetch(new Request("https://g.test/hit", { method: "POST", headers: { "content-type": "application/json", "user-agent": ua || "Mozilla/5.0" }, body: JSON.stringify(body) }), env, { waitUntil() {} });
+const h1 = await hit({ s: "zeely", c: "free_guestimate", t: "presenter_video" }, "Mozilla/5.0 (iPhone) [FBAN/FBIOS;FBAV/450.0]");
+await hit({ s: "price_guide" });
+await hit({ s: "" });
+await hit({ s: "Ev<il>", c: "'; DROP" });
+const hits = db.raw.prepare("SELECT src, camp, content, inapp FROM landing_hits ORDER BY rowid").all();
+ok("hit answers 204", h1.status === 204);
+ok("tagged arrival stored with in-app flag", hits[0] && hits[0].src === "zeely" && hits[0].content === "presenter_video" && hits[0].inapp === 1, hits[0]);
+ok("plain browser not in-app; empty source ignored; junk cleaned", hits.length === 3 && hits[1].inapp === 0 && hits[2].src === "evil" && hits[2].camp === "drop", hits);
+const own = await import("../owner.js");
+const st = await own.ownerStats(db, env, Date.now());
+ok("owner stats list visits by source", (st.visits || []).some(v => v.src === "zeely" && v.n === 1 && v.inapp === 1), st.visits);
 console.log(`signup_source_test: ${pass} passed, ${fail} failed`);
 if (fail) process.exitCode = 1;

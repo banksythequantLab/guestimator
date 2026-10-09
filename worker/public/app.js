@@ -2,16 +2,33 @@
 const $ = s => document.querySelector(s);
 // First touch: remember where this visitor came from (ad, post, site) for 90 days, so sign-ups can
 // be counted by source on the owner page. Only a source name and campaign, nothing personal.
+// SameSite=None (2026-10-08): on iPhone/iPad, Google sign-in comes back as a POST from
+// accounts.google.com, and a Lax cookie isn't sent on that cross-site POST, so every iOS Google
+// sign-up landed as (unknown) - most of the Facebook/Instagram ad traffic.
 (function rememberSource() {
   try {
-    if (/(?:^|;\s*)gs_src=/.test(document.cookie)) return;
     const q = new URLSearchParams(location.search);
-    let s = q.get("utm_source"), c = q.get("utm_campaign") || "";
+    let s = q.get("utm_source"), c = q.get("utm_campaign") || "", t = q.get("utm_content") || "";
     if (!s && document.referrer) { try { const h = new URL(document.referrer).hostname; if (h && h !== location.hostname) s = h.replace(/^www\./, ""); } catch {} }
     if (!s) return;
-    document.cookie = "gs_src=" + encodeURIComponent((s + "|" + c).slice(0, 80)) + ";path=/;max-age=7776000;samesite=lax;secure";
+    // Count the arrival once per tab session, signed up or not.
+    try {
+      const k = "gs_hit_" + s + c + t;
+      if (!sessionStorage.getItem(k)) {
+        sessionStorage.setItem(k, "1");
+        fetch("/hit", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ s, c, t }) }).catch(() => {});
+      }
+    } catch {}
+    const m = /(?:^|;\s*)gs_src=([^;]*)/.exec(document.cookie);
+    const v = encodeURIComponent((s + "|" + c + "|" + t).slice(0, 100));
+    // First touch wins; an old Lax cookie is rewritten once as SameSite=None.
+    if (m && /(?:^|;\s*)gs_src_v=2/.test(document.cookie)) return;
+    document.cookie = "gs_src=" + (m ? m[1] : v) + ";path=/;max-age=7776000;samesite=none;secure";
+    document.cookie = "gs_src_v=2;path=/;max-age=7776000;samesite=none;secure";
   } catch {}
 })();
+// Facebook / Instagram open links in their own browser, where Google refuses to sign people in.
+const inAppBrowser = () => /FBAN|FBAV|FB_IAB|Instagram/.test(navigator.userAgent || "");
 const app = $("#app"), tabs = $("#tabs"), ctx = $("#ctx"), backBtn = $("#backBtn"),
       cartbar = $("#cartbar");
 let state = { view: "home" };
@@ -213,6 +230,7 @@ function renderAuth(mode) {
       <button class="btn" id="auGo">${isLogin ? "Sign in" : "Create account"}</button>
       <div id="gWrap" style="display:none">
         <div class="muted" style="text-align:center;margin:14px 0 10px">or</div>
+        ${inAppBrowser() ? `<div class="muted" style="font-size:.8rem;text-align:center;margin:-4px 0 10px">Opened from Facebook or Instagram? Google sign-in may not work in this window. Use email and a password above, or tap ⋯ and open in Safari or Chrome.</div>` : ""}
         <div id="gBtn" style="display:flex;justify-content:center"></div>
       </div>
     </div>

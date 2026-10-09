@@ -148,12 +148,29 @@ async function newSession(db, userId) {
 // Where a new account came from (2026-10-07, before the first paid ads): the page stores the
 // first utm_source / utm_campaign (or the referring site) in a gs_src cookie, read here once at
 // sign-up. Both doors - email and Google, including Google's redirect POST - carry the cookie.
+// POST /hit {s,c,t}: someone arrived on a tagged link (once per browser session, from app.js).
+// Lets the owner page show visits by source next to sign-ups, so "26 ad clicks, 0 sign-ups" can be
+// told apart from "the clicks never reached us". Source names only; nothing about the person.
+const clean = v => String(v || "").toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 40);
+async function landingHit(env, request) {
+  try {
+    const b = await request.json().catch(() => ({}));
+    const s = clean(b.s);
+    if (s) {
+      const ua = request.headers.get("user-agent") || "";
+      await env.DB.prepare("INSERT INTO landing_hits (src, camp, content, inapp, at) VALUES (?,?,?,?,?)")
+        .bind(s, clean(b.c) || null, clean(b.t) || null, /FBAN|FBAV|FB_IAB|Instagram/.test(ua) ? 1 : 0, new Date().toISOString()).run();
+    }
+  } catch (e) { console.log("landing hit", e && e.message); }
+  return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
+}
 async function recordSignupSource(db, id, request) {
   try {
     const m = /(?:^|;\s*)gs_src=([^;]+)/.exec(request.headers.get("cookie") || "");
     if (!m) return;
-    const [src, camp] = decodeURIComponent(m[1]).split("|").map(s => String(s || "").toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 40));
-    if (src) await db.prepare("UPDATE users SET signup_source=?, signup_campaign=? WHERE id=?").bind(src, camp || null, id).run();
+    const [src, camp, content] = decodeURIComponent(m[1]).split("|").map(clean);
+    const c = [camp, content].filter(Boolean).join("-").slice(0, 60);
+    if (src) await db.prepare("UPDATE users SET signup_source=?, signup_campaign=? WHERE id=?").bind(src, c || null, id).run();
   } catch (e) { console.log("signup source", e && e.message); }
 }
 
@@ -287,6 +304,7 @@ export default {
       // ---------- PUBLIC: garage / estate sale pages ----------
       if (parts[0] === "market" && parts.length === 1 && m === "GET") return await market.marketPage(env, url);
     if (parts[0] === "go" && parts.length === 2 && m === "GET" && Object.hasOwn(partners.PARTNERS, parts[1])) return await partners.go(env, url, parts[1]);
+    if (parts[0] === "hit" && parts.length === 1 && m === "POST") return await landingHit(env, request);
       // Market terms: public once MARKET_TERMS_LIVE is on; until then a DRAFT only the owner sees.
       if (parts[0] === "market-terms" && parts.length === 1 && m === "GET") {
         let ok = terms.termsLive(env);
