@@ -17,11 +17,23 @@ ok("plain link with no affiliate id", P.aptdecoLink({}) === "https://www.aptdeco
 ok("Awin link with id, destination encoded", P.aptdecoLink({ AWIN_AFFID: "123456" }) === "https://www.awin1.com/cread.php?awinmid=93197&awinaffid=123456&ued=https%3A%2F%2Fwww.aptdeco.com%2Fsell%2Fnew");
 ok("junk id ignored", P.aptdecoLink({ AWIN_AFFID: "abc" }) === "https://www.aptdeco.com/sell/new");
 const db = d1(join(here, "..", "migrations"));
+// Awin stubbed: open unless the mid is in closedMids (2026-10-09 closedMerchant fallback).
+const closedMids = new Set();
+globalThis.fetch = async (u) => { const mid = (String(u).match(/awinmid=(\d+)/) || [])[1];
+  return new Response(null, { status: 302, headers: { location: closedMids.has(mid) ? `https://awin1.com/closedMerchant.html?mid=${mid}` : "https://www.aptdeco.com/sell/new?awc=x" } }); };
 const r = await P.goAptdeco({ DB: db, AWIN_AFFID: "77" }, new URL("https://g.test/go/aptdeco?item=it1"));
 ok("redirects to AptDeco", r.status === 302 && /awinaffid=77/.test(r.headers.get("location")));
 ok("click counted", (await P.clicks30(db)) === 1);
 const r2 = await P.goAptdeco({ DB: null }, new URL("https://g.test/go/aptdeco"));
 ok("still redirects if counting fails", r2.status === 302);
+P._resetAwinCache(); closedMids.add("93197");
+const rc = await P.goAptdeco({ DB: null, AWIN_AFFID: "77" }, new URL("https://g.test/go/aptdeco"));
+ok("programme closed to us -> straight to AptDeco, not Awin's dead end", rc.headers.get("location") === "https://www.aptdeco.com/sell/new", rc.headers.get("location"));
+P._resetAwinCache(); globalThis.fetch = async () => { throw new Error("down"); };
+const rd = await P.go({ DB: null, AWIN_AFFID: "77" }, new URL("https://g.test/go/decluttr"), "decluttr");
+ok("Awin not answering -> straight to Decluttr", rd.headers.get("location") === "https://www.decluttr.com/", rd.headers.get("location"));
+P._resetAwinCache(); closedMids.clear();
+globalThis.fetch = async (u) => new Response(null, { status: 302, headers: { location: "https://www.decluttr.com/?awc=y" } });
 // uShip + Decluttr (2026-10-08)
 ok("phone -> Decluttr", P.isTradeIn({ identification: { name: "Apple iPhone 12 64GB" }, price_range: { low: 150, high: 220 } }));
 ok("Lego set -> Decluttr", P.isTradeIn({ identification: { name: "LEGO Star Wars 75192", category: "Toys" }, price_range: { low: 400, high: 700 } }));

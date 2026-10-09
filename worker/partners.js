@@ -54,6 +54,31 @@ export function ushipLink(env) {
 }
 
 export const PARTNERS = { aptdeco: aptdecoLink, decluttr: decluttrLink, uship: ushipLink };
+// Where each partner sends people when the affiliate link can't be used.
+const PLAIN = { aptdeco: APTDECO_SELL, decluttr: DECLUTTR_SELL, uship: USHIP_HOME };
+
+// Awin answers a programme that hasn't approved us (or has closed) with a redirect to
+// awin1.com/closedMerchant.html - a dead end for the user. Checked live 2026-10-09 with our id
+// 3117877: both AptDeco (93197) and Decluttr (8053) went there. So each Awin link is tried
+// first (no redirect followed) and, if Awin says closed or doesn't answer, the user goes straight
+// to the partner. Remembered per programme for an hour, so tracking starts by itself once approved.
+const _awinOpen = new Map();
+export const _resetAwinCache = () => _awinOpen.clear();
+export async function awinOpen(link) {
+  const mid = (String(link).match(/awinmid=(\d+)/) || [])[1] || "";
+  const hit = _awinOpen.get(mid);
+  if (hit && Date.now() - hit.at < 3600e3) return hit.ok;
+  let ok = false;
+  try {
+    const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 2500);
+    const r = await fetch(link, { redirect: "manual", signal: ac.signal });
+    clearTimeout(t);
+    const loc = r.headers.get("location") || "";
+    ok = r.status >= 300 && r.status < 400 && !!loc && !/closedMerchant/i.test(loc);
+  } catch { ok = false; }
+  _awinOpen.set(mid, { ok, at: Date.now() });
+  return ok;
+}
 
 // GET /go/<partner>?item=<id>: count the click, then send them on.
 export async function go(env, url, partner) {
@@ -63,7 +88,9 @@ export async function go(env, url, partner) {
     const item = String(url.searchParams.get("item") || "").slice(0, 64) || null;
     await env.DB.prepare("INSERT INTO referral_clicks (partner, item_id, at) VALUES (?, ?, ?)").bind(partner, item, new Date().toISOString()).run();
   } catch (e) { console.log("referral click", e && e.message); }
-  return new Response(null, { status: 302, headers: { location: link(env), "cache-control": "no-store" } });
+  let to = link(env);
+  if (/^https:\/\/www\.awin1\.com\/cread\.php/.test(to) && !(await awinOpen(to))) to = PLAIN[partner];
+  return new Response(null, { status: 302, headers: { location: to, "cache-control": "no-store" } });
 }
 export const goAptdeco = (env, url) => go(env, url, "aptdeco");
 
