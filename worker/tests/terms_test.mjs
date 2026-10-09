@@ -57,6 +57,8 @@ const e2 = await mk("Bowl");
 ok("new terms version: asked again", (await call("POST", `/api/market/items/${e2}`, { price: "25", ship: "5" })).status === 428);
 r = await call("POST", `/api/market/items/${e2}`, { price: "25", ship: "5", agree_terms: true });
 ok("agreeing records the new version", r.status === 200 && db.raw.prepare("SELECT market_terms_version v FROM users WHERE email='sam@example.com'").get().v === T.TERMS_VERSION);
+ok("terms text: New York law, UCC for sales, cap at twice what was paid", /laws of the State of New York/.test(JSON.stringify(T.TERMS)) && !/New Jersey/.test(JSON.stringify(T.TERMS))
+  && /Uniform Commercial Code as adopted in New York/.test(JSON.stringify(T.TERMS)) && /twice what you paid Guestimator/.test(JSON.stringify(T.TERMS)));
 ok("terms text: says how buyers and sellers agree; no gross-negligence exclusion", /Buyers agree by ticking the box/.test(JSON.stringify(T.TERMS)) && /gross negligence, willful misconduct or fraud/.test(JSON.stringify(T.TERMS)));
 
 // bulk, for a seller who hasn't agreed
