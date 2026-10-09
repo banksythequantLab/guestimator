@@ -11,6 +11,7 @@ globalThis.fetch = (u, init = {}) => new Promise((_, reject) => {
 const A = await import("../appraiser.js");
 
 ok("default cap is 10s", A.searchCapMs({}) === 10000);
+ok("sold prices wait 15s by default, SOLD_CAP_MS overrides", A.soldCapMs({}) === 15000 && A.soldCapMs({ SOLD_CAP_MS: "20000" }) === 20000 && A.soldCapMs({ SEARCH_CAP_MS: "4000" }) === 4000);
 ok("cap is configurable and bounded", A.searchCapMs({ SEARCH_CAP_MS: "4000" }) === 4000 && A.searchCapMs({ SEARCH_CAP_MS: "1" }) === 3000 && A.searchCapMs({ SEARCH_CAP_MS: "999999" }) === 30000);
 
 const t0 = Date.now();

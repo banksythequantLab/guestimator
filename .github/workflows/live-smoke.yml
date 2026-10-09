@@ -1,0 +1,24 @@
+# Live smoke check (2026-10-09): on Oct 9 a duplicate const in app.js left the live app blank for
+# ~13 hours while every server test passed. Every hour a real Chromium loads the live app; if the
+# page throws a script error or renders without the app, this run fails and GitHub emails the
+# repo owner. No utm tag, so it never counts as a visit.
+name: Live smoke check
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+      - name: Install Playwright and Chromium
+        run: |
+          npm install --no-save playwright@1
+          npx playwright install --with-deps chromium
+      - name: Load the live app
+        run: node scripts/live-smoke.mjs

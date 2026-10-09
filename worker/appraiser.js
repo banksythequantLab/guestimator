@@ -1115,6 +1115,10 @@ export function packOf(title) {
 // up to 27s. Each is now given SEARCH_CAP_MS (default 10s); one that runs over is skipped and the
 // estimate says so, instead of holding everyone up. The eBay listings search is not capped.
 export const searchCapMs = env => Math.max(3000, Math.min(30000, Number(env && env.SEARCH_CAP_MS) || 10000));
+// Sold prices get longer (2026-10-09, Derek): a 10s cut-off dropped the SK hynix sales one run and
+// priced it from a single asking price ($170-216 vs $129-175 from 4 sales). SOLD_CAP_MS, else an
+// explicit SEARCH_CAP_MS, else 15s.
+export const soldCapMs = env => env && env.SOLD_CAP_MS ? Math.max(3000, Math.min(30000, Number(env.SOLD_CAP_MS) || 15000)) : env && env.SEARCH_CAP_MS ? searchCapMs(env) : 15000;
 export async function ebaySold(env, query, limit = 30, maxLookups = 3) {
   _soldFail = null; _soldLookups = 0;
   if (!env.SOLDCOMPS_API_KEY) { _soldFail = "sold prices are not switched on"; return null; }
@@ -1134,7 +1138,7 @@ export async function ebaySold(env, query, limit = 30, maxLookups = 3) {
     u.searchParams.set("keyword", kw);
     u.searchParams.set("count", String(limit));
     u.searchParams.set("soldAfter", since);
-    const t = setTimeout(() => ac.abort(), searchCapMs(env));
+    const t = setTimeout(() => ac.abort(), soldCapMs(env));
     try {
       const r = await fetch(u, { headers: { authorization: `Bearer ${env.SOLDCOMPS_API_KEY}` }, signal: ac.signal });
       if (!r.ok) {
@@ -1149,7 +1153,7 @@ export async function ebaySold(env, query, limit = 30, maxLookups = 3) {
       console.log("soldcomps", JSON.stringify({ kw, returned: (j.items || []).length, kept: kept.length }));
       return { returned: (j.items || []).length, kept };
     } catch (e) {
-      return { fail: e.name === "AbortError" ? `the sold-price lookup took longer than ${Math.round(searchCapMs(env) / 1000)} seconds, so it was skipped` : `the sold-price lookup failed (${e.message})` };
+      return { fail: e.name === "AbortError" ? `the sold-price lookup took longer than ${Math.round(soldCapMs(env) / 1000)} seconds, so it was skipped` : `the sold-price lookup failed (${e.message})` };
     } finally { clearTimeout(t); }
   };
   const acs = ladder.map(() => new AbortController());
