@@ -10,6 +10,7 @@ import * as feedback from "./feedback.js";
 import { parsePromoCodes } from "./billing.js";
 import * as growth from "./growth.js";
 import * as quota from "./quota.js";
+import { MARKET_TAX_CHECK_CENTS } from "./terms.js";
 import * as partners from "./partners.js";
 import * as accuracy from "./accuracy.js";
 
@@ -59,8 +60,9 @@ export async function ownerStats(db, env, ms = Date.now()) {
           AND ((g.ship_ok=1 AND gi.ship_cents IS NOT NULL) OR g.pickup_ok=1)) visible,
       (SELECT COUNT(*) FROM garage_orders o JOIN garage_sales g ON g.id=o.sale_id WHERE g.kind='shop' AND o.status IN ('paid','fulfilled') AND o.created_at>=?) sold30,
       (SELECT COALESCE(SUM(o.total_cents),0) FROM garage_orders o JOIN garage_sales g ON g.id=o.sale_id WHERE g.kind='shop' AND o.status IN ('paid','fulfilled') AND o.created_at>=?) gmv30,
+      (SELECT COALESCE(SUM(o.total_cents),0) FROM garage_orders o JOIN garage_sales g ON g.id=o.sale_id WHERE g.kind='shop' AND o.status IN ('paid','fulfilled') AND o.created_at>=?) gmv365,
       (SELECT COALESCE(SUM(views),0) FROM market_views WHERE day>=?) views7,
-      (SELECT COALESCE(SUM(views),0) FROM market_views WHERE day>=?) views30`, d30, d30, d7.slice(0, 10), d30.slice(0, 10)).catch(() => ({}));
+      (SELECT COALESCE(SUM(views),0) FROM market_views WHERE day>=?) views30`, d30, d30, new Date(ms - 365 * 864e5).toISOString(), d7.slice(0, 10), d30.slice(0, 10)).catch(() => ({}));
   // Promo codes (PROMO_CODES secret): which exist, how many credits, the cap, and uses so far.
   const promos = await Promise.all(Object.entries(parsePromoCodes(env.PROMO_CODES)).map(async ([code, c]) => ({ code, credits: c.credits, max: c.max,
     used: ((await db.prepare("SELECT COUNT(*) n FROM billing_events WHERE source='promo' AND product_id=?").bind(code).first()) || {}).n || 0 })));
@@ -141,7 +143,8 @@ ${tile("Partner clicks (30 days)", n(Object.values(s.partnerClicks || {}).reduce
 ${tile("Market page views", n((s.market || {}).views7), `7 days · ${n((s.market || {}).views30)} in 30 days`)}
 ${tile("Shops opened", n((s.market || {}).shops), `${n((s.market || {}).shops_ready)} can take payment (Stripe ready)`)}
 ${tile("Items buyers can see", n((s.market || {}).visible), `${n((s.market || {}).listed)} in shops in all`)}
-${tile("Market sales", n((s.market || {}).sold30), `30 days · ${money((s.market || {}).gmv30)} · we take no cut`)}</div>
+${tile("Market sales", n((s.market || {}).sold30), `30 days · ${money((s.market || {}).gmv30)} · we take no cut`)}
+${tile("Market sales, 12 months", money((s.market || {}).gmv365), n((s.market || {}).gmv365) >= MARKET_TAX_CHECK_CENTS ? '<span class="err">Past $50,000: revisit sales tax now</span>' : "sales-tax check at $50,000")}</div>
 <h2>Promo codes</h2><div class="m" style="margin-bottom:8px">From the PROMO_CODES secret. Each account can use each code once.</div>
 <div class="sc">${table(["Code", "Credits", "Used", "Cap"], (s.promos || []).map(p => `<tr><td><b>${esc(p.code)}</b></td><td>${n(p.credits)}</td><td>${n(p.used)}</td><td${p.max && p.used >= p.max ? ' class="err"' : ""}>${p.max ? n(p.max) + (p.used >= p.max ? " (used up)" : "") : "no cap"}</td></tr>`), "No codes set: the PROMO_CODES secret is missing or empty.")}</div>
 <h2>Feedback (${(s.feedback || []).filter(f => f.status === "new").length} new)</h2>

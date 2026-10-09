@@ -148,10 +148,11 @@ export async function sellerApi(request, env, url, parts, userId) {
     if (Number.isNaN(price) || !(price >= 100)) return J({ error: "Enter a price of at least $1, like 25 or 7.50" }, 400);
     if (Number.isNaN(ship)) return J({ error: "Enter shipping like 12 or 8.50 (0 for free shipping)" }, 400);
     if (ship === null && !(shop && shop.pickup_ok)) return J({ error: "Enter a shipping price (0 for free shipping), so buyers can get it to them." }, 400);
-    // Market terms: once they are live, a seller agrees once, the first time they list.
+    // Market terms: once they are live, a seller agrees the first time they list, and again
+    // whenever TERMS_VERSION changes (2026-10-08).
     if (termsLive(env)) {
-      const ut = await db.prepare("SELECT market_terms_at FROM users WHERE id=?").bind(userId).first();
-      if (!ut?.market_terms_at) {
+      const ut = await db.prepare("SELECT market_terms_at, market_terms_version FROM users WHERE id=?").bind(userId).first();
+      if (!ut?.market_terms_at || ut.market_terms_version !== TERMS_VERSION) {
         if (!b.agree_terms) return J({ error: "Please agree to the Guestimator Market terms first.", need_terms: true, terms_url: `${origin}/market-terms` }, 428);
         await db.prepare("UPDATE users SET market_terms_at=?, market_terms_version=? WHERE id=?").bind(nowIso(), TERMS_VERSION, userId).run();
       }

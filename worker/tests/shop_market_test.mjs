@@ -132,6 +132,26 @@ db.raw.prepare("UPDATE garage_orders SET created_at=? WHERE id=?").run(new Date(
 ok("abandoned checkout released by the Market", (await call("GET", "/market")).text.includes("Red Wing crock"));
 ok("abandoned order cancelled", db.raw.prepare("SELECT status FROM garage_orders WHERE id=?").get(order.id).status === "cancelled");
 
+// Market terms live (2026-10-08): a buyer ticks "I agree" before paying (clickwrap)
+{
+  const { TERMS_VERSION } = await import("../terms.js");
+  env.MARKET_TERMS_LIVE = "on";
+  const pg = await call("GET", `/sale/${shop.slug}/item/${crock}`);
+  ok("terms live: buy box has a required agree box", pg.text.includes('name="agree" value="1" required') && pg.text.includes('href="/market-terms"'));
+  const n0 = calls.filter(c => c.url.endsWith("/v1/checkout/sessions")).length;
+  const no = await buy();
+  ok("no tick: no checkout, item not reserved", no.status === 400 && calls.filter(c => c.url.endsWith("/v1/checkout/sessions")).length === n0
+    && db.raw.prepare("SELECT status FROM garage_sale_items WHERE item_id=?").get(crock).status === "available", no.status);
+  const yes = await call("POST", "/api/public/garage/checkout", new URLSearchParams({ sale: shop.slug, item: crock, fulfilment: "ship", agree: "1" }));
+  const s2 = calls.filter(c => c.url.endsWith("/v1/checkout/sessions")).pop();
+  ok("ticked: checkout, version recorded on the payment", yes.status === 303 && s2.form.get("metadata[market_terms]") === TERMS_VERSION && s2.form.get("payment_intent_data[metadata][market_terms]") === TERMS_VERSION, [...s2.form.entries()].filter(([k]) => /terms/.test(k)));
+  const o2 = db.raw.prepare("SELECT id FROM garage_orders WHERE sale_id=? ORDER BY created_at DESC").get(shopId);
+  db.raw.prepare("UPDATE garage_orders SET created_at=? WHERE id=?").run(new Date(Date.now() - 3600e3).toISOString(), o2.id);
+  await call("GET", "/market");
+  env.MARKET_TERMS_LIVE = "";
+  ok("terms off: no agree box", !(await call("GET", `/sale/${shop.slug}/item/${crock}`)).text.includes('name="agree"'));
+}
+
 // garage sale checkout: no fee either, by default (Guestimator lists, it takes no cut)
 r = await call("POST", "/api/public/garage/checkout", new URLSearchParams({ sale: db.raw.prepare("SELECT slug FROM garage_sales WHERE id=?").get(gsId).slug, item: vase, fulfilment: "ship" }));
 sc = calls.filter(c => c.url.endsWith("/v1/checkout/sessions")).pop();

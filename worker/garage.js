@@ -15,6 +15,9 @@ import { endEtsyListing } from "./etsy.js";
 import { packageFor, flatRateFits } from "./packing.js";
 import * as sheet from "./export.js";
 import { siteOrigin } from "./site.js";
+import { TERMS_VERSION } from "./terms.js";
+// Market terms in force (terms.js termsLive; kept local because terms.js imports from here).
+const marketTermsLive = env => String(env.MARKET_TERMS_LIVE || "").toLowerCase() === "on";
 
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
@@ -515,6 +518,9 @@ export async function publicApi(request, env, url, parts, ctx) {
     if (!buyable(env, sale, seller)) return H(msgPage("Online buying is off", "This seller isn't taking online payments. You can still ask them to hold it."), 409);
     const fulfil = form.fulfilment === "ship" ? "ship" : "pickup";
     if ((fulfil === "ship" && !sale.ship_ok) || (fulfil === "pickup" && !sale.pickup_ok)) return H(msgPage("Not available", "That delivery option isn't offered for this sale."), 400);
+    // A buyer agrees to the Market terms by ticking the box (clickwrap, not "by using the site").
+    const buyerTerms = isShop(sale) && marketTermsLive(env);
+    if (buyerTerms && String(form.agree || "") !== "1") return H(msgPage("Please agree to the Market terms", "Go back, tick the box to agree to the Guestimator Market terms, and pay again."), 400);
     await releaseStale(db, sale.id);
     const row = (await saleItems(db, sale.id)).find(r => r.item_id === String(form.item || ""));
     if (!row) return H(msgPage("Not found", "That item isn't in this sale."), 404);
@@ -540,8 +546,8 @@ export async function publicApi(request, env, url, parts, ctx) {
                           description: `${KINDS[sale.kind] || "Sale"}: ${sale.title}${sale.city ? ` (${sale.city}, ${sale.state})` : ""} - ${fulfil === "ship" ? "shipped" : "local pickup"}`.slice(0, 500) } } } },
         // No fee at all on a shop sale: the field is left off (stripeForm drops undefined).
         payment_intent_data: { application_fee_amount: fee > 0 ? fee : undefined,
-                               metadata: { order_id: orderId, sale: sale.slug, item: row.item_id } },
-        metadata: { order_id: orderId, sale: sale.slug, item: row.item_id },
+                               metadata: { order_id: orderId, sale: sale.slug, item: row.item_id, market_terms: buyerTerms ? TERMS_VERSION : undefined } },
+        metadata: { order_id: orderId, sale: sale.slug, item: row.item_id, market_terms: buyerTerms ? TERMS_VERSION : undefined },
       };
       if (fulfil === "ship") {
         params.shipping_address_collection = { allowed_countries: { 0: "US" } };
@@ -794,7 +800,7 @@ export async function salePages(request, env, url, parts, viewer) {
 <form method="post" action="/api/public/garage/checkout"><input type="hidden" name="sale" value="${esc(sale.slug)}"><input type="hidden" name="item" value="${esc(r.item_id)}">
 ${sale.pickup_ok ? `<label><input type="radio" name="fulfilment" value="pickup" style="width:auto" ${sale.pickup_ok ? "checked" : ""}> ${isShop(sale) ? `Local pickup near ${esc(sale.city)}, ${esc(sale.state)}` : "Pick up at the sale"} · ${esc(money(onP))}</label>` : ""}
 ${sale.ship_ok && r.ship_cents != null ? `<label><input type="radio" name="fulfilment" value="ship" style="width:auto" ${!sale.pickup_ok ? "checked" : ""}> Ship to me · ${esc(money(onP))} + ${r.ship_cents ? esc(money(r.ship_cents)) + " shipping" : "free shipping"}</label>` : ""}
-${!sale.pickup_ok && (r.ship_cents == null || !sale.ship_ok) ? `<p class="muted">This item can't be shipped.</p>` : `<button class="btn">Pay securely with Stripe</button>`}
+${!sale.pickup_ok && (r.ship_cents == null || !sale.ship_ok) ? `<p class="muted">This item can't be shipped.</p>` : `${isShop(sale) && marketTermsLive(env) ? `<label style="font-weight:400"><input type="checkbox" name="agree" value="1" required style="width:auto"> I agree to the <a href="/market-terms" target="_blank" rel="noopener">Guestimator Market terms</a></label>` : ""}<button class="btn">Pay securely with Stripe</button>`}
 </form><p class="muted">Payment goes to the seller through Stripe. The item is reserved for you for ${CHECKOUT_MINUTES} minutes while you pay.${isShop(sale) ? " Guestimator takes no cut." : ""}</p></div>`;
     const holdBox = !open || isShop(sale) ? "" : `<div class="box"><b>Ask the seller to hold it</b><form id="hold"><label>Your name</label><input name="name" required maxlength="60">
 <label>Phone</label><input name="phone" type="tel" required maxlength="30"><label>Note (optional)</label><input name="note" maxlength="300" placeholder="e.g. I can come Saturday at 9">

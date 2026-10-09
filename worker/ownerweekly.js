@@ -7,6 +7,7 @@ import { ownerStats } from "./owner.js";
 import { adminEmail } from "./shipops.js";
 import { sendAlert } from "./notify.js";
 import { inSendWindow } from "./weekly.js";
+import { MARKET_TAX_CHECK_CENTS } from "./terms.js";
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const n = v => Number(v || 0);
@@ -21,7 +22,8 @@ export function ownerWeeklyEmail(s, origin) {
     ["Sign-ups", [`${n(u.new7)} new this week (${n(u.new30)} in 30 days, ${n(u.total)} total)`, `${n(u.active7)} people made a Guestimate this week`,
       ...(s.sources || []).slice(0, 6).map(r => `  ${r.src}${r.camp ? " / " + r.camp : ""}: ${n(r.n)} sign-up${n(r.n) === 1 ? "" : "s"}, ${n(r.est)} made a Guestimate (30 days)`)]],
     ["Guestimates", [`${n(e.n7)} this week (${n(e.n30)} in 30 days)`, ...(n(e.err7) ? [`${n(e.err7)} failed this week`] : []), ...(n(e.stuck) ? [`${n(e.stuck)} stuck pending`] : [])]],
-    ["Sales (30 days)", [`eBay: ${n(eb.sold30)} orders, ${usd(eb.gmv30)} · ${n(eb.live)} listings live`, `Guestimator Market: ${n(mk.sold30)} orders, ${usd(mk.gmv30)} · ${n(mk.visible)} items buyers can see`]],
+    ["Sales (30 days)", [`eBay: ${n(eb.sold30)} orders, ${usd(eb.gmv30)} · ${n(eb.live)} listings live`, `Guestimator Market: ${n(mk.sold30)} orders, ${usd(mk.gmv30)} · ${n(mk.visible)} items buyers can see`,
+      ...(n(mk.gmv365) >= MARKET_TAX_CHECK_CENTS ? [`CHECK-IN: Market sales passed $50,000 in the last 12 months (${usd(mk.gmv365)}). Revisit sales tax before any state threshold.`] : [])]],
     ["Guestimate vs. what it sold for", [a.priced ? `${n(a.inRange)} of ${n(a.priced)} sales landed in the Guestimate range; median sale ${a.median}x the middle of the range` : "No sales to compare yet",
       ...(s.acc || []).slice(0, 4).map(r => `  ${r.name}: Guestimate $${r.lo}-$${r.hi}, sold $${r.sold} (${r.tag})`)]],
     ["Partners (30 days)", [clicks ? `${clicks} clicks: AptDeco ${n(pc.aptdeco)}, uShip ${n(pc.uship)}, Decluttr ${n(pc.decluttr)}` : "No partner clicks yet"]],

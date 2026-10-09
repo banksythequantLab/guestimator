@@ -5,7 +5,13 @@
 
 import { page, esc } from "./garage.js";
 
-export const TERMS_VERSION = "2026-10-07";
+// 2026-10-08: checked against NY case law in Lex (affirmative assent - Wu v. Uber (N.Y. 2024),
+// Brooks v. Lang Yang (App. Div. 2023); no exculpation of gross negligence - Sear-Brown,
+// Abramowitz; class waiver - Tsadilas (App. Div. 2004); changes on notice - Kinkopf). Buyers now
+// tick a box at checkout too, and a new version asks sellers to agree again.
+export const TERMS_VERSION = "2026-10-08";
+// Owner check-in (Derek, 2026-10-08): revisit sales tax once yearly Market sales reach this.
+export const MARKET_TAX_CHECK_CENTS = 5000000;
 export const termsLive = env => String(env.MARKET_TERMS_LIVE || "").toLowerCase() === "on";
 
 // Plain text, one item per entry. [Brackets] are open decisions for Derek and must be resolved
@@ -21,9 +27,10 @@ export const TERMS = [
   ["Taxes", "Sellers are responsible for their own income tax and any sales tax they owe."],
   ["Shipping and risk", "The seller chooses how to ship and is responsible for the item until it is delivered. Shipping labels bought through Guestimator are sold at cost."],
   ["Messages", "\"Ask the seller\" sends the buyer's question and email address to the seller. Don't use it for spam, harassment or to take a sale off the Market to avoid these terms."],
-  ["No warranties; limits", "The Market is provided as is and as available, without warranties of any kind. To the fullest extent the law allows, Guestimator is not liable for the items, the sale, or what buyers and sellers do, and is not liable for any indirect, incidental, special, consequential or punitive damages. Our total liability to you for any claim is limited to the greater of $100 or what you paid Guestimator in the 12 months before the claim."],
-  ["Disputes with us", "These terms are governed by the laws of the State of New Jersey, without regard to its conflict-of-law rules, and by the Federal Arbitration Act. Any dispute between you and Guestimator will be resolved by binding individual arbitration administered by the American Arbitration Association under its Consumer Arbitration Rules, not in court, except that either of us may bring an individual claim in small-claims court. You and Guestimator each give up the right to a jury trial and to bring or take part in a class or representative action. You can opt out of arbitration within 30 days of first agreeing to these terms by sending a message through Guestimator's Feedback page that says you opt out of arbitration. Disputes between buyers and sellers are not covered by this section."],
-  ["Changes", "We may update these terms; the date at the top shows the latest version. Continuing to list or buy means you accept them."],
+  ["No warranties; limits", "The Market is provided as is and as available, without warranties of any kind. To the fullest extent the law allows, Guestimator is not liable for the items, the sale, or what buyers and sellers do, and is not liable for any indirect, incidental, special, consequential or punitive damages. Our total liability to you for any claim is limited to the greater of $100 or what you paid Guestimator in the 12 months before the claim. None of this limits our liability for our own gross negligence, willful misconduct or fraud."],
+  ["Disputes with us", "These terms are governed by the laws of the State of New Jersey, without regard to its conflict-of-law rules, and by the Federal Arbitration Act. Any dispute between you and Guestimator will be resolved by binding individual arbitration administered by the American Arbitration Association under its Consumer Arbitration Rules, instead of in court. This means you and Guestimator each give up the right to sue the other in court and to have a judge or jury decide the claim, except that either of us may bring an individual claim in small-claims court. You and Guestimator also each give up the right to bring or take part in a class or representative action. You can opt out of arbitration within 30 days of first agreeing to these terms by sending a message through Guestimator's Feedback page that says you opt out of arbitration. Disputes between buyers and sellers are not covered by this section."],
+  ["How you agree", "Sellers agree by ticking the box the first time they list an item on the Market. Buyers agree by ticking the box before they pay. We keep a record of which version you agreed to and when."],
+  ["Changes", "We may update these terms. The new version is posted here with its date, and sellers are asked to agree to it before their next listing. Buyers agree to the version shown when they pay. A change never applies to a dispute that started before it."],
 ];
 export const termsReady = () => !TERMS.some(([, t]) => /\[[^\]]+\]/.test(t));
 

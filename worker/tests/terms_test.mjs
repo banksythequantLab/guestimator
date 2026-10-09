@@ -51,6 +51,13 @@ r = await call("POST", `/api/market/items/${b}`, { price: "25", ship: "5", agree
 const u = db.raw.prepare("SELECT market_terms_at, market_terms_version FROM users WHERE email='sam@example.com'").get();
 ok("agreeing lists it and records when and which version", r.status === 200 && !!u.market_terms_at && u.market_terms_version === T.TERMS_VERSION, u);
 ok("asked only once", (await call("POST", `/api/market/items/${c}`, { price: "25", ship: "5" })).status === 200);
+// a new version of the terms: asked again (2026-10-08)
+db.raw.prepare("UPDATE users SET market_terms_version='2026-10-07' WHERE email='sam@example.com'").run();
+const e2 = await mk("Bowl");
+ok("new terms version: asked again", (await call("POST", `/api/market/items/${e2}`, { price: "25", ship: "5" })).status === 428);
+r = await call("POST", `/api/market/items/${e2}`, { price: "25", ship: "5", agree_terms: true });
+ok("agreeing records the new version", r.status === 200 && db.raw.prepare("SELECT market_terms_version v FROM users WHERE email='sam@example.com'").get().v === T.TERMS_VERSION);
+ok("terms text: says how buyers and sellers agree; no gross-negligence exclusion", /Buyers agree by ticking the box/.test(JSON.stringify(T.TERMS)) && /gross negligence, willful misconduct or fraud/.test(JSON.stringify(T.TERMS)));
 
 // bulk, for a seller who hasn't agreed
 who = "boss";

@@ -17,5 +17,10 @@ ok("sends on Monday to the owner", r.sent && mails.length === 1 && mails[0].to =
 ok("has the sections and the owner link", ["Sign-ups", "Guestimates", "Sales (30 days)", "Guestimate vs. what it sold for", "Partners", "Problems"].every(h => mails[0].text.includes(h)) && mails[0].text.includes("https://g.test/owner"), mails[0].text);
 ok("once per week", (await O.sendOwnerWeekly(env, db, "https://g.test", mon + 900e3)).why === "already sent this week" && mails.length === 1);
 ok("no owner email -> nothing sent", (await O.sendOwnerWeekly({ ...env, ADMIN_EMAIL: "", LABEL_USERS: "" }, db, "https://g.test", mon + 7 * 864e5)).sent === false);
+{ // $50,000 sales-tax check-in (2026-10-08)
+  const base = { users: {}, est: {}, ebay: {}, accSum: {}, sources: [], acc: [], partnerClicks: {}, errors: {}, alerts: [] };
+  ok("under $50k: no check-in line", !O.ownerWeeklyEmail({ ...base, market: { gmv365: 4999999 } }, "https://g.test").text.includes("CHECK-IN"));
+  ok("at $50k: check-in line", O.ownerWeeklyEmail({ ...base, market: { gmv365: 5000000 } }, "https://g.test").text.includes("CHECK-IN: Market sales passed $50,000"));
+}
 console.log("ownerweekly_test: " + pass + " passed, " + fail + " failed");
 if (fail) process.exitCode = 1;
