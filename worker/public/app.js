@@ -28,7 +28,7 @@ const $ = s => document.querySelector(s);
   } catch {}
 })();
 // Facebook / Instagram open links in their own browser, where Google refuses to sign people in.
-const inAppBrowser = () => /FBAN|FBAV|FB_IAB|Instagram/.test(navigator.userAgent || "");
+const socialInAppBrowser = () => /FBAN|FBAV|FB_IAB|Instagram/.test(navigator.userAgent || "");
 const app = $("#app"), tabs = $("#tabs"), ctx = $("#ctx"), backBtn = $("#backBtn"),
       cartbar = $("#cartbar");
 let state = { view: "home" };
@@ -230,7 +230,7 @@ function renderAuth(mode) {
       <button class="btn" id="auGo">${isLogin ? "Sign in" : "Create account"}</button>
       <div id="gWrap" style="display:none">
         <div class="muted" style="text-align:center;margin:14px 0 10px">or</div>
-        ${inAppBrowser() ? `<div class="muted" style="font-size:.8rem;text-align:center;margin:-4px 0 10px">Opened from Facebook or Instagram? Google sign-in may not work in this window. Use email and a password above, or tap ⋯ and open in Safari or Chrome.</div>` : ""}
+        ${socialInAppBrowser() ? `<div class="muted" style="font-size:.8rem;text-align:center;margin:-4px 0 10px">Opened from Facebook or Instagram? Google sign-in may not work in this window. Use email and a password above, or tap ⋯ and open in Safari or Chrome.</div>` : ""}
         <div id="gBtn" style="display:flex;justify-content:center"></div>
       </div>
     </div>
