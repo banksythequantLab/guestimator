@@ -18,5 +18,13 @@ ok("16GB sale at $60 in range", verdict(r.price.low, r.price.high, 60).tag === "
 ok("one sale does not set it", anchorToEvidence({ low: 100, high: 200 }, { sold: [150] }).note === null);
 ok("two asks do not cap it", anchorToEvidence({ low: 100, high: 200 }, { askMedian: 120, askCount: 2 }).note === null);
 ok("range already at or under the asks is kept", anchorToEvidence({ low: 50, high: 110 }, { askMedian: 120, askCount: 5 }).note === null);
+// Best Offer sales (2026-10-09): flagged by mapSold; soldPrice is the asking price for those.
+{
+  const { mapSold } = await import("../appraiser.js");
+  const ms = mapSold([{ title: "Oak cabinet", url: "u1", soldPrice: "300", shippingPrice: "40", bestOfferAccepted: true },
+                      { title: "Oak cabinet", url: "u2", soldPrice: "150", shippingPrice: "0" }], "Oak cabinet");
+  ok("best-offer sale flagged, plain sale not", ms.find(x => x.url === "u1").boa === true && ms.find(x => x.url === "u2").boa === false, ms);
+  ok("shipping never added to the price", ms.find(x => x.url === "u1").price === 300, ms);
+}
 console.log("evidence_test: " + pass + " passed, " + fail + " failed");
 if (fail) process.exitCode = 1;

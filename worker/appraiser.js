@@ -1091,6 +1091,11 @@ export function mapSold(items, query) {
     sold_at: i.endedAt || null,
     note: `SOLD on eBay${i.endedAt ? ` ${i.endedAt}` : ""}${i.bestOfferAccepted ? " (best offer accepted)" : ""}${i.condition ? ` — ${i.condition}` : ""}`,
     sold: true,
+    // SoldComps docs (checked 2026-10-09): for a Best Offer sale soldPrice is "normally the asking
+    // price (an upper bound)"; its hydrateBoa fix only covers trading cards. Flagged so the range
+    // can leave these out when there are plain sales to go on. Shipping is a separate field and
+    // is never added in.
+    boa: !!i.bestOfferAccepted,
   })).filter(x => x.price > 0 && (!x.currency || x.currency === "USD")
     && !contradictsGeneration(query, x.title) && !contradictsSpec(query, x.title)
     // A 4-stick kit that sold for $650 is not what one stick is worth. Unless the item itself
@@ -2186,7 +2191,10 @@ export async function appraise(env, req) {
     if (keptSold.length) soldShown = { ...summarise(keptSold, "eBay sold, last 90 days"), recent: keptSold };
     else if (comparables.length) soldShown = null;
     // Sales set the price; with none, asking prices cap it (anchorToEvidence). Per piece, before any lot multiply.
-    { const an = anchorToEvidence(price, { sold: keptSold.map(x => x.price), askMedian: marketShown && marketShown.median, askCount: marketShown && marketShown.count });
+    // Best Offer sales show the asking price, not what was paid: with 2+ plain sales, price from those.
+    const plainSold = keptSold.filter(x => !x.boa), boaOut = plainSold.length >= 2 ? keptSold.length - plainSold.length : 0;
+    { const an = anchorToEvidence(price, { sold: (boaOut ? plainSold : keptSold).map(x => x.price), askMedian: marketShown && marketShown.median, askCount: marketShown && marketShown.count });
+      if (an.note && boaOut) an.note = an.note.replace(/, which outweigh asking prices;/, `, which outweigh asking prices (${boaOut} best-offer sale${boaOut === 1 ? " was" : "s were"} left out: eBay shows the asking price, not what was paid);`);
       if (an.note) { price = an.price; warnings.push(an.note); price.basis = `${price.basis || ""} ${an.note[0].toUpperCase()}${an.note.slice(1)}`.trim(); } }
 
     // Two markets under one set of search terms. The dealer owns one of them, and which one
