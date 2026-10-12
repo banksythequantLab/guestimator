@@ -2203,6 +2203,9 @@ export async function appraise(env, req) {
     // things. A Shepard Fairey "Obey Law" print showed "3 sold, median $256" from three different
     // prints the model had rejected, under a $300-$550 guess (Derek's iPad, 2026-10-12).
     else if (comparables.length || rejected.length) soldShown = null;
+    // Nobody judged them (the comps pass failed): keep them visible but say so. 2026-10-12, an SK Hynix
+    // 16GB server stick showed "12 sold, $35-$650" from desktop RAM and a 10-stick lot.
+    else if (soldShown) soldShown = { ...soldShown, judged: false };
     // Sales set the price; with none, asking prices cap it (anchorToEvidence). Per piece, before any lot multiply.
     // Best Offer sales show the asking price, not what was paid: with 2+ plain sales, price from those.
     const plainSold = keptSold.filter(x => !x.boa), boaOut = plainSold.length >= 2 ? keptSold.length - plainSold.length : 0;

@@ -34,7 +34,7 @@ export function verdict(priceCents, sold) {
 export async function soldFor(env, r, nowMs = Date.now()) {
   let res = null; try { res = JSON.parse(r.result_json || "null"); } catch {}
   // An older estimate's sold line can be sales the model rejected (no comparables kept): look again.
-  const sm = res && ((res.comparables || []).length || !(res.rejected_comparables || []).length) ? res.sold_market : null;
+  const sm = res && res.sold_market && res.sold_market.judged !== false && ((res.comparables || []).length || !(res.rejected_comparables || []).length) ? res.sold_market : null;
   if (sm && sm.count && nowMs - Date.parse(sm.as_of || 0) < FRESH_DAYS * DAY)
     return { sold: sm, recent: sm.recent || [], source: "estimate", why: null };
   const q = res?.identification ? compsQuery(res.identification) : r.title;

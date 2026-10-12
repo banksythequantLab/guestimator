@@ -98,6 +98,7 @@ ok("noprice: cold prompt has no unjudged sold range", !/Sold on eBay, last 90 da
 r = await run("fail");
 ok("fail: repricer failure is reported", /comps re-pricing failed/.test(W(r)), W(r));
 ok("fail: cold pass still prices it (not the $30-$60 memory)", r.price_range.low === 120 && r.price_range.high === 170 && seen.cold.length === 1, r.price_range);
+ok("fail: unjudged sales are marked as such", !r.sold_market || r.sold_market.judged === false, r.sold_market);
 ok("fail: explained by the pass that priced it", /COLD-BASIS/.test(r.price_range.basis) && !/MEMORY-BASIS/.test(r.price_range.basis), r.price_range.basis);
 
 // ---------- allfail ----------
