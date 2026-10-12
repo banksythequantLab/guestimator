@@ -81,7 +81,7 @@ body{background:var(--bg);color:var(--ink);font-family:"Nunito Sans",-apple-syst
    appraisal" button was still underneath the tab bar. #app grows with its content, so padding
    there becomes real scrollable space. --bottom-pad is measured from the bars themselves in
    syncBottomPad(). */
-main#app{padding-bottom:var(--bottom-pad,calc(76px + env(safe-area-inset-bottom)))}
+main#app{padding-bottom:var(--bottom-pad,calc(76px + var(--sab)))}
 h1,h2,h3{font-family:"Fraunces",Georgia,serif;font-weight:600;margin:0}
 button{font-family:inherit;cursor:pointer}
 .wrap{max-width:620px;margin:0 auto;padding:0 14px}
@@ -112,12 +112,12 @@ input:focus,select:focus{outline:2px solid var(--cobalt);border-color:var(--coba
 .li.selected{border-color:var(--green);box-shadow:0 0 0 1px var(--green)}
 .li.sold{opacity:.5}
 .tap{cursor:pointer;user-select:none}
-.tabbar{position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);display:flex;padding:6px max(14px,env(safe-area-inset-left)) calc(6px + env(safe-area-inset-bottom));z-index:20}
+.tabbar{position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);display:flex;padding:6px max(14px,env(safe-area-inset-left)) calc(6px + var(--sab));z-index:20}
 .tabbar button{flex:1;background:none;border:0;color:var(--sub);font-weight:800;font-size:.72rem;padding:8px 2px;display:flex;flex-direction:column;align-items:center;gap:3px}
 .tabbar button .ic{font-size:1.15rem}
 .tabbar button.on{color:var(--green)}
 .hidden{display:none!important}
-.cartbar{position:fixed;left:0;right:0;bottom:calc(70px + env(safe-area-inset-bottom));z-index:15;display:flex;justify-content:center;pointer-events:none}
+.cartbar{position:fixed;left:0;right:0;bottom:calc(70px + var(--sab));z-index:15;display:flex;justify-content:center;pointer-events:none}
 .cartbar .inner{pointer-events:auto;background:var(--green);color:#fff;border-radius:13px;box-shadow:var(--shadow);display:flex;align-items:center;gap:14px;padding:10px 14px;max-width:592px;width:calc(100% - 28px)}
 .cartbar .tot{font-family:"Fraunces",serif;font-weight:600;font-size:1.25rem;font-variant-numeric:tabular-nums}
 .cartbar .go{margin-left:auto;background:#fff;color:var(--green);border:0;border-radius:9px;padding:9px 16px;font-weight:800}
@@ -153,10 +153,10 @@ textarea:focus{outline:2px solid var(--cobalt);border-color:var(--cobalt)}
 .lb img{max-width:100vw;max-height:100vh;transform-origin:0 0;will-change:transform;cursor:grab;-webkit-user-drag:none}
 .lb img.drag{cursor:grabbing}
 .lb button{position:absolute;background:rgba(255,255,255,.14);color:#fff;border:0;border-radius:22px;min-width:44px;height:44px;font-size:1.3rem;font-weight:800;padding:0 12px}
-.lb .x{top:max(12px,env(safe-area-inset-top));right:12px}
+.lb .x{top:max(12px,var(--sat));right:12px}
 .lb .pv{left:10px;top:50%;transform:translateY(-50%)}.lb .nx{right:10px;top:50%;transform:translateY(-50%)}
-.lb .cap{position:absolute;bottom:max(14px,env(safe-area-inset-bottom));left:0;right:0;text-align:center;color:#ddd;font-size:.82rem;pointer-events:none}
-.lb .zb{bottom:max(40px,calc(env(safe-area-inset-bottom) + 28px));right:12px;font-size:1rem}
+.lb .cap{position:absolute;bottom:max(14px,var(--sab));left:0;right:0;text-align:center;color:#ddd;font-size:.82rem;pointer-events:none}
+.lb .zb{bottom:max(40px,calc(var(--sab) + 28px));right:12px;font-size:1rem}
 ul.ev{margin:4px 0 0;padding-left:18px;font-size:.88rem}ul.ev li{margin:3px 0}
 .paywall{position:fixed;inset:0;background:rgba(20,16,12,.55);display:flex;align-items:flex-end;justify-content:center;z-index:50}
 .pw-card{background:var(--panel,#fff);width:100%;max-width:560px;border-radius:18px 18px 0 0;padding:16px 16px calc(28px + var(--sab));box-shadow:0 -8px 30px rgba(0,0,0,.25);max-height:88vh;overflow:auto}

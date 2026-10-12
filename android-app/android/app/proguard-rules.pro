@@ -1,21 +1,14 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
-
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
-
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
-
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Guestimator release rules (R8 on since 1.2.2, 2026-10-12).
+# Capacitor finds plugins and their @PluginMethod methods by reflection, so plugin classes keep
+# their names and members (Capacitor docs, Android troubleshooting > Using Proguard).
+-keep public class * extends com.getcapacitor.Plugin { *; }
+-keep @com.getcapacitor.annotation.CapacitorPlugin class * { *; }
+-keep class com.getcapacitor.** { *; }
+# Plugins this app ships: App, Browser, Share target, Social login (has its own rules too), RevenueCat.
+-keep class com.capacitorjs.plugins.** { *; }
+-keep class app.capgo.sharetarget.** { *; }
+-keep class ee.forgr.capacitor.social.login.** { *; }
+-keep class com.revenuecat.purchases.** { *; }
+# Readable crash reports in Play (with the uploaded mapping.txt).
+-keepattributes SourceFile,LineNumberTable,*Annotation*,Signature,InnerClasses,EnclosingMethod
+-renamesourcefileattribute SourceFile
