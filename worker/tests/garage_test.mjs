@@ -67,13 +67,15 @@ ok("stripeReady with only the Connect webhook secret", G.stripeReady({ STRIPE_SE
 
 // ---------- Stripe, stubbed ----------
 const calls = [];
-let acctReady = false;
+let acctReady = false, noProfile = false;
 const jr = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { "content-type": "application/json" } });
 globalThis.fetch = async (u, init = {}) => {
   const url = String(u), method = init.method || "GET";
   const form = init.body instanceof URLSearchParams ? init.body : null;
   calls.push({ url, method, form, account: (init.headers || {})["stripe-account"] || null });
-  if (url.endsWith("/v1/accounts") && method === "POST") return jr({ id: "acct_SELLER" });
+  if (url.endsWith("/v1/accounts") && method === "POST") return noProfile
+    ? jr({ error: { message: "You must complete your platform profile to use Connect and create live connected accounts. Visit your dashboard at https://dashboard.stripe.com/connect/accounts/overview to answer the questionnaire." } }, 400)
+    : jr({ id: "acct_SELLER" });
   if (url.includes("/v1/accounts/acct_SELLER") && url.endsWith("/login_links")) return jr({ url: "https://connect.stripe.test/express" });
   if (url.includes("/v1/accounts/acct_SELLER") && method === "GET")
     return jr({ id: "acct_SELLER", details_submitted: acctReady, charges_enabled: acctReady, capabilities: { card_payments: acctReady ? "active" : "inactive", transfers: acctReady ? "active" : "inactive" }, requirements: { currently_due: acctReady ? [] : ["external_account"] } });
@@ -205,6 +207,17 @@ const hold = r.json.holds.find(h => h.name === "Pat");
 ok("seller sees the hold", !!hold && hold.phone === "973-555-0101");
 ok("accept hold", (await call("PATCH", `/api/garage/holds/${hold.id}`, { status: "accepted" })).status === 200);
 ok("item now held", db.raw.prepare("SELECT status FROM garage_sale_items WHERE item_id=?").get(crock).status === "held");
+
+// ---------- platform profile not finished (live, 2026-10-12) ----------
+noProfile = true; who = "b";
+r = await call("POST", "/api/garage/stripe/connect");
+ok("seller: plain message, no Stripe jargon, no setup link", r.status === 503 && !/platform profile/i.test(r.json.error) && !r.json.platform_setup);
+ok("seller's attempt shows on the owner page", db.raw.prepare("SELECT COUNT(*) n FROM ops_errors WHERE job='stripe-connect'").get().n === 1);
+env.ADMIN_EMAIL = "b@example.com";
+r = await call("POST", "/api/garage/stripe/connect");
+ok("owner: setup link instead of an error", r.status === 409 && r.json.platform_setup && r.json.platform_setup.url === "https://dashboard.stripe.com/connect/accounts/overview");
+delete env.ADMIN_EMAIL; noProfile = false; who = "a";
+for (let i = calls.length - 1; i >= 0; i--) if (calls[i].url.endsWith("/v1/accounts")) calls.splice(i, 1);
 
 // ---------- Stripe Connect onboarding ----------
 // A Bottle Tree storefront account id (the platform's own) must not count as a sales payout account.

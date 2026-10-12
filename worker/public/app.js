@@ -71,6 +71,23 @@ async function api(path, opts) {
   }
   return r.json();
 }
+// Guestimator's own Stripe Connect setup isn't finished: the owner gets the link and the steps in
+// place of the Connect button (2026-10-12). Sellers never get this; the server sends them a plain message.
+function showPlatformSetup(e, holder) {
+  if (!e || !e.platform_setup || !holder) return false;
+  holder.innerHTML = `<div class="card" style="border-color:var(--rust);margin:8px 0 0"><b>One Stripe step before shops can take payments</b>
+    <div class="muted" style="font-size:.85rem;margin:4px 0 6px">Stripe needs Guestimator's platform profile filled in once. Only you see this.</div>
+    <ol style="font-size:.85rem;margin:0 0 10px;padding-left:20px;line-height:1.45">
+      <li>Tap <b>Open Stripe Connect setup</b> and sign in to Guestimator's Stripe account. Make sure <b>Test mode</b> is off.</li>
+      <li>Click <b>Get started</b> (or "Complete your platform profile") and answer with these facts: sellers are individuals and small dealers selling used goods in the US; the seller is the merchant (payments go to their own Stripe account and their name is on the receipt); Stripe-hosted onboarding with the full Stripe Dashboard; sellers pay Stripe's fees and Guestimator charges no fee; sellers handle refunds and disputes; Stripe covers negative balances.</li>
+      <li>If Stripe asks you to accept its Connect terms, read them first; accepting is your call.</li>
+      <li>Come back, tap <b>I've finished</b>, then <b>Connect Stripe</b> again.</li>
+    </ol>
+    <a class="btn" href="${esc(e.platform_setup.url)}" target="_blank" rel="noopener" style="display:block;text-align:center;background:var(--cobalt)">Open Stripe Connect setup ↗</a>
+    <button class="btn sec sm" id="psDone" style="margin-top:8px">I've finished</button></div>`;
+  const d = holder.querySelector("#psDone"); if (d) d.onclick = () => location.reload();
+  return true;
+}
 let toastT;
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 1800); }
 window.toast = toast;
@@ -1880,7 +1897,7 @@ async function marketPanel(id, collapsed = false) {
   const stripeNote = d.stripe.ready ? "" : `<div class="muted" style="font-size:.8rem;margin-top:8px;color:var(--rust)">Buyers can't see your shop until your Stripe account is set up (about 10 minutes, in your name). ${d.stripe.platform_on ? `<button class="btn sm" id="mktStripe" style="background:var(--cobalt);margin-top:6px">${d.stripe.connected ? "Finish Stripe setup" : "Connect Stripe"}</button>` : ""}</div>`;
   const wireStripe = () => { if ($("#mktStripe")) $("#mktStripe").onclick = async () => {
     try { const { url } = await api("/garage/stripe/connect", { method: "POST" });
-      if (typeof isNative !== "undefined" && isNative && window.Capacitor?.Plugins?.Browser) await Capacitor.Plugins.Browser.open({ url }); else location.href = url; } catch (e) { toast(e.message); } }; };
+      if (typeof isNative !== "undefined" && isNative && window.Capacitor?.Plugins?.Browser) await Capacitor.Plugins.Browser.open({ url }); else location.href = url; } catch (e) { if (!showPlatformSetup(e, $("#mktStripe") && $("#mktStripe").parentElement)) toast(e.message); } }; };
   if (L && L.status === "sold") { el.innerHTML = `<div style="font-size:.9rem"><b>Sold on the Market ✓</b> <a href="${esc(L.url)}" target="_blank" rel="noopener">View</a></div>`; return; }
   if (L && L.status === "pending") { el.innerHTML = `<div style="font-size:.9rem">Someone is paying for it right now.</div>`; return; }
   if (collapsed) {

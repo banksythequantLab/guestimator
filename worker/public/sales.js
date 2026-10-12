@@ -33,7 +33,7 @@ function wireStripeCard(after) {
       const { url } = await api(path, { method: "POST" });
       if (isNative && window.Capacitor?.Plugins?.Browser) await Capacitor.Plugins.Browser.open({ url });
       else location.href = url;
-    } catch (e) { toast(e.message); btn.disabled = false; }
+    } catch (e) { btn.disabled = false; if (!showPlatformSetup(e, btn.closest(".card"))) toast(e.message); }
   };
   if (go) go.onclick = () => open("/garage/stripe/connect", go);
   if (dash) dash.onclick = () => open("/garage/stripe/dashboard", dash);

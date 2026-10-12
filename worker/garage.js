@@ -16,6 +16,7 @@ import { packageFor, flatRateFits } from "./packing.js";
 import * as sheet from "./export.js";
 import { siteOrigin } from "./site.js";
 import { TERMS_VERSION } from "./terms.js";
+import { adminEmail } from "./shipops.js";
 // Market terms in force (terms.js termsLive; kept local because terms.js imports from here).
 const marketTermsLive = env => String(env.MARKET_TERMS_LIVE || "").toLowerCase() === "on";
 
@@ -258,6 +259,7 @@ export async function sellerApi(request, env, url, parts, userId, ctx) {
       return J({ connected: true, ready: !!ready, details_submitted: !!acct.details_submitted, currently_due: acct.requirements?.currently_due || [] });
     }
     if (parts[3] === "connect" && m === "POST") {
+      try {
       if (!u?.connect_account_id) {
         const acct = await stripe(env, "POST", "/v1/accounts", {
           country: "US", email: u?.email || undefined,
@@ -274,6 +276,18 @@ export async function sellerApi(request, env, url, parts, userId, ctx) {
         refresh_url: `${origin}/#stripe-refresh`, return_url: `${origin}/#stripe-return`,
       });
       return J({ url: link.url });
+      } catch (e) {
+        // Guestimator's own Stripe account hasn't finished Connect's "platform profile", so Stripe
+        // refuses to make any seller account (live, 2026-10-12). The owner gets the link and the
+        // steps in the app; a seller gets a plain message and the owner page records it.
+        if (!/platform profile/i.test(String(e && e.message))) throw e;
+        const admin = adminEmail(env);
+        if (admin && u?.email && u.email.toLowerCase() === admin.toLowerCase())
+          return J({ error: "Stripe needs one setup step first.", platform_setup: { url: "https://dashboard.stripe.com/connect/accounts/overview" } }, 409);
+        try { await db.prepare("INSERT INTO ops_errors (at, job, message) VALUES (?,?,?)").bind(new Date().toISOString(), "stripe-connect",
+          "A seller tried Connect Stripe, but Guestimator's Stripe platform profile isn't finished. Open Your sales > Connect Stripe yourself for the steps.").run(); } catch {}
+        return J({ error: "Online payments for shops are opening soon. We've told the Guestimator team. Please try again in a day or two." }, 503);
+      }
     }
     if (parts[3] === "dashboard" && m === "POST") {
       if (!u?.connect_account_id) return J({ error: "Connect Stripe first" }, 409);
