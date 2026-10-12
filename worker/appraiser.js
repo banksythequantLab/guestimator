@@ -2049,8 +2049,10 @@ export async function appraise(env, req) {
   marks.sold_lookups = soldLookups();
   { const own = new Set((req.own_listing_ids || []).map(String).filter(Boolean));
     const itm = x => (String((x && x.url) || "").match(/\/itm\/(?:[^/?#]*\/)?(\d{9,})/) || [])[1];
-    if (own.size) for (const arr of [live, sold]) if (Array.isArray(arr))
-      for (let i = arr.length - 1; i >= 0; i--) if (own.has(itm(arr[i]))) arr.splice(i, 1); }
+    const me = String(req.own_seller || "").trim().toLowerCase();
+    const mine = x => own.has(itm(x)) || (me && String((x && x.seller) || "").trim().toLowerCase() === me);
+    if (own.size || me) for (const arr of [live, sold]) if (Array.isArray(arr))
+      for (let i = arr.length - 1; i >= 0; i--) if (mine(arr[i])) arr.splice(i, 1); }
   mark("comps");
   // Sold first: what buyers paid is the strongest evidence, and the repricer reads top-down. Web
   // results go last, minus any page eBay already gave us.

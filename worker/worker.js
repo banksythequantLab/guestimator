@@ -239,6 +239,9 @@ async function runAppraisal(env, appraisalId, item, photos) {
       // portrait was priced $1,500-$2,600 from its own $2,300 listing).
       own_listing_ids: ((await db.prepare("SELECT listing_id FROM ebay_listings WHERE item_id=? AND listing_id IS NOT NULL")
         .bind(item.id).all().catch(() => ({ results: [] }))).results || []).map(r => String(r.listing_id)),
+      // ...and nothing the owner is selling on eBay under their own seller name, listed through us or not.
+      own_seller: ((await db.prepare("SELECT e.ebay_username u FROM sales s JOIN ebay_accounts e ON e.user_id=s.user_id WHERE s.id=?")
+        .bind(item.sale_id).first().catch(() => null)) || {}).u || "",
     };
     let result, text;
     if (env.APPRAISER_URL) {
