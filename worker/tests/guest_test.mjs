@@ -101,7 +101,15 @@ ok("owner: last 24 hours counts visits and guest tries", st.day && st.day.visits
 
 // the landing page's real example: best-evidenced price-guide entry, or none
 { const ex = await call("GET", "/api/public/example");
-  ok("example endpoint answers (none yet in an empty guide)", ex.status === 200 && ex.json.example === null, ex.json); }
+  ok("example endpoint answers (none yet in an empty guide)", ex.status === 200 && ex.json.example === null && Array.isArray(ex.json.examples) && !ex.json.examples.length, ex.json); }
+// a guest coming back is its own funnel step
+{ await worker.fetch(new Request("https://g.test/hit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ s: "zeely", c: "free_guestimate", sid: "v9", e: "guest_return" }) }), env, { waitUntil() {} });
+  ok("guest_return stored as a step", db.raw.prepare("SELECT ev FROM landing_hits WHERE sid='v9'").get()?.ev === "guest_return");
+  const s2 = await own.ownerStats(db, env, Date.now());
+  ok("owner funnel counts the return", s2.funnelSteps.zeely.guest_return === 1, s2.funnelSteps.zeely);
+  db.raw.prepare("INSERT INTO users (id,email,pw_hash,pw_salt,created_at) VALUES ('robot1','x-lvl-00@cloudtestlabaccounts.com','x','x',?)").run(new Date().toISOString());
+  const s3 = await own.ownerStats(db, env, Date.now());
+  ok("Play's test robot isn't a sign-up", Number(s3.users.total) === Number(s2.users.total) && !s3.day.signups.some(u => /cloudtestlab/.test(u.email)), s3.users); }
 // short email links
 { const go = async c => (await worker.fetch(new Request("https://g.test/t/" + c), env, { waitUntil() {} }));
   const a = await go("pa"), z = await go("nope"), h = await go("hasOwnProperty");

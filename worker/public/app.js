@@ -282,7 +282,8 @@ function renderAuth(mode) {
   $("#auEmail").addEventListener("focus", () => track("signup_form"), { once: true });
   // A real Guestimate from the price guide, so visitors see the result before trying (2026-10-12).
   if ($("#exampleCard")) fetch("/api/public/example").then(r => r.json()).then(d => {
-    const x = d && d.example, el = $("#exampleCard"); if (!x || !el) return;
+    const xs = d && d.examples && d.examples.length ? d.examples : d && d.example ? [d.example] : [];
+    const x = xs[Math.floor(Math.random() * xs.length)], el = $("#exampleCard"); if (!x || !el) return;
     el.innerHTML = `<div class="card" style="padding:12px 16px"><div class="muted" style="font-size:.75rem;text-transform:uppercase;letter-spacing:.04em">A real Guestimate</div>
       <b>${esc(x.title)}</b><div style="font-size:1.5rem;font-weight:800;margin:2px 0">$${Math.round(x.low).toLocaleString()} – $${Math.round(x.high).toLocaleString()}</div>
       <div class="muted" style="font-size:.82rem;margin-bottom:4px">${x.sold >= 2 ? `From ${x.sold} actual eBay sales` : `From ${x.comps} eBay listings`}, for example:</div>
@@ -427,6 +428,23 @@ async function renderGuestHome() {
   wireGuestSave(); $("#aiAdd").onclick = () => renderCapture();
   let list = []; try { list = await api("/items"); } catch { list = []; }
   const el = $("#itemList"); if (!el) return;
+  // A guest who comes back later (new browser session) to a finished Guestimate gets a welcome-back
+  // nudge to save it, and the return is counted for their original ad source (2026-10-12).
+  let seenTab = true; try { seenTab = !!sessionStorage.getItem("gs_guest_tab"); sessionStorage.setItem("gs_guest_tab", "1"); } catch {}
+  const done = list.find(i => i.est_high > 0);
+  if (!seenTab && done) {
+    try {
+      if (!sessionStorage.getItem("gs_visit")) {
+        const m = /(?:^|;\s*)gs_src=([^;]*)/.exec(document.cookie);
+        const [s, c, t] = (m ? decodeURIComponent(m[1]) : "direct||").split("|");
+        sessionStorage.setItem("gs_visit", JSON.stringify({ s: s || "direct", c: c || "", t: t || "", sid: Math.random().toString(36).slice(2, 10) + Date.now().toString(36) }));
+      }
+    } catch {}
+    track("guest_return");
+    const top = app.querySelector(".card");
+    if (top) top.outerHTML = `<div class="card" style="border-color:var(--green);padding:12px 16px"><b>Welcome back!</b><div class="muted" style="font-size:.88rem;margin:4px 0 8px">Your Guestimate for <b style="color:var(--ink,#111)">${esc(done.ai_title || done.name || "your item")}</b> ($${Math.round(done.est_low).toLocaleString()} – $${Math.round(done.est_high).toLocaleString()}) is still here. Create your free account so you don't lose it, and get more free Guestimates. No card needed.</div><button class="btn" id="guestSave">Save it, free</button></div>`;
+    wireGuestSave();
+  }
   el.innerHTML = list.length ? list.map(i => `<a href="#" class="card gItem" data-id="${esc(i.id)}" style="display:block;text-decoration:none;color:inherit;padding:12px 16px"><b>${esc(i.ai_title || i.name || "Item")}</b><div class="muted" style="font-size:.82rem">${i.est_high > 0 ? `Guestimate: <b style="color:var(--ink,#111)">$${Math.round(i.est_low).toLocaleString()} – $${Math.round(i.est_high).toLocaleString()}</b> · keep it with a free account` : i.appraisal_status === "done" ? "Guestimate ready" : i.appraisal_status === "pending" ? "Guestimating…" : ""}</div></a>`).join("")
     : `<div class="empty">Nothing yet. Tap <b>Guestimate something</b>.</div>`;
   document.querySelectorAll(".gItem").forEach(x => x.onclick = e => { e.preventDefault(); renderItemDetail(x.dataset.id); });

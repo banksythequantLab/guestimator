@@ -37,7 +37,7 @@ export async function ownerStats(db, env, ms = Date.now()) {
       (SELECT COUNT(DISTINCT s.user_id) FROM appraisals a JOIN items i ON i.id=a.item_id JOIN sales s ON s.id=i.sale_id) estimators,
       (SELECT COUNT(DISTINCT s.user_id) FROM appraisals a JOIN items i ON i.id=a.item_id JOIN sales s ON s.id=i.sale_id WHERE a.created_at>=?) active7,
       (SELECT COUNT(*) FROM guest_starts WHERE at>=?) guests7
-    FROM users WHERE email NOT LIKE '%@guest.invalid'`, d7, d30, d7, d7);
+    FROM users WHERE email NOT LIKE '%@guest.invalid' AND email NOT LIKE '%@cloudtestlabaccounts.com'`, d7, d30, d7, d7);
   const est = await one(db, `SELECT SUM(created_at>=?) n7, SUM(created_at>=?) n30, SUM(created_at>=? AND status='error') err7,
       SUM(status='pending' AND created_at<?) stuck FROM appraisals`, d7, d30, d7, iso(ms - 30 * 60e3));
   // Real money only: RevenueCat purchases/renewals (not spends, refunds, grants, promos, welcome credits).
@@ -76,7 +76,7 @@ export async function ownerStats(db, env, ms = Date.now()) {
   const estErrors = await all(db, "SELECT a.created_at at, a.error message FROM appraisals a WHERE a.status='error' ORDER BY a.created_at DESC LIMIT 5");
   const listErrors = await all(db, "SELECT updated_at at, error message FROM ebay_listings WHERE status='error' ORDER BY updated_at DESC LIMIT 5");
   const recent = await all(db, `SELECT u.email, u.created_at, (SELECT COUNT(*) FROM appraisals a JOIN items i ON i.id=a.item_id JOIN sales s ON s.id=i.sale_id WHERE s.user_id=u.id) estimates,
-      EXISTS (SELECT 1 FROM ebay_accounts e WHERE e.user_id=u.id) ebay FROM users u WHERE u.email NOT LIKE '%@guest.invalid' ORDER BY u.created_at DESC LIMIT 12`);
+      EXISTS (SELECT 1 FROM ebay_accounts e WHERE e.user_id=u.id) ebay FROM users u WHERE u.email NOT LIKE '%@guest.invalid' AND email NOT LIKE '%@cloudtestlabaccounts.com' ORDER BY u.created_at DESC LIMIT 12`);
   const funnel = await growth.funnelByWeek(db, ms);
   const winback = await growth.winbackCandidates(env, db, adminEmail(env));
   const unsent = await growth.winbackUnsent(db);
@@ -85,7 +85,7 @@ export async function ownerStats(db, env, ms = Date.now()) {
   const partnerClicks = await partners.allClicks30(db);
   const sources = (await db.prepare(`SELECT COALESCE(u.signup_source, '(unknown)') src, COALESCE(u.signup_campaign, '') camp, COUNT(*) n,
       SUM(EXISTS (SELECT 1 FROM sales s JOIN items i ON i.sale_id=s.id JOIN appraisals a ON a.item_id=i.id WHERE s.user_id=u.id)) est
-    FROM users u WHERE u.created_at>=? AND u.email NOT LIKE '%@guest.invalid' GROUP BY 1,2 ORDER BY n DESC LIMIT 20`).bind(d30).all().catch(() => ({ results: [] }))).results || [];
+    FROM users u WHERE u.created_at>=? AND u.email NOT LIKE '%@guest.invalid' AND email NOT LIKE '%@cloudtestlabaccounts.com' GROUP BY 1,2 ORDER BY n DESC LIMIT 20`).bind(d30).all().catch(() => ({ results: [] }))).results || [];
   const visits = (await db.prepare(`SELECT src, COALESCE(camp,'') camp, COALESCE(content,'') content, COUNT(*) n, SUM(inapp) inapp
     FROM landing_hits WHERE at>=? GROUP BY 1,2,3 ORDER BY n DESC LIMIT 20`).bind(d30).all().catch(() => ({ results: [] }))).results || [];
   // Ad visitors step by step (7 days): distinct visit sessions reaching each step, per source.
@@ -104,7 +104,7 @@ export async function ownerStats(db, env, ms = Date.now()) {
       FROM appraisals a JOIN items i ON i.id=a.item_id LEFT JOIN sales s ON s.id=i.sale_id LEFT JOIN users u ON u.id=s.user_id
       WHERE a.created_at>=? ORDER BY a.created_at DESC LIMIT 30`, d1),
     signups: await rows(`SELECT created_at at, email, signup_source src, signup_campaign camp FROM users
-      WHERE created_at>=? AND email NOT LIKE '%@guest.invalid' ORDER BY created_at DESC LIMIT 20`, d1),
+      WHERE created_at>=? AND email NOT LIKE '%@guest.invalid' AND email NOT LIKE '%@cloudtestlabaccounts.com' ORDER BY created_at DESC LIMIT 20`, d1),
   };
   const acc = await accuracy.accuracyRows(db).catch(() => []);
   return { at: iso(ms), day, alerts, partnerClicks, sources, visits, funnelSteps, acc, accSum: accuracy.summary(acc), funnel, winback, unsent, winbackPreview, users, est, paid, ebay, garage, market, promos, feedback: await feedback.ownerList(db).catch(() => []), labels: { used: await labelpay.monthCount(db, ms), cap: labelpay.houseCap(env), pay_on: labelpay.payOn(env), payments: labelPays, problems: labelProblems, voids },
@@ -185,7 +185,7 @@ ${L.payments.map(p => tile(`Payments: ${p.status}`, n(p.n), money(p.cents), p.st
 ${tile("Voids pending", n(L.voids.pending), `${n(L.voids.refused)} refused by Shippo`, n(L.voids.refused) > 0)}</div>
 ${L.problems.length ? `<h2>Label payments to check (30 days)</h2><div class="sc">${table(["When", "Status", "Seller", "Order", "Charged", "Stripe", "Why"],
   L.problems.map(p => `<tr><td>${when(p.updated_at)}</td><td class="${p.status === "refunded" ? "" : "err"}">${esc(p.status)}</td><td>${esc(p.email)}</td><td>${esc(p.kind)} ${esc(p.order_id)}</td><td>${money(p.total_cents)}</td><td>${esc(p.payment_intent || "")}</td><td>${esc(p.error || "")}</td></tr>`), "")}</div>` : ""}
-<h2>Ad visitors, step by step (7 days)</h2><div class="m" style="margin-bottom:8px">Visit sessions from tagged links reaching each step. "Tried free" = pressed Try it free; "Result" = saw a finished Guestimate; "Opened sign-up" = clicked into the email box. ${n((s.users || {}).guests7)} guest tries in 7 days (not counted as sign-ups).</div><div class="sc">${table(["Source", "Landed", "Tried free", "Guest ready", "Started a Guestimate", "Result", "Opened sign-up", "Signed up"], Object.entries(s.funnelSteps || {}).map(([src, f]) => `<tr><td>${esc(src)}</td>${["land", "try_click", "guest_ready", "estimate_start", "estimate_done", "signup_form", "signup_done"].map(k => `<td>${n(f[k])}</td>`).join("")}</tr>`), "No tagged visits in 7 days.")}</div>
+<h2>Ad visitors, step by step (7 days)</h2><div class="m" style="margin-bottom:8px">Visit sessions from tagged links reaching each step. "Tried free" = pressed Try it free; "Result" = saw a finished Guestimate; "Came back" = a guest with a Guestimate opened the app again later; "Opened sign-up" = clicked into the email box. ${n((s.users || {}).guests7)} guest tries in 7 days (not counted as sign-ups).</div><div class="sc">${table(["Source", "Landed", "Tried free", "Guest ready", "Started a Guestimate", "Result", "Came back", "Opened sign-up", "Signed up"], Object.entries(s.funnelSteps || {}).map(([src, f]) => `<tr><td>${esc(src)}</td>${["land", "try_click", "guest_ready", "estimate_start", "estimate_done", "guest_return", "signup_form", "signup_done"].map(k => `<td>${n(f[k])}</td>`).join("")}</tr>`), "No tagged visits in 7 days.")}</div>
 <h2>Visits from tagged links (30 days)</h2><div class="m" style="margin-bottom:8px">Arrivals on a link with utm_source (ads, posts, price guide), once per browser session, signed up or not. "In-app" = inside the Facebook/Instagram browser. Counting started 2026-10-08.</div><div class="sc">${table(["Source", "Campaign", "Ad", "Visits", "In-app"], (s.visits || []).map(r => `<tr><td>${esc(r.src)}</td><td>${esc(r.camp)}</td><td>${esc(r.content)}</td><td>${n(r.n)}</td><td>${n(r.inapp)}${pct(r.inapp, r.n)}</td></tr>`), "No tagged visits yet.")}</div>
 <h2>Sign-ups by source (30 days)</h2><div class="m" style="margin-bottom:8px">From the link people first arrived on (utm_source / utm_campaign, else the referring site). Counting started 2026-10-07; older accounts show as (unknown).</div><div class="sc">${table(["Source", "Campaign", "Sign-ups", "Made a Guestimate"], (s.sources || []).map(r => `<tr><td>${esc(r.src)}</td><td>${esc(r.camp)}</td><td>${n(r.n)}</td><td>${n(r.est)}${pct(r.est, r.n)}</td></tr>`), "No sign-ups in 30 days.")}</div>
 <h2>Guestimate vs. what it sold for</h2>${(() => { const A = s.accSum || {}; const rows = s.acc || [];

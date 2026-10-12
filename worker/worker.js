@@ -198,7 +198,7 @@ async function newSession(db, userId) {
 // told apart from "the clicks never reached us". Source names only; nothing about the person.
 const clean = v => String(v || "").toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 40);
 // Funnel steps a tagged visit can report, in order (owner page "Ad visitors, step by step").
-export const FUNNEL = ["land", "try_click", "guest_ready", "estimate_start", "estimate_done", "signup_form", "signup_done"];
+export const FUNNEL = ["land", "try_click", "guest_ready", "estimate_start", "estimate_done", "guest_return", "signup_form", "signup_done"];
 async function landingHit(env, request) {
   try {
     const b = await request.json().catch(() => ({}));
@@ -486,12 +486,20 @@ export default {
       if (parts[1] === "public" && parts[2] === "example" && parts.length === 3 && m === "GET") {
         const gs = (await priceguide.allGuides(db, 200).catch(() => [])).filter(g => !g.thin && g.comps.length >= 2);
         const score = g => (g.comps.filter(c => c.sold).length * 10) + g.comps.length;
-        const g = gs.sort((a, b) => score(b) - score(a))[0];
-        if (!g) return J({ example: null }, 200, { "cache-control": "public, max-age=600" });
-        const sold = g.comps.filter(c => c.sold);
-        const show = (sold.length >= 2 ? sold : g.comps).slice(0, 3).map(c => ({ title: c.title.slice(0, 70), price: c.price, sold: c.sold }));
-        return J({ example: { title: g.title, low: g.range.low, high: g.range.high, sold: sold.length, comps: g.comps.length, show,
-          url: (env.PUBLIC_ORIGIN || url.origin) + priceguide.pagePath(g) } }, 200, { "cache-control": "public, max-age=600" });
+        const toEx = g => { const sold = g.comps.filter(c => c.sold);
+          const show = (sold.length >= 2 ? sold : g.comps).slice(0, 3).map(c => ({ title: c.title.slice(0, 70), price: c.price, sold: c.sold }));
+          return { title: g.title, low: g.range.low, high: g.range.high, sold: sold.length, comps: g.comps.length, show,
+            url: (env.PUBLIC_ORIGIN || url.origin) + priceguide.pagePath(g) }; };
+        // Up to 3 different items; the landing shows one at random, so someone with a dresser doesn't
+        // only ever see a RAM stick (2026-10-12). Items with 2+ actual sales first when there are 2+ of them.
+        const ranked = gs.sort((a, b) => score(b) - score(a));
+        const strong = ranked.filter(g => g.comps.filter(c => c.sold).length >= 2);
+        const pick = [], seen = new Set();
+        for (const g of (strong.length >= 2 ? strong : ranked)) {
+          const k = String(g.title).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").slice(0, 3).join(" ");
+          if (seen.has(k)) continue; seen.add(k); pick.push(toEx(g)); if (pick.length === 3) break;
+        }
+        return J({ example: pick[0] || null, examples: pick }, 200, { "cache-control": "public, max-age=600" });
       }
     if (parts[1] === "public" && parts[2] === "market" && parts[3] === "ask" && parts.length === 4 && m === "POST") return await market.publicAsk(request, env, url, ctx);
 
