@@ -38,5 +38,17 @@ eq("keeps hyphenated part codes", cleanForEbay("PC4-2933Y 2Rx4"), "PC4-2933Y 2Rx
 eq("drops circa", cleanForEbay("Red Wing crock circa 1930"), "Red Wing crock 1930");
 eq("empty query", cleanForEbay(""), "");
 
+// ---- server vs desktop memory (2026-10-12, real titles from the SK Hynix 16GB run) ----
+const S16 = "SK Hynix 16GB DDR4-2666 ECC Registered DIMM";
+eq("desktop SDRAM is not a server RDIMM", c(S16, "SK hynix 16GB DDR4-2666V PC4-21300 2Rx8 Desktop SDRAM"), true);
+eq("UDIMM is not a server RDIMM", c(S16, "SK Hynix 16GB DDR4 2666MHz Desktop RAM Memory UDIMM"), true);
+eq("non-ECC is not a server RDIMM", c(S16, "SK hynix 16GB DDR4 DIMM PC4-2666V 288-Pin Non-ECC RAM"), true);
+eq("unbuffered speed code (-U) is not a server RDIMM", c(S16, "SK Hynix 16GB 2Rx8 PC4-2666V-UB1-11 Working Ram Stick"), true);
+eq("ECC UDIMM is still not registered", c(S16, "SK Hynix 16GB DDR4-2666 ECC UDIMM"), true);
+eq("a registered stick is kept", c(S16, "HMA82GR7AFR8N-VK SK Hynix 16GB 2Rx8 PC4-2666V-RE2-12 ECC REG"), false);
+eq("a plain title is kept (says neither)", c(S16, "SK Hynix 16GB DDR4 2666 HMA82GR7AFR8N-VK"), false);
+eq("desktop query: a server RDIMM is left out", c("Corsair 16GB DDR4-3200 Desktop UDIMM", "Samsung 16GB DDR4-3200 ECC Registered RDIMM Server"), true);
+eq("desktop query: another desktop stick kept", c("Corsair 16GB DDR4-3200 Desktop UDIMM", "Corsair Vengeance 16GB DDR4 3200 Desktop"), false);
+eq("not memory: words like 'server' don't matter", c("Silver serving tray registered design", "Antique desktop silver tray"), false);
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

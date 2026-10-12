@@ -536,11 +536,24 @@ const GEN = t => {
 // class of error as the wrong generation: a different product, at a different price.
 const SODIMM = t => /\bso[- ]?dimm\b/i.test(String(t || ""));
 
+// Server memory (registered, ECC: RDIMM/LRDIMM) and desktop memory (unbuffered: UDIMM) don't fit
+// each other's machines and sell at different prices. 2026-10-12: an SK Hynix 16GB DDR4-2666 ECC
+// Registered DIMM from an HPE server was priced $45-60 from "Desktop SDRAM" / "UDIMM" sales.
+// Only memory queries are checked, and only a title that says outright it is the other kind.
+const MEMQ = t => /\b(?:ddr\d|pc\d|dimm|rdimm|udimm|memory|ram)\b/i.test(String(t || ""));
+const SERVER_MEM = t => /\b(?:rdimm|lrdimm|registered|reg|buffered ecc|server)\b/i.test(String(t || ""))
+  || /\bpc\d[a-z]?-\d{4,5}[a-z]?-r/i.test(String(t || ""));
+const DESKTOP_MEM = t => /\b(?:udimm|unbuffered|un-buffered|desktop|non[- ]?ecc|gaming)\b/i.test(String(t || ""))
+  || /\bpc\d[a-z]?-\d{4,5}[a-z]?-u/i.test(String(t || ""));
 export function contradictsGeneration(query, title) {
   const q = GEN(query), t = GEN(title);
   if (q && t && q !== t) return true;
   // Only reject on form factor when the query is specific about wanting the other one.
   if (/\br?dimm\b/i.test(query) && !SODIMM(query) && SODIMM(title)) return true;
+  if (MEMQ(query)) {
+    if (SERVER_MEM(query) && !DESKTOP_MEM(query) && DESKTOP_MEM(title)) return true;
+    if (DESKTOP_MEM(query) && !SERVER_MEM(query) && SERVER_MEM(title) && !DESKTOP_MEM(title)) return true;
+  }
   return false;
 }
 
