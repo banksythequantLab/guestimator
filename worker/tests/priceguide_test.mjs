@@ -105,5 +105,10 @@ ok("shown again", (await get(path)).status === 200);
   const four = PG.guideOf({ listing_id: "g000000000002", status: "optin", title: "Oil painting", result_json: JSON.stringify({ ...base, comparables: [1,2,3,4].map(n => ({ title: "x" + n, price: 100 * n })) }) });
   ok("one comparable -> public page says rough guess", one.thin && PG.guidePage(one, "https://g.test").includes("rough guess"));
   ok("four comparables -> no rough-guess note", !four.thin && !PG.guidePage(four, "https://g.test").includes("rough guess")); }
+{ const sm = P.guideOf({ listing_id: "g000000000003", status: "optin", title: "RAM", result_json: JSON.stringify({ price_range: { low: 129, high: 175 },
+    sold_market: { count: 4, median: 152, as_of: "2026-10-09" }, comparables: [1, 2, 3, 4].map(n => ({ title: "s" + n, price: 140 + n, source: "ebay.com (sold)" })) }) });
+  ok("SoldComps sales count as sold comps", sm.comps.every(c => c.sold), sm.comps);
+  ok("guide shows the Guestimate's own eBay sales", sm.sold && sm.sold.count === 4 && sm.sold.median === 152, sm.sold);
+  ok("public page says recent eBay sales", P.guidePage(sm, "https://g.test").includes("4 recent eBay sales")); }
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

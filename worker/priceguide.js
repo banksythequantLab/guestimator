@@ -39,13 +39,16 @@ export function guideOf(row) {
   const range = pr.low > 0 && pr.high > 0 ? { low: pr.low, high: pr.high } : mk.low > 0 && mk.high > 0 ? { low: mk.low, high: mk.high } : null;
   if (!range) return null;
   const comps = (Array.isArray(r.comparables) ? r.comparables : []).filter(c => c && c.title && Number(c.price) > 0).slice(0, 8)
-    .map(c => ({ title: String(c.title).slice(0, 140), price: Number(c.price), condition: c.condition || null, sold: !!c.sold,
+    // SoldComps marks a sale by its source ("ebay.com (sold)"), not a sold flag (2026-10-12).
+    .map(c => ({ title: String(c.title).slice(0, 140), price: Number(c.price), condition: c.condition || null, sold: !!c.sold || /\(sold\)/i.test(String(c.source || "")),
                  url: /^https:\/\/(www\.)?ebay\.com\/itm\//i.test(String(c.url || "")) ? String(c.url).split("?")[0] : null }));
   const live = row.status === "published" && row.listing_status !== "sold" && !row.sold_here;
   return {
     listing_id: String(row.listing_id), title: String(row.title || id.name || "Item").slice(0, 120),
     range, market: mk.count ? { count: mk.count, low: mk.low, high: mk.high, median: mk.median, as_of: mk.as_of } : null,
-    sold: Number(row.sold_count) >= 3 && row.sold_median_cents ? { count: Number(row.sold_count), median: row.sold_median_cents / 100, as_of: row.sold_checked_at } : null,
+    // Sales: the listing's own sold check first, else the eBay sales the Guestimate itself was priced from.
+    sold: Number(row.sold_count) >= 3 && row.sold_median_cents ? { count: Number(row.sold_count), median: row.sold_median_cents / 100, as_of: row.sold_checked_at }
+      : r.sold_market && Number(r.sold_market.count) >= 2 && r.sold_market.median > 0 ? { count: Number(r.sold_market.count), median: Number(r.sold_market.median), as_of: r.sold_market.as_of || row.estimated_at } : null,
     about: { maker: id.maker || null, category: id.category || null, period: id.period || null },
     comps, estimated_at: row.estimated_at, updated_at: row.updated_at || row.estimated_at,
     live: live ? { price: row.price_cents / 100, url: row.listing_url || `https://www.ebay.com/itm/${row.listing_id}` } : null,
