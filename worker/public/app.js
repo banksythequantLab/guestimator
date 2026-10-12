@@ -829,22 +829,44 @@ function openCamera(title) {
     document.body.appendChild(ov);
     const v = ov.querySelector("#camV"), err = ov.querySelector("#camErr");
 
-    const stop = () => { try { if (stream) stream.getTracks().forEach(t => t.stop()); } catch {} stream = null; };
-    const done = f => { if (settled) return; settled = true; stop(); document.removeEventListener("keydown", onKey); ov.remove(); resolve(f); };
+    // iPhone Safari sometimes opens the camera black, and the shutter then did nothing, until the
+    // user tapped Flip twice (Derek, 2026-10-12). Now: wait for the picture before playing, check it
+    // actually arrived, and restart the camera by itself if it didn't. The shutter never silently fails.
+    let tries = 0, watch = null, gen = 0;
+    const ready = () => v.videoWidth > 0 && v.readyState >= 2;
+    const status = msg => { err.textContent = msg; err.style.display = msg ? "flex" : "none"; };
+    const stop = () => { clearTimeout(watch); try { if (stream) stream.getTracks().forEach(t => t.stop()); } catch {} stream = null; try { v.srcObject = null; } catch {} };
+    const onVis = () => { if (!settled && document.visibilityState === "visible" && !ready()) { tries = 0; start(); } };
+    document.addEventListener("visibilitychange", onVis);
+    const done = f => { if (settled) return; settled = true; stop(); document.removeEventListener("keydown", onKey); document.removeEventListener("visibilitychange", onVis); ov.remove(); resolve(f); };
     const onKey = e => { if (e.key === "Escape") done(null); };
     document.addEventListener("keydown", onKey);
 
     const fail = msg => { err.textContent = msg; err.style.display = "flex"; ov.querySelector("#camShot").style.opacity = ".35"; };
 
     async function start() {
-      stop(); err.style.display = "none"; ov.querySelector("#camShot").style.opacity = "1";
+      const my = ++gen;
+      stop(); status("Starting camera…"); ov.querySelector("#camShot").style.opacity = "1";
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
+        const s = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1920 } },
           audio: false
         });
-        v.srcObject = stream;
-        await v.play().catch(() => {});
+        if (my !== gen || settled) { s.getTracks().forEach(t => t.stop()); return; }
+        stream = s;
+        stream.getVideoTracks().forEach(t => t.addEventListener("ended", () => { if (!settled && my === gen) start(); }));
+        v.muted = true; v.srcObject = stream;
+        // No picture after 3.5 seconds: start the camera again (twice at most), then say so plainly.
+        // Armed before play(), because with no picture play() can hang without ever settling.
+        watch = setTimeout(() => {
+          if (settled || my !== gen || ready()) { if (ready()) status(""); return; }
+          if (tries++ < 2) start();
+          else fail("The camera didn't start. Tap Flip, or Cancel and use “choose file” instead.");
+        }, 3500);
+        v.addEventListener("playing", () => { if (my === gen && ready()) status(""); }, { once: true });
+        await new Promise(r => { if (v.readyState >= 1) return r(); v.addEventListener("loadedmetadata", r, { once: true }); setTimeout(r, 2500); });
+        await Promise.race([v.play().catch(() => {}), new Promise(r => setTimeout(r, 2500))]);
+        if (my === gen && !settled && ready()) status("");
       } catch (e) {
         const n = e && e.name;
         if (n === "NotAllowedError" || n === "SecurityError")
@@ -858,9 +880,9 @@ function openCamera(title) {
     }
 
     ov.querySelector("#camX").onclick = () => done(null);
-    ov.querySelector("#camFlip").onclick = () => { facing = facing === "environment" ? "user" : "environment"; start(); };
+    ov.querySelector("#camFlip").onclick = () => { facing = facing === "environment" ? "user" : "environment"; tries = 0; start(); };
     ov.querySelector("#camShot").onclick = () => {
-      if (!v.videoWidth) return;
+      if (!ready()) { tries = 0; start(); return; }
       const c = document.createElement("canvas");
       c.width = v.videoWidth; c.height = v.videoHeight;
       c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
