@@ -1221,7 +1221,7 @@ ${!appraisal ? `<h3 style="font-size:1.15rem;margin:6px 0 10px">${esc(item.name 
           <b>$${r.lot.unit_retail} each × ${r.lot.count} pieces</b> — $${r.lot.unit_low}–$${r.lot.unit_high} per piece
           <div class="muted" style="margin-top:3px">Counted because ${esc(r.lot.how)}. The totals above are the whole lot; sold one at a time the per-piece price is what matters — check that it looks right.</div>
         </div>` : ""}
-      ${r.sold_market ? `<div style="margin:8px 0;padding:8px 10px;border-left:3px solid var(--green);background:var(--bg);font-size:.82rem">
+      ${r.sold_market && ((r.comparables || []).length || !(r.rejected_comparables || []).length) ? `<div style="margin:8px 0;padding:8px 10px;border-left:3px solid var(--green);background:var(--bg);font-size:.82rem">
           <b>${r.sold_market.count} sold on eBay in the last 90 days</b> — $${r.sold_market.low}–$${r.sold_market.high}, median <b>$${r.sold_market.median}</b>
           <div class="muted" style="margin-top:3px">What buyers actually paid, before shipping. The best guide to what yours will fetch.</div>
           ${(r.sold_market.recent || []).length ? `<div style="margin-top:5px">${r.sold_market.recent.map(s =>

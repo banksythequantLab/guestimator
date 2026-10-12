@@ -109,6 +109,9 @@ ok("shown again", (await get(path)).status === 200);
     sold_market: { count: 4, median: 152, as_of: "2026-10-09" }, comparables: [1, 2, 3, 4].map(n => ({ title: "s" + n, price: 140 + n, source: "ebay.com (sold)" })) }) });
   ok("SoldComps sales count as sold comps", sm.comps.every(c => c.sold), sm.comps);
   ok("guide shows the Guestimate's own eBay sales", sm.sold && sm.sold.count === 4 && sm.sold.median === 152, sm.sold);
-  ok("public page says recent eBay sales", P.guidePage(sm, "https://g.test").includes("4 recent eBay sales")); }
+  ok("public page says recent eBay sales", P.guidePage(sm, "https://g.test").includes("4 recent eBay sales"));
+  const rj = P.guideOf({ listing_id: "g000000000004", status: "optin", title: "Print", result_json: JSON.stringify({ price_range: { low: 300, high: 550 },
+    sold_market: { count: 3, median: 256, as_of: "2026-10-12" }, comparables: [] }) });
+  ok("older record: sales not among the comparables are not shown as this item's sales", rj.sold === null, rj.sold); }
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

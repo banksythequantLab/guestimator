@@ -43,6 +43,8 @@ globalThis.fetch = async (u, init = {}) => {
     if (/pricing an item against live comparable listings/.test(sys)) {
       seen.reprice.push(user);
       if (mode === "fail" || mode === "allfail") return said("I could not decide on a price for this one.");
+      if (mode === "allrej") return said({ comparables: [], rejected: SOLD.map(([title]) => ({ title, why: "a different item" })),
+        price_range: { low: 300, high: 550, suggested_retail: 425, floor: 280, currency: "USD", basis: "Own guess." } });
       const kept = { comparables: SOLD.slice(0, 3).map(([title, price, url]) => ({ title, price, url, source: "ebay.com (sold)" })),
         rejected: [{ title: SOLD[4][0], why: "LRDIMM, not an RDIMM" }], basis_note: "REPRICER-NOTE matching sales $126-$190" };
       return said(mode === "noprice" ? kept : { ...kept, price_range: { low: 140, high: 180, suggested_retail: 160, floor: 130, currency: "USD", basis: "Three matching sales." } });
@@ -102,6 +104,11 @@ ok("fail: explained by the pass that priced it", /COLD-BASIS/.test(r.price_range
 r = await run("allfail");
 ok("allfail: first-pass price stands", r.price_range.low === 30 && r.price_range.high === 60, r.price_range);
 ok("allfail: and the dealer is told to trust the comparables over it", /neither pricing pass returned a price/.test(W(r)), W(r));
+
+// ---------- allrej: the model rejected every sale ----------
+r = await run("allrej");
+ok("allrej: no sold line built from sales the model rejected (Obey print, 2026-10-12)", !r.sold_market, r.sold_market);
+ok("allrej: the rejections are still recorded", (r.rejected_comparables || []).length >= 3, r.rejected_comparables);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

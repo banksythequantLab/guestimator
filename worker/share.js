@@ -24,7 +24,8 @@ export function shareable(result) {
     low: Number(pr.low), high: Number(pr.high),
     suggested: Number(pr.suggested_retail) > 0 ? Number(pr.suggested_retail) : null,
     comps: (Array.isArray(r.comparables) ? r.comparables : []).filter(c => c && Number(c.price) > 0).length,
-    sold: !!(r.sold_market && r.sold_market.count),
+    // not a sold line built from sales the model rejected (older estimates, 2026-10-12)
+    sold: !!(r.sold_market && r.sold_market.count && ((r.comparables || []).length || !(r.rejected_comparables || []).length)),
     maker: id.maker || null, period: id.period || null,
   };
 }

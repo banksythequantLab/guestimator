@@ -2193,7 +2193,10 @@ export async function appraise(env, req) {
     // Even one kept sale beats the raw set: measured on SK Hynix 32GB, the model kept 1 of 10
     // and the raw fallback showed $100–$1,100 with a 2x32GB kit in it. Nothing kept, nothing shown.
     if (keptSold.length) soldShown = { ...summarise(keptSold, "eBay sold, last 90 days"), recent: keptSold };
-    else if (comparables.length) soldShown = null;
+    // The model looked and rejected every one (or kept only asking prices): those sales are other
+    // things. A Shepard Fairey "Obey Law" print showed "3 sold, median $256" from three different
+    // prints the model had rejected, under a $300-$550 guess (Derek's iPad, 2026-10-12).
+    else if (comparables.length || rejected.length) soldShown = null;
     // Sales set the price; with none, asking prices cap it (anchorToEvidence). Per piece, before any lot multiply.
     // Best Offer sales show the asking price, not what was paid: with 2+ plain sales, price from those.
     const plainSold = keptSold.filter(x => !x.boa), boaOut = plainSold.length >= 2 ? keptSold.length - plainSold.length : 0;
