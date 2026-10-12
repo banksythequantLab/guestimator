@@ -353,6 +353,9 @@ export default {
       if (parts[0] === "market" && parts.length === 1 && m === "GET") return await market.marketPage(env, url);
     if (parts[0] === "go" && parts.length === 2 && m === "GET" && Object.hasOwn(partners.PARTNERS, parts[1])) return await partners.go(env, url, parts[1]);
     if (parts[0] === "hit" && parts.length === 1 && m === "POST") return await landingHit(env, request);
+    // Google Search Console ownership file for https://app.theguestimator.com/ (2026-10-12). Served here,
+    // not as a static asset, because assets redirect .html to the bare path and Google needs a 200.
+    if (p === "/google8a8915bd89b5d687.html") return new Response("google-site-verification: google8a8915bd89b5d687.html", { headers: { "content-type": "text/html; charset=utf-8" } });
     if (parts[0] === "t" && parts.length === 2 && m === "GET") {
       const t = Object.hasOwn(TLINKS, parts[1]) ? TLINKS[parts[1]] : null;
       return new Response(null, { status: 302, headers: { "cache-control": "no-store",
