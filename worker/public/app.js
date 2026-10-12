@@ -19,8 +19,12 @@ const $ = s => document.querySelector(s);
       const fresh = !v || (q.get("utm_source") && (v.s !== s || v.c !== c || v.t !== t));
       if (fresh) {
         v = { s, c, t, sid: Math.random().toString(36).slice(2, 10) + Date.now().toString(36) };
+        // Half the Zeely "free Guestimate" visitors start on the photo step (2026-10-12: 8 of the
+        // first 9 left the landing page without tapping Try it free). Their steps are counted as
+        // "zeely-camera" so the owner table compares the two; the sign-up source stays "zeely".
+        if (s === "zeely" && c === "free_guestimate" && Math.random() < 0.5) { v.s = "zeely-camera"; v.cam = 1; }
         sessionStorage.setItem("gs_visit", JSON.stringify(v));
-        fetch("/hit", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ s, c, t, sid: v.sid, e: "land" }) }).catch(() => {});
+        fetch("/hit", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ s: v.s, c, t, sid: v.sid, e: "land" }) }).catch(() => {});
       }
     } catch {}
     const m = /(?:^|;\s*)gs_src=([^;]*)/.exec(document.cookie);
@@ -2024,6 +2028,19 @@ window.addEventListener("focus", reloadIfUpdated);
       else if (!(await afterStripeReturn())) await renderHome();
       if (fromEbay) afterEbayReturn(true);
     }
-    else renderAuth();
+    else await autoCameraOrAuth();
   } catch { renderAuth(); }
 })();
+// The camera half of the Zeely test: a guest account and straight to the photo step, once per visit.
+async function autoCameraOrAuth() {
+  let v = null; try { v = JSON.parse(sessionStorage.getItem("gs_visit") || "null"); } catch {}
+  let again = true; try { again = !!sessionStorage.getItem("gs_autocam"); sessionStorage.setItem("gs_autocam", "1"); } catch {}
+  if (!v || !v.cam || again) return renderAuth();
+  try { await api("/auth/guest", { method: "POST" }); } catch { return renderAuth(); }
+  state.guest = true; user = null; track("guest_ready");
+  renderCapture();
+  const h = app.querySelector("h1.h1"); if (!h) return;
+  h.textContent = "Your free Guestimate";
+  h.insertAdjacentHTML("afterend", `<div class="card" style="border-color:var(--green);padding:10px 14px;font-size:.88rem">Snap the item (the front first, then any marks or labels) and get its price from real eBay sales in about a minute. No account needed. <a href="#" id="camWhat">What is this?</a><div id="camMore" class="muted" style="display:none;margin-top:6px">Guestimator prices used and vintage things from what's actually selling on eBay, and can list them on your own eBay account. You only sign up afterwards, if you like the result.</div></div>`);
+  const w = $("#camWhat"); if (w) w.onclick = e => { e.preventDefault(); $("#camMore").style.display = "block"; w.remove(); };
+}
