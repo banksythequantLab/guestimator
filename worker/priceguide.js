@@ -114,12 +114,17 @@ const shell = (title, desc, canonical, body, jsonld) => `<!doctype html><html la
 
 export function guidePage(g, origin, more = []) {
   const url = origin + pagePath(g), r = g.range;
-  const title = `${g.title}: what it's worth (${dollars(r.low)}–${dollars(r.high)})`;
+  // Google shows about 60 characters of a title; the price has to survive that (2026-10-12: the
+  // SK hynix title was 97 and lost its price). The h1 keeps the full name.
+  const name = g.title.length > 48 ? g.title.slice(0, 48).replace(/[\s,;:–-]+\S*$/, "") + "…" : g.title;
+  const title = `${name} value: ${dollars(r.low)}–${dollars(r.high)}`;
   const desc = `${g.title} is worth about ${dollars(r.low)}–${dollars(r.high)} based on ${g.sold ? `${g.sold.count} recent eBay sales` : g.market ? `${g.market.count} comparable eBay listings` : "current eBay listings"} (${day(g.estimated_at)}). Get a Guestimate of yours.`;
   const about = [g.about.maker && `Maker: ${g.about.maker}`, g.about.category && `Category: ${g.about.category}`, g.about.period && `Period: ${g.about.period}`].filter(Boolean);
-  const jsonld = { "@context": "https://schema.org", "@type": "Product", name: g.title, ...(g.about.maker ? { brand: { "@type": "Brand", name: g.about.maker } } : {}),
-    ...(g.live ? { offers: { "@type": "Offer", price: g.live.price.toFixed(2), priceCurrency: "USD", availability: "https://schema.org/InStock", url: g.live.url } }
-      : g.market && g.market.low > 0 && g.market.high > 0 ? { offers: { "@type": "AggregateOffer", lowPrice: Number(g.market.low).toFixed(2), highPrice: Number(g.market.high).toFixed(2), offerCount: g.market.count, priceCurrency: "USD" } } : {}) };
+  // Product markup only with real offers: Google reports a Product with no offers, review or rating
+  // as an invalid item in Search Console, and an estimate isn't an offer (2026-10-12).
+  const offers = g.live ? { "@type": "Offer", price: g.live.price.toFixed(2), priceCurrency: "USD", availability: "https://schema.org/InStock", url: g.live.url }
+    : g.market && g.market.low > 0 && g.market.high > 0 ? { "@type": "AggregateOffer", lowPrice: Number(g.market.low).toFixed(2), highPrice: Number(g.market.high).toFixed(2), offerCount: g.market.count, priceCurrency: "USD" } : null;
+  const jsonld = offers ? { "@context": "https://schema.org", "@type": "Product", name: g.title, ...(g.about.maker ? { brand: { "@type": "Brand", name: g.about.maker } } : {}), offers } : null;
   // Breadcrumbs: Price guide > this item (helps search engines show where the page sits).
   const crumbs = { "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: [
     { "@type": "ListItem", position: 1, name: "Price guide", item: origin + "/prices" }, { "@type": "ListItem", position: 2, name: g.title, item: url }] };

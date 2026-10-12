@@ -115,6 +115,10 @@ ok("shown again", (await get(path)).status === 200);
   ok("older record: sales not among the comparables are not shown as this item's sales", rj.sold === null, rj.sold);
   const wd = P.guideOf({ listing_id: "g000000000005", status: "optin", title: "Cabinet", result_json: JSON.stringify({ price_range: { low: 121, high: 189 }, confidence: 0.5,
     warnings: ["these listings run from $103 to $1795, 17.4x apart, which is too wide to be one product."] }) });
-  ok("guide carries confidence and the too-wide flag", wd.confidence === 0.5 && wd.wide === true, wd); }
+  ok("guide carries confidence and the too-wide flag", wd.confidence === 0.5 && wd.wide === true, wd);
+  const long = P.guidePage({ ...sm, title: "SK hynix 32GB DDR4 2400MHz ECC Registered RDIMM Server Memory Module" }, "https://g.test");
+  const tt = (long.match(/<title>([^<]*)<\/title>/) || [])[1] || "";
+  ok("title short enough for Google and keeps the price", tt.length <= 70 && /\$129–\$175/.test(tt), tt);
+  ok("no Product markup without offers (sales only)", !long.includes('"@type":"Product"') && long.includes('"BreadcrumbList"')); }
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
