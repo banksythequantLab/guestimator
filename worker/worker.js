@@ -18,6 +18,36 @@ async function grantSignup(env, db, userId, ts) {
   if (n > 0) await db.prepare("INSERT INTO billing_events (id,user_id,source,type,credits_delta,raw_json,created_at) VALUES (?,?,'admin','signup_free',?,?,?)")
     .bind(crypto.randomUUID(), userId, n, JSON.stringify({ reason: "free estimates for new accounts" }), ts).run();
 }
+// ---------- Try before sign-up (2026-10-12) ----------
+// 54 ad visitors, 0 sign-ups: the landing page was the sign-up form. A visitor can now press
+// "Try it free" and get a guest account (no email, GUEST_CREDITS credit, default 1) to Guestimate one
+// item. Guests can only price their own items (no eBay, Market, shop, payments, invites), get no
+// email, and aren't counted as sign-ups. Signing up turns the same row into a normal account, keeps
+// the items and tops credits up to the usual signupCredits; signing in to an existing account moves
+// the guest's items there. Abuse/cost caps: GUEST_PER_IP_DAY per network a day, GUEST_DAILY_CAP a day.
+const GUEST_DOMAIN = "@guest.invalid";
+const isGuestEmail = e => String(e || "").toLowerCase().endsWith(GUEST_DOMAIN);
+const guestCredits = env => { const n = Number(env.GUEST_CREDITS ?? 1); return Number.isFinite(n) && n >= 0 ? Math.min(5, Math.floor(n)) : 1; };
+const guestDailyCap = env => { const n = Number(env.GUEST_DAILY_CAP ?? 150); return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 150; };
+const GUEST_PER_IP_DAY = 3;
+async function guestRow(db, id) {
+  if (!id) return null;
+  const u = await db.prepare("SELECT id, email, credits FROM users WHERE id=?").bind(id).first();
+  return u && isGuestEmail(u.email) ? u : null;
+}
+async function adoptGuest(db, guestId, userId) {
+  if (!guestId || guestId === userId) return;
+  await db.prepare("UPDATE sales SET user_id=? WHERE user_id=?").bind(userId, guestId).run();
+  await db.prepare("DELETE FROM sessions WHERE user_id=?").bind(guestId).run();
+  await db.prepare("DELETE FROM users WHERE id=?").bind(guestId).run();
+}
+async function upgradeGrant(env, db, id, ts) {
+  const extra = Math.max(0, signupCredits(env) - guestCredits(env));
+  if (!extra) return;
+  await db.prepare("UPDATE users SET credits=credits+? WHERE id=?").bind(extra, id).run();
+  await db.prepare("INSERT INTO billing_events (id,user_id,source,type,credits_delta,raw_json,created_at) VALUES (?,?,'admin','signup_free',?,?,?)")
+    .bind(crypto.randomUUID(), id, extra, JSON.stringify({ reason: "free estimates for new accounts (after a guest try)" }), ts).run();
+}
 import { appraise, sizeOnly, writeListingCopy, dealerSized } from "./appraiser.js";
 import * as quota from "./quota.js";
 import * as partners from "./partners.js";
@@ -152,14 +182,17 @@ async function newSession(db, userId) {
 // Lets the owner page show visits by source next to sign-ups, so "26 ad clicks, 0 sign-ups" can be
 // told apart from "the clicks never reached us". Source names only; nothing about the person.
 const clean = v => String(v || "").toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 40);
+// Funnel steps a tagged visit can report, in order (owner page "Ad visitors, step by step").
+export const FUNNEL = ["land", "try_click", "guest_ready", "estimate_start", "estimate_done", "signup_form", "signup_done"];
 async function landingHit(env, request) {
   try {
     const b = await request.json().catch(() => ({}));
     const s = clean(b.s);
     if (s) {
       const ua = request.headers.get("user-agent") || "";
-      await env.DB.prepare("INSERT INTO landing_hits (src, camp, content, inapp, at) VALUES (?,?,?,?,?)")
-        .bind(s, clean(b.c) || null, clean(b.t) || null, /FBAN|FBAV|FB_IAB|Instagram/.test(ua) ? 1 : 0, new Date().toISOString()).run();
+      const ev = FUNNEL.includes(String(b.e || "land")) ? String(b.e || "land") : "land";
+      await env.DB.prepare("INSERT INTO landing_hits (src, camp, content, inapp, at, ev, sid) VALUES (?,?,?,?,?,?,?)")
+        .bind(s, clean(b.c) || null, clean(b.t) || null, /FBAN|FBAV|FB_IAB|Instagram/.test(ua) ? 1 : 0, new Date().toISOString(), ev, clean(b.sid) || null).run();
     }
   } catch (e) { console.log("landing hit", e && e.message); }
   return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
@@ -559,6 +592,14 @@ export default {
           if (pw.length < 8) return J({ error: "Password must be at least 8 characters" }, 400);
           const exists = await db.prepare("SELECT id FROM users WHERE email=?").bind(email).first();
           if (exists) return J({ error: "That email is already registered" }, 409);
+          const g0 = await guestRow(db, await currentUser(request, db));
+          if (g0) {   // the guest's own row becomes the account: items, Guestimate and source stay
+            const salt = randHex(16), h = await pbkdf2(pw, salt), ts = now();
+            await db.prepare("UPDATE users SET email=?, pw_hash=?, pw_salt=? WHERE id=?").bind(email, h, salt, g0.id).run();
+            await upgradeGrant(env, db, g0.id, ts);
+            if (!site.isIgs(env, url)) ctx.waitUntil(onboard.welcomeEmail(env, email, env.PUBLIC_ORIGIN || url.origin).catch(e => console.log("welcome email", e)));
+            return J({ email, upgraded: true }, 200, { "Set-Cookie": sessionCookie(await newSession(db, g0.id)) });
+          }
           const salt = randHex(16), h = await pbkdf2(pw, salt), id = uid(), ts = now();
           // Opening balance: signupCredits (free estimates, since 2026-10-05; was 0 from 2026-09-27).
           // Written explicitly because users.credits defaults to Bottle Tree's 1, and recorded in
@@ -571,6 +612,23 @@ export default {
           await growth.markGsUser(db, id);
           return J({ email }, 200, { "Set-Cookie": sessionCookie(await newSession(db, id)) });
         }
+        if (act === "guest" && m === "POST") {
+          if (await currentUser(request, db)) return J({ ok: true, existing: true });
+          const ts = now(), day = new Date(Date.now() - 86400e3).toISOString();
+          const ih = await garage.ipHash(request, env);
+          const mine = await db.prepare("SELECT COUNT(*) n FROM guest_starts WHERE ip_hash=? AND at>=?").bind(ih, day).first();
+          if (Number(mine?.n) >= GUEST_PER_IP_DAY) return J({ error: "You've had your free tries for today. Create a free account to keep going." , needs_account: true }, 429);
+          const all = await db.prepare("SELECT COUNT(*) n FROM guest_starts WHERE at>=?").bind(day).first();
+          if (Number(all?.n) >= guestDailyCap(env)) return J({ error: "Free tries are busy right now. Create a free account to keep going.", needs_account: true }, 429);
+          const id = uid(), n = guestCredits(env);
+          await db.prepare("INSERT INTO users (id,email,pw_hash,pw_salt,created_at,credits) VALUES (?,?,'','',?,?)").bind(id, `guest-${id}${GUEST_DOMAIN}`, ts, n).run();
+          if (n > 0) await db.prepare("INSERT INTO billing_events (id,user_id,source,type,credits_delta,raw_json,created_at) VALUES (?,?,'admin','signup_free',?,?,?)")
+            .bind(crypto.randomUUID(), id, n, JSON.stringify({ reason: "guest try before sign-up" }), ts).run();
+          await db.prepare("INSERT INTO guest_starts (ip_hash, user_id, at) VALUES (?,?,?)").bind(ih, id, ts).run();
+          await recordSignupSource(db, id, request);
+          await growth.markGsUser(db, id);
+          return J({ guest: true, credits: n }, 200, { "Set-Cookie": sessionCookie(await newSession(db, id)) });
+        }
         if (act === "login" && m === "POST") {
           const b = await readJson(request);
           const email = (b.email || "").trim().toLowerCase();
@@ -580,6 +638,7 @@ export default {
           if (!u.pw_hash) return J({ error: "This account uses Sign in with Google" }, 401);
           const h = await pbkdf2(b.password || "", u.pw_salt);
           if (!timingEq(h, u.pw_hash)) return J({ error: "Wrong email or password" }, 401);
+          await adoptGuest(db, (await guestRow(db, await currentUser(request, db)))?.id, u.id);
           await growth.markGsUser(db, u.id);
           return J({ email }, 200, { "Set-Cookie": sessionCookie(await newSession(db, u.id)) });
         }
@@ -608,6 +667,15 @@ export default {
             u = await db.prepare("SELECT * FROM users WHERE email=?").bind(g.email).first();
             if (u) await db.prepare("UPDATE users SET google_sub=? WHERE id=?").bind(g.sub, u.id).run();
           }
+          // A guest signing in with Google (popup; Safari's redirect POST may not carry our cookie).
+          const g0 = await guestRow(db, await currentUser(request, db));
+          if (u && g0) await adoptGuest(db, g0.id, u.id);
+          if (!u && g0) {
+            await db.prepare("UPDATE users SET email=?, google_sub=? WHERE id=?").bind(g.email, g.sub, g0.id).run();
+            await upgradeGrant(env, db, g0.id, now());
+            u = { id: g0.id, email: g.email };
+            if (!site.isIgs(env, url)) ctx.waitUntil(onboard.welcomeEmail(env, g.email, env.PUBLIC_ORIGIN || url.origin).catch(e => console.log("welcome email", e)));
+          }
           if (!u) {
             const id = uid(), ts = now();
             // Same opening balance whichever door they came in by.
@@ -633,6 +701,7 @@ export default {
           const uidv = await currentUser(request, db);
           if (!uidv) return J({ error: "not authenticated" }, 401);
           const u = await db.prepare("SELECT email, shop_slug, shop_name, shop_blurb FROM users WHERE id=?").bind(uidv).first();
+          if (u && isGuestEmail(u.email)) return J({ email: null, guest: true, credits: (await db.prepare("SELECT credits FROM users WHERE id=?").bind(uidv).first())?.credits ?? 0 });
           return J(u ? { ...u, owner: owner.isOwner(env, u.email) || undefined } : {});
         }
         // Public: the web client ID is not a secret; the app needs it to render the Google button.
@@ -647,6 +716,12 @@ export default {
       // ---------- everything below requires a session ----------
       const userId = await currentUser(request, db);
       if (!userId) return J({ error: "not authenticated" }, 401);
+      // Guests price their own items and nothing else (see GUEST_DOMAIN above).
+      const isGuestUser = !!(await guestRow(db, userId));
+      if (isGuestUser) {
+        const itemOk = parts[1] === "items" && (!parts[3] || ["appraise", "photos", "ask", "accept-estimate", "shipping-estimate"].includes(parts[3]));
+        if (!(itemOk || parts[1] === "photos")) return J({ error: "Create your free account to do that. It takes a minute and you get more free Guestimates.", needs_account: true }, 403);
+      }
       // Etsy is only shown to allowed accounts until it works for everyone (etsy.etsyAllowed).
       const etsyOn = async () => etsy.etsyOnFor(env, (await db.prepare("SELECT email FROM users WHERE id=?").bind(userId).first())?.email);
       const ownsSale = async (sid) => !!(await db.prepare("SELECT id FROM sales WHERE id=? AND user_id=?").bind(sid, userId).first());
@@ -1500,6 +1575,7 @@ export default {
           let followUp = false;
           try { const lr = lastAp?.status === "done" && lastAp.result_json ? JSON.parse(lastAp.result_json) : null; followUp = !!(lr && lr.needs_clarification && !lr.unknown); } catch {}
           const fundedBy = followUp ? null : await consumeEstimate(db, userId);
+          if (!followUp && !fundedBy && isGuestUser) return J({ error: "That was your free try. Create your free account for more free Guestimates.", needs_account: true }, 402);
           if (!followUp && !fundedBy) return J({ error: "You're out of credits", paywall: true, plan: await planFor(db, userId) }, 402);
           const apId = uid();
           await db.prepare("INSERT INTO appraisals (id,item_id,status,created_at,funded_by) VALUES (?,?,'pending',?,?)").bind(apId, iid, now(), fundedBy).run();

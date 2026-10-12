@@ -11,12 +11,16 @@ const $ = s => document.querySelector(s);
     let s = q.get("utm_source"), c = q.get("utm_campaign") || "", t = q.get("utm_content") || "";
     if (!s && document.referrer) { try { const h = new URL(document.referrer).hostname; if (h && h !== location.hostname) s = h.replace(/^www\./, ""); } catch {} }
     if (!s) return;
-    // Count the arrival once per tab session, signed up or not.
+    // Count the arrival once per tab session, signed up or not. The visit keeps a session id so
+    // the later steps (try free, Guestimate, sign up) can be counted for it (2026-10-12). Coming back
+    // from Google sign-in (referrer accounts.google.com) is not a new visit.
     try {
-      const k = "gs_hit_" + s + c + t;
-      if (!sessionStorage.getItem(k)) {
-        sessionStorage.setItem(k, "1");
-        fetch("/hit", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ s, c, t }) }).catch(() => {});
+      let v = null; try { v = JSON.parse(sessionStorage.getItem("gs_visit") || "null"); } catch {}
+      const fresh = !v || (q.get("utm_source") && (v.s !== s || v.c !== c || v.t !== t));
+      if (fresh) {
+        v = { s, c, t, sid: Math.random().toString(36).slice(2, 10) + Date.now().toString(36) };
+        sessionStorage.setItem("gs_visit", JSON.stringify(v));
+        fetch("/hit", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ s, c, t, sid: v.sid, e: "land" }) }).catch(() => {});
       }
     } catch {}
     const m = /(?:^|;\s*)gs_src=([^;]*)/.exec(document.cookie);
@@ -27,6 +31,15 @@ const $ = s => document.querySelector(s);
     document.cookie = "gs_src_v=2;path=/;max-age=7776000;samesite=none;secure";
   } catch {}
 })();
+// One funnel step for this tagged visit, once per visit (owner page "Ad visitors, step by step").
+function track(e) {
+  try {
+    const v = JSON.parse(sessionStorage.getItem("gs_visit") || "null");
+    if (!v || sessionStorage.getItem("gs_ev_" + e)) return;
+    sessionStorage.setItem("gs_ev_" + e, "1");
+    fetch("/hit", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ s: v.s, c: v.c, t: v.t, sid: v.sid, e }) }).catch(() => {});
+  } catch {}
+}
 // Facebook / Instagram open links in their own browser, where Google refuses to sign people in.
 const socialInAppBrowser = () => /FBAN|FBAV|FB_IAB|Instagram/.test(navigator.userAgent || "");
 const app = $("#app"), tabs = $("#tabs"), ctx = $("#ctx"), backBtn = $("#backBtn"),
@@ -44,7 +57,10 @@ async function api(path, opts) {
   if (r.status === 401 && !path.startsWith("/auth")) { user = null; renderAuth(); throw new Error("Please sign in"); }
   if (!r.ok) {
     let e = {}; try { e = await r.json(); } catch {}
-    if (r.status === 402 && e.paywall && window.BTBilling) { BTBilling.refresh().then(() => BTBilling.open("You're out of credits. 1 credit = 1 estimate or 1 eBay listing. Your items and photos are saved.")); }
+    // Only something the guest did (out of credits, or a button that posts) opens sign-up; background
+    // loads an account would need (eBay status, price-guide box) just fail quietly.
+    if (state.guest && (r.status === 402 || (e.needs_account && opts && opts.method && opts.method !== "GET"))) setTimeout(() => renderAuth("register"), 0);
+    else if (r.status === 402 && e.paywall && window.BTBilling) { BTBilling.refresh().then(() => BTBilling.open("You're out of credits. 1 credit = 1 estimate or 1 eBay listing. Your items and photos are saved.")); }
     // Carry the whole error body, not just its message. Callers that can actually resolve a
     // failure need the detail — which items have no price, what needs confirming — and throwing
     // a bare string turns every one of those into an unexplained red toast.
@@ -126,7 +142,7 @@ function loadGis() {
 async function signInWithGoogleToken(credential) {
   try {
     const r = await api("/auth/google", { method: "POST", body: JSON.stringify({ credential }) });
-    user = r.email; billingInit = false; toast("Signed in"); await afterSignIn(); renderHome();
+    user = r.email; state.guest = false; track("signup_done"); billingInit = false; toast("Signed in"); await afterSignIn(); renderHome();
   } catch (e) { toast(e.message); }
 }
 async function nativeGoogleSignIn(btn) {
@@ -214,10 +230,11 @@ function renderAuth(mode) {
   const isLogin = mode === "login";
   app.innerHTML = `
     <div style="text-align:center;margin:34px 0 8px">
-      <div class="big" style="font-size:1.7rem">${isLogin ? "Welcome back" : "What's it worth? Sell it."}</div>
-      <div class="muted">${isLogin ? "Sign in to your items." : "Price anything from what's selling now, then list it on eBay in minutes."}</div>
+      <div class="big" style="font-size:1.7rem">${isLogin ? "Welcome back" : state.guest ? "Keep your Guestimate" : "What's it worth? Sell it."}</div>
+      <div class="muted">${isLogin ? "Sign in to your items." : state.guest ? "Create your free account to save it and get more free Guestimates. No card needed." : "Price anything from what's selling now, then list it on eBay in minutes."}</div>
     </div>
-    ${isLogin ? "" : pitchHtml()}
+    ${!isLogin && !state.guest ? `<div class="card" style="text-align:center;border-color:var(--green)"><button class="btn" id="tryFree">📷 Try it free, no account</button><div class="muted" style="font-size:.82rem;margin-top:6px">Price one thing right now. Sign up after, only if you like it.</div></div>` : ""}
+    ${isLogin || state.guest ? "" : pitchHtml()}
     ${lsGet("gs_ref") && !isLogin ? `<div class="card" style="padding:10px 14px;border-color:var(--green);font-size:.88rem">🎁 A friend invited you. You both get free credits after your first purchase.</div>` : ""}
     ${lsGet("gs_code") ? `<div class="card" style="padding:10px 14px;border-color:var(--cobalt);font-size:.88rem">🎁 Code <b>${esc(lsGet("gs_code"))}</b> will be applied when you ${isLogin ? "sign in" : "create your account"}.</div>` : ""}
     <div class="card">
@@ -241,10 +258,16 @@ function renderAuth(mode) {
     if (!email || !password) return toast("Email and password, please");
     try {
       await api("/auth/" + (isLogin ? "login" : "register"), { method: "POST", body: JSON.stringify({ email, password }) });
-      user = email; toast(isLogin ? "Signed in" : "Account created"); await afterSignIn(); renderHome();
+      user = email; state.guest = false; track("signup_done"); toast(isLogin ? "Signed in" : "Account created"); await afterSignIn(); renderHome();
     } catch (e) { toast(e.message); }
   };
   $("#auGo").onclick = go;
+  $("#auEmail").addEventListener("focus", () => track("signup_form"), { once: true });
+  if ($("#tryFree")) $("#tryFree").onclick = async () => {
+    const b = $("#tryFree"); track("try_click"); b.disabled = true; b.textContent = "One moment…";
+    try { await api("/auth/guest", { method: "POST" }); state.guest = true; user = null; track("guest_ready"); renderCapture(); }
+    catch (e) { toast(e.message); b.disabled = false; b.textContent = "📷 Try it free, no account"; }
+  };
   $("#auPw").addEventListener("keydown", e => { if (e.key === "Enter") go(); });
   $("#auToggle").onclick = e => { e.preventDefault(); renderAuth(isLogin ? "register" : "login"); };
   getAuthCfg().then(() => { const d = document.getElementById("demoLink"); if (d) d.innerHTML = demoLinkHtml(); }).catch(() => {});
@@ -368,7 +391,22 @@ async function takeShared() {
     if (user) renderHome();   // signed out: picked up right after sign-in
   });
 })();
+// Guests (Try it free): their item(s), one way to price another, and the reason to sign up.
+const guestSaveCard = () => `<div class="card" style="border-color:var(--green);padding:12px 16px"><b>Like it? Keep it.</b><div class="muted" style="font-size:.85rem;margin:2px 0 8px">Create your free account to save this and get more free Guestimates. No card needed.</div><button class="btn" id="guestSave">Create free account</button></div>`;
+const wireGuestSave = () => { const b = $("#guestSave"); if (b) b.onclick = () => renderAuth("register"); };
+async function renderGuestHome() {
+  state.view = "home"; setChrome();
+  app.innerHTML = `${guestSaveCard()}<div class="card"><h1 class="h1" style="margin:0 0 8px">What's it worth?</h1><button class="btn" id="aiAdd">📷 Guestimate something</button></div>
+    <h3 style="margin:14px 2px 6px">Your items</h3><div id="itemList" class="list"><div class="muted" style="padding:10px">Loading…</div></div>`;
+  wireGuestSave(); $("#aiAdd").onclick = () => renderCapture();
+  let list = []; try { list = await api("/items"); } catch { list = []; }
+  const el = $("#itemList"); if (!el) return;
+  el.innerHTML = list.length ? list.map(i => `<a href="#" class="card gItem" data-id="${esc(i.id)}" style="display:block;text-decoration:none;color:inherit;padding:12px 16px"><b>${esc(i.ai_title || i.name || "Item")}</b><div class="muted" style="font-size:.82rem">${i.appraisal_status === "done" ? "Guestimate ready" : i.appraisal_status === "pending" ? "Guestimating…" : ""}</div></a>`).join("")
+    : `<div class="empty">Nothing yet. Tap <b>Guestimate something</b>.</div>`;
+  document.querySelectorAll(".gItem").forEach(x => x.onclick = e => { e.preventDefault(); renderItemDetail(x.dataset.id); });
+}
 async function renderHome() {
+  if (state.guest) return renderGuestHome();
   if (state.pendingShare) {
     state.pendingShare = false;
     const s = await takeShared();
@@ -966,6 +1004,7 @@ function renderCapture(pre) {
     } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "Add without a Guestimate"; }
   };
   $("#cGo").onclick = async () => {
+    track("estimate_start");
     const files = [...Object.entries(shots).map(([k, f]) => ({ kind: k, f })), ...more.map(f => ({ kind: "other", f }))];
     if (!files.length) return toast("Take at least one photo");
     const description = withSize($("#cDesc").value.trim(), "cSz"), markings = $("#cMarks").value.trim();
@@ -1111,7 +1150,7 @@ async function renderItemDetail(id) {
   // anchor on and nothing to pre-fill into the price box either.
   const nc = r && r.needs_clarification;
   app.innerHTML = `
-    <button class="back" id="toItems" style="padding:8px 0">‹ My items</button>
+    <button class="back" id="toItems" style="padding:8px 0">‹ My items</button>${state.guest ? guestSaveCard() : ""}
     <div class="thumbs">${photos.map(p => `<img src="${esc(p.url)}" alt="${esc(p.kind)}" title="${esc(p.kind)}">`).join("")}</div>
 ${!appraisal ? `<h3 style="font-size:1.15rem;margin:6px 0 10px">${esc(item.name || "Untitled item")}</h3>` : ""}
     ${pending ? `<div class="card" style="text-align:center"><canvas id="guessBot" width="160" height="90" role="img" aria-label="A little robot checks the item with a magnifying glass, researches prices on a computer, then boxes up and ships the items" style="width:100%;max-width:480px;aspect-ratio:16/9;image-rendering:pixelated;border-radius:10px;display:block;margin:0 auto 10px"></canvas><div class="big" style="font-size:1.3rem">Guestimating…</div><div class="muted">Nemotron, our AI, is reading ${photos.length} photo${photos.length === 1 ? "" : "s"} and researching what items like yours sold for. This usually takes 1 to 2 minutes.</div></div>` : ""}
@@ -1219,6 +1258,7 @@ ${r && !nc && !r.unknown && appraisal.status === "done" && pr && pr.high > 0 ? `
     </div>
 `;
   $("#toItems").onclick = () => { clearTimeout(pollT); renderHome(); };
+  if (state.guest) { wireGuestSave(); if (appraisal && appraisal.status === "done") track("estimate_done"); }
   if ($("#ebayList")) $("#ebayList").onclick = () => startEbayListing(id);
   if ($("#toSale")) $("#toSale").onclick = () => { clearTimeout(pollT); addItemToSale(id); };
   bindListingControls(id, b.ebay);
@@ -1885,7 +1925,9 @@ window.addEventListener("focus", reloadIfUpdated);
   try {
     const me = await fetch("/api/auth/me", { credentials: "same-origin" });
     if (me.ok) {
-      const d = await me.json(); user = d.email; state.owner = !!d.owner; afterSignIn();
+      const d = await me.json();
+      if (d.guest) { state.guest = true; user = null; await renderHome(); return; }
+      user = d.email; state.owner = !!d.owner; afterSignIn();
       // Back from eBay's sign-in in a browser tab: the callback redirected to /?ebay=connected.
       const fromEbay = new URLSearchParams(location.search).get("ebay") === "connected";
       // Back from connecting a Shippo account (labels billed to the seller).

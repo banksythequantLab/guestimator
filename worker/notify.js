@@ -12,6 +12,7 @@ const money = c => "$" + (Number(c || 0) / 100).toFixed(2);
 export async function sendAlert(env, { to, subject, text, html, replyTo }) {
   if (!env.EMAIL || typeof env.EMAIL.send !== "function") return { sent: false, why: "no EMAIL binding" };
   if (!to) return { sent: false, why: "no recipient" };
+  if (/@guest\.invalid$/i.test(String(to))) return { sent: false, why: "guest account (no email)" };
   const from = { email: env.ALERT_FROM || "alerts@theguestimator.com", name: "Guestimator" };
   try {
     const msg = { to, from, subject, text, html };
