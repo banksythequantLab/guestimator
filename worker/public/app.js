@@ -233,7 +233,7 @@ function renderAuth(mode) {
       <div class="big" style="font-size:1.7rem">${isLogin ? "Welcome back" : state.guest ? "Keep your Guestimate" : "What's it worth? Sell it."}</div>
       <div class="muted">${isLogin ? "Sign in to your items." : state.guest ? "Create your free account to save it and get more free Guestimates. No card needed." : "Price anything from what's selling now, then list it on eBay in minutes."}</div>
     </div>
-    ${!isLogin && !state.guest ? `<div class="card" style="text-align:center;border-color:var(--green)"><button class="btn" id="tryFree">📷 Try it free, no account</button><div class="muted" style="font-size:.82rem;margin-top:6px">Price one thing right now. Sign up after, only if you like it.</div></div>` : ""}
+    ${!isLogin && !state.guest ? `<div class="card" style="text-align:center;border-color:var(--green)"><button class="btn" id="tryFree">📷 Try it free, no account</button><div class="muted" style="font-size:.82rem;margin-top:6px">Price one thing right now. Sign up after, only if you like it.</div></div><div id="exampleCard"></div>` : ""}
     ${isLogin || state.guest ? "" : pitchHtml()}
     ${lsGet("gs_ref") && !isLogin ? `<div class="card" style="padding:10px 14px;border-color:var(--green);font-size:.88rem">🎁 A friend invited you. You both get free credits after your first purchase.</div>` : ""}
     ${lsGet("gs_code") ? `<div class="card" style="padding:10px 14px;border-color:var(--cobalt);font-size:.88rem">🎁 Code <b>${esc(lsGet("gs_code"))}</b> will be applied when you ${isLogin ? "sign in" : "create your account"}.</div>` : ""}
@@ -263,6 +263,15 @@ function renderAuth(mode) {
   };
   $("#auGo").onclick = go;
   $("#auEmail").addEventListener("focus", () => track("signup_form"), { once: true });
+  // A real Guestimate from the price guide, so visitors see the result before trying (2026-10-12).
+  if ($("#exampleCard")) fetch("/api/public/example").then(r => r.json()).then(d => {
+    const x = d && d.example, el = $("#exampleCard"); if (!x || !el) return;
+    el.innerHTML = `<div class="card" style="padding:12px 16px"><div class="muted" style="font-size:.75rem;text-transform:uppercase;letter-spacing:.04em">A real Guestimate</div>
+      <b>${esc(x.title)}</b><div style="font-size:1.5rem;font-weight:800;margin:2px 0">$${Math.round(x.low).toLocaleString()} – $${Math.round(x.high).toLocaleString()}</div>
+      <div class="muted" style="font-size:.82rem;margin-bottom:4px">${x.sold >= 2 ? `From ${x.sold} actual eBay sales` : `From ${x.comps} eBay listings`}, for example:</div>
+      ${x.show.map(c => `<div class="row" style="justify-content:space-between;gap:8px;font-size:.85rem"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.title)}</span><b>$${Math.round(c.price).toLocaleString()}${c.sold ? " sold" : ""}</b></div>`).join("")}
+      <a href="${esc(x.url)}" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px;font-size:.85rem;font-weight:700;color:var(--cobalt)">See the full Guestimate ↗</a></div>`;
+  }).catch(() => {});
   if ($("#tryFree")) $("#tryFree").onclick = async () => {
     const b = $("#tryFree"); track("try_click"); b.disabled = true; b.textContent = "One moment…";
     try { await api("/auth/guest", { method: "POST" }); state.guest = true; user = null; track("guest_ready"); renderCapture(); }
@@ -401,7 +410,7 @@ async function renderGuestHome() {
   wireGuestSave(); $("#aiAdd").onclick = () => renderCapture();
   let list = []; try { list = await api("/items"); } catch { list = []; }
   const el = $("#itemList"); if (!el) return;
-  el.innerHTML = list.length ? list.map(i => `<a href="#" class="card gItem" data-id="${esc(i.id)}" style="display:block;text-decoration:none;color:inherit;padding:12px 16px"><b>${esc(i.ai_title || i.name || "Item")}</b><div class="muted" style="font-size:.82rem">${i.appraisal_status === "done" ? "Guestimate ready" : i.appraisal_status === "pending" ? "Guestimating…" : ""}</div></a>`).join("")
+  el.innerHTML = list.length ? list.map(i => `<a href="#" class="card gItem" data-id="${esc(i.id)}" style="display:block;text-decoration:none;color:inherit;padding:12px 16px"><b>${esc(i.ai_title || i.name || "Item")}</b><div class="muted" style="font-size:.82rem">${i.est_high > 0 ? `Guestimate: <b style="color:var(--ink,#111)">$${Math.round(i.est_low).toLocaleString()} – $${Math.round(i.est_high).toLocaleString()}</b> · keep it with a free account` : i.appraisal_status === "done" ? "Guestimate ready" : i.appraisal_status === "pending" ? "Guestimating…" : ""}</div></a>`).join("")
     : `<div class="empty">Nothing yet. Tap <b>Guestimate something</b>.</div>`;
   document.querySelectorAll(".gItem").forEach(x => x.onclick = e => { e.preventDefault(); renderItemDetail(x.dataset.id); });
 }

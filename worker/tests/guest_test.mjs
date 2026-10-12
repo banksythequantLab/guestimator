@@ -23,6 +23,11 @@ const userCount = () => db.raw.prepare("SELECT COUNT(*) n FROM users").get().n;
 // a guest
 const g = await call("POST", "/api/auth/guest", undefined, "gs_src=" + encodeURIComponent("zeely|free_guestimate"));
 ok("guest account made, cookie set", g.status === 200 && g.json.guest === true && !!g.cookie, g);
+{ const raw = await worker.fetch(new Request("https://g.test/api/auth/guest", { method: "POST", headers: { "cf-connecting-ip": "9.9.9.9" } }), env, { waitUntil() {} });
+  const sc = raw.headers.getSetCookie ? raw.headers.getSetCookie() : [raw.headers.get("set-cookie")];
+  ok("guest also gets a claim cookie only the Google endpoint can read", sc.some(c => /^bt_session=.*SameSite=Lax/.test(c)) && sc.some(c => /^gs_guest=.*SameSite=None.*Path=\/api\/auth\/google/.test(c)), sc);
+  const last = db.raw.prepare("SELECT user_id FROM guest_starts ORDER BY rowid DESC LIMIT 1").get().user_id;
+  for (const q of ["DELETE FROM sessions WHERE user_id=?", "DELETE FROM guest_starts WHERE user_id=?", "DELETE FROM users WHERE id=?"]) db.raw.prepare(q).run(last); }
 const gc = g.cookie + "; gs_src=" + encodeURIComponent("zeely|free_guestimate");
 const gid = db.raw.prepare("SELECT id FROM users WHERE email LIKE '%@guest.invalid'").get().id;
 const grow = db.raw.prepare("SELECT credits, signup_source s FROM users WHERE id=?").get(gid);
@@ -90,5 +95,8 @@ ok("owner funnel: 2 landed, 1 tried", st.funnelSteps.zeely && st.funnelSteps.zee
 const page = await call("GET", "/owner", undefined, (await call("POST", "/api/auth/register", { email: "boss@example.com", password: "password123" })).cookie);
 ok("owner page shows the step table", page.status === 200);
 
+// the landing page's real example: best-evidenced price-guide entry, or none
+{ const ex = await call("GET", "/api/public/example");
+  ok("example endpoint answers (none yet in an empty guide)", ex.status === 200 && ex.json.example === null, ex.json); }
 console.log(`guest_test: ${pass} passed, ${fail} failed`);
 if (fail) process.exitCode = 1;

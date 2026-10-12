@@ -155,6 +155,17 @@ async function verifyGoogleIdToken(idToken, clientId) {
 }
 function sessionCookie(token) { return `bt_session=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`; }
 const clearCookie = "bt_session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0";
+// iPhone Google sign-in comes back as a cross-site POST from accounts.google.com, which doesn't
+// carry the Lax session cookie, so a guest signing up that way lost their item (2026-10-12). A guest
+// also gets this copy of their session token: SameSite=None so it survives that POST, and Path-
+// limited to the Google endpoint so nothing else ever sees it. bt_session stays Lax.
+const guestClaimCookie = token => `gs_guest=${token}; HttpOnly; Secure; SameSite=None; Path=/api/auth/google; Max-Age=2592000`;
+const clearGuestClaim = "gs_guest=; HttpOnly; Secure; SameSite=None; Path=/api/auth/google; Max-Age=0";
+async function guestFromClaim(request, db) {
+  const tok = getCookie(request, "gs_guest"); if (!tok) return null;
+  const s = await db.prepare("SELECT user_id, expires_at FROM sessions WHERE token=?").bind(tok).first();
+  return s && new Date(s.expires_at) > new Date() ? s.user_id : null;
+}
 
 async function currentUser(req, db) {
   const tok = getCookie(req, "bt_session");
@@ -458,6 +469,18 @@ export default {
       }
       if (!p.startsWith("/api/")) return env.ASSETS.fetch(request);
       if (parts[1] === "public" && parts[2] === "garage") return await garage.publicApi(request, env, url, parts, ctx);
+      // GET /api/public/example: one real Guestimate from the public price guide for the landing page
+      // (2026-10-12) - the best-evidenced one: actual eBay sales first, then most comparables.
+      if (parts[1] === "public" && parts[2] === "example" && parts.length === 3 && m === "GET") {
+        const gs = (await priceguide.allGuides(db, 200).catch(() => [])).filter(g => !g.thin && g.comps.length >= 2);
+        const score = g => (g.comps.filter(c => c.sold).length * 10) + g.comps.length;
+        const g = gs.sort((a, b) => score(b) - score(a))[0];
+        if (!g) return J({ example: null }, 200, { "cache-control": "public, max-age=600" });
+        const sold = g.comps.filter(c => c.sold);
+        const show = (sold.length >= 2 ? sold : g.comps).slice(0, 3).map(c => ({ title: c.title.slice(0, 70), price: c.price, sold: c.sold }));
+        return J({ example: { title: g.title, low: g.range.low, high: g.range.high, sold: sold.length, comps: g.comps.length, show,
+          url: (env.PUBLIC_ORIGIN || url.origin) + priceguide.pagePath(g) } }, 200, { "cache-control": "public, max-age=600" });
+      }
     if (parts[1] === "public" && parts[2] === "market" && parts[3] === "ask" && parts.length === 4 && m === "POST") return await market.publicAsk(request, env, url, ctx);
 
       // ---------- BILLING: RevenueCat webhook (Authorization: Bearer <RC_WEBHOOK_SECRET>, set in the RC dashboard) ----------
@@ -627,7 +650,10 @@ export default {
           await db.prepare("INSERT INTO guest_starts (ip_hash, user_id, at) VALUES (?,?,?)").bind(ih, id, ts).run();
           await recordSignupSource(db, id, request);
           await growth.markGsUser(db, id);
-          return J({ guest: true, credits: n }, 200, { "Set-Cookie": sessionCookie(await newSession(db, id)) });
+          const tok = await newSession(db, id);
+          const res = J({ guest: true, credits: n }, 200, { "Set-Cookie": sessionCookie(tok) });
+          res.headers.append("Set-Cookie", guestClaimCookie(tok));
+          return res;
         }
         if (act === "login" && m === "POST") {
           const b = await readJson(request);
@@ -668,7 +694,7 @@ export default {
             if (u) await db.prepare("UPDATE users SET google_sub=? WHERE id=?").bind(g.sub, u.id).run();
           }
           // A guest signing in with Google (popup; Safari's redirect POST may not carry our cookie).
-          const g0 = await guestRow(db, await currentUser(request, db));
+          const g0 = await guestRow(db, (await currentUser(request, db)) || (await guestFromClaim(request, db)));
           if (u && g0) await adoptGuest(db, g0.id, u.id);
           if (!u && g0) {
             await db.prepare("UPDATE users SET email=?, google_sub=? WHERE id=?").bind(g.email, g.sub, g0.id).run();
@@ -689,8 +715,9 @@ export default {
           {
             await growth.markGsUser(db, u.id);
           }
-          if (viaRedirect) return home(true, sessionCookie(await newSession(db, u.id)));
-          return J({ email: u.email }, 200, { "Set-Cookie": sessionCookie(await newSession(db, u.id)) });
+          const gres = viaRedirect ? home(true, sessionCookie(await newSession(db, u.id))) : J({ email: u.email }, 200, { "Set-Cookie": sessionCookie(await newSession(db, u.id)) });
+          if (g0) gres.headers.append("Set-Cookie", clearGuestClaim);
+          return gres;
         }
         if (act === "logout" && m === "POST") {
           const tok = getCookie(request, "bt_session");
@@ -1092,6 +1119,8 @@ export default {
             "SELECT i.id, i.name, i.ai_title, i.price_cents, i.created_at, " +
             "(SELECT r2_key FROM photos p WHERE p.item_id=i.id ORDER BY p.sort, p.created_at LIMIT 1) AS thumb_key, " +
             "(SELECT status FROM appraisals a WHERE a.item_id=i.id ORDER BY a.created_at DESC LIMIT 1) AS appraisal_status, " +
+            "(SELECT json_extract(a.result_json,'$.price_range.low') FROM appraisals a WHERE a.item_id=i.id AND a.status='done' ORDER BY a.created_at DESC LIMIT 1) AS est_low, " +
+            "(SELECT json_extract(a.result_json,'$.price_range.high') FROM appraisals a WHERE a.item_id=i.id AND a.status='done' ORDER BY a.created_at DESC LIMIT 1) AS est_high, " +
             "(SELECT status FROM ebay_listings e WHERE e.item_id=i.id ORDER BY e.created_at DESC LIMIT 1) AS ebay_status " +
             "FROM items i JOIN sales s ON s.id=i.sale_id WHERE s.user_id=? ORDER BY i.created_at DESC LIMIT 500").bind(userId).all();
           return J(results);
