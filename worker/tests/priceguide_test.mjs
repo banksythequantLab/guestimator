@@ -112,6 +112,9 @@ ok("shown again", (await get(path)).status === 200);
   ok("public page says recent eBay sales", P.guidePage(sm, "https://g.test").includes("4 recent eBay sales"));
   const rj = P.guideOf({ listing_id: "g000000000004", status: "optin", title: "Print", result_json: JSON.stringify({ price_range: { low: 300, high: 550 },
     sold_market: { count: 3, median: 256, as_of: "2026-10-12" }, comparables: [] }) });
-  ok("older record: sales not among the comparables are not shown as this item's sales", rj.sold === null, rj.sold); }
+  ok("older record: sales not among the comparables are not shown as this item's sales", rj.sold === null, rj.sold);
+  const wd = P.guideOf({ listing_id: "g000000000005", status: "optin", title: "Cabinet", result_json: JSON.stringify({ price_range: { low: 121, high: 189 }, confidence: 0.5,
+    warnings: ["these listings run from $103 to $1795, 17.4x apart, which is too wide to be one product."] }) });
+  ok("guide carries confidence and the too-wide flag", wd.confidence === 0.5 && wd.wide === true, wd); }
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

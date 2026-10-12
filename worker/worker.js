@@ -235,6 +235,10 @@ async function runAppraisal(env, appraisalId, item, photos) {
       // instead of asking more questions (isUnknown / shouldGate in appraiser.js).
       prior_tries: (await db.prepare("SELECT COUNT(*) AS n FROM appraisals WHERE item_id=? AND id<>? AND status='done'")
         .bind(item.id, appraisalId).first().catch(() => null))?.n || 0,
+      // The item's own eBay listing(s): never a comparable for itself (2026-10-12, the Nadine
+      // portrait was priced $1,500-$2,600 from its own $2,300 listing).
+      own_listing_ids: ((await db.prepare("SELECT listing_id FROM ebay_listings WHERE item_id=? AND listing_id IS NOT NULL")
+        .bind(item.id).all().catch(() => ({ results: [] }))).results || []).map(r => String(r.listing_id)),
     };
     let result, text;
     if (env.APPRAISER_URL) {
@@ -484,7 +488,7 @@ export default {
       // GET /api/public/example: one real Guestimate from the public price guide for the landing page
       // (2026-10-12) - the best-evidenced one: actual eBay sales first, then most comparables.
       if (parts[1] === "public" && parts[2] === "example" && parts.length === 3 && m === "GET") {
-        const gs = (await priceguide.allGuides(db, 200).catch(() => [])).filter(g => !g.thin && g.comps.length >= 2);
+        const gs = (await priceguide.allGuides(db, 200).catch(() => [])).filter(g => !g.thin && g.comps.length >= 2 && !g.wide && !(g.confidence !== null && g.confidence < 0.7));
         const score = g => (g.comps.filter(c => c.sold).length * 10) + g.comps.length;
         const toEx = g => { const sold = g.comps.filter(c => c.sold);
           const show = (sold.length >= 2 ? sold : g.comps).slice(0, 3).map(c => ({ title: c.title.slice(0, 70), price: c.price, sold: c.sold }));

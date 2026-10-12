@@ -53,6 +53,11 @@ export function guideOf(row) {
     comps, estimated_at: row.estimated_at, updated_at: row.updated_at || row.estimated_at,
     live: live ? { price: row.price_cents / 100, url: row.listing_url || `https://www.ebay.com/itm/${row.listing_id}` } : null,
     sold_on_ebay: !!row.sold_here,
+    // For picking landing examples: how sure the identification was, and whether the comparables
+    // span "too wide to be one product" (2026-10-12: a hand-painted cabinet priced from two
+    // mass-market bathroom cabinets that sold).
+    confidence: Number(r.confidence) > 0 ? Number(r.confidence) : null,
+    wide: (Array.isArray(r.warnings) ? r.warnings : []).some(x => /too wide to be one product/i.test(String(x))),
     // One comparable or none, and no sale: the public page says it's a rough guess, as the app does.
     thin: !!r.unknown || comps.length <= 1 && !comps.some(c => c.sold) && !(Number(row.sold_count) >= 3),
   };

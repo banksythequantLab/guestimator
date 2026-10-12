@@ -33,7 +33,7 @@ globalThis.fetch = async (u, init = {}) => {
   if (url.hostname === "query2.finance.yahoo.com") return jr({}, 404);
   if (url.pathname.endsWith("/oauth2/token")) return jr({ access_token: "t", expires_in: 7200 });
   if (url.pathname.endsWith("/item_summary/search"))
-    return jr({ itemSummaries: LIVE.map(([title, p], i) => ({ title, itemWebUrl: `https://www.ebay.com/itm/20${i}`, price: { value: String(p), currency: "USD" }, condition: "Used" })) });
+    return jr({ itemSummaries: LIVE.map(([title, p], i) => ({ title, itemWebUrl: `https://www.ebay.com/itm/20000000${i}`, price: { value: String(p), currency: "USD" }, condition: "Used" })) });
   if (url.hostname === "api.sold-comps.com")
     return jr({ items: SOLD.map(([title, p, url]) => ({ title, url: url + "?nordt=true", soldPrice: String(p), soldCurrency: "USD", shippingPrice: "0", endedAt: "2026-09-20", condition: "Pre-Owned" })) });
   if (url.hostname === "api.tavily.com") return jr({ results: [] });
@@ -67,7 +67,7 @@ globalThis.fetch = async (u, init = {}) => {
 };
 
 const env = { NEBIUS_API_KEY: "k", EBAY_CLIENT_ID: "c", EBAY_CLIENT_SECRET: "s", SOLDCOMPS_API_KEY: "sc_test" };
-const run = async m => { mode = m; seen.reprice = []; seen.cold = []; return appraise(env, { photos: [], description: "SK Hynix 32GB DDR4 2400 server RAM stick", markings: "HMA84GR7MFR4N-UH", currency: "USD" }); };
+const run = async (m, extra = {}) => { mode = m; seen.reprice = []; seen.cold = []; return appraise(env, { photos: [], description: "SK Hynix 32GB DDR4 2400 server RAM stick", markings: "HMA84GR7MFR4N-UH", currency: "USD", ...extra }); };
 const W = r => (r.warnings || []).join(" | ");
 
 // ---------- ok ----------
@@ -109,6 +109,12 @@ ok("allfail: and the dealer is told to trust the comparables over it", /neither 
 r = await run("allrej");
 ok("allrej: no sold line built from sales the model rejected (Obey print, 2026-10-12)", !r.sold_market, r.sold_market);
 ok("allrej: the rejections are still recorded", (r.rejected_comparables || []).length >= 3, r.rejected_comparables);
+
+// ---------- own listing: never its own comparable ----------
+r = await run("ok", { own_listing_ids: ["200000000", "101"] });
+ok("own listing left out of the live comparables", !/itm\/200000000/.test(JSON.stringify(r)) && !/itm\/200000000/.test(seen.reprice[0] || ""), (seen.reprice[0] || "").slice(0, 300));
+r = await run("ok");
+ok("without it, the same listing is used", /itm\/200000000/.test(seen.reprice[0] || "") || /itm\/200000000/.test(JSON.stringify(r)));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

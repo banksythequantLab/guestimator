@@ -2047,6 +2047,10 @@ export async function appraise(env, req) {
                                                timed("maker_search", makerMarket(env, ident.maker, ident.category).catch(() => []))]);
   marks.maker_hits = (makerWorks || []).length;
   marks.sold_lookups = soldLookups();
+  { const own = new Set((req.own_listing_ids || []).map(String).filter(Boolean));
+    const itm = x => (String((x && x.url) || "").match(/\/itm\/(?:[^/?#]*\/)?(\d{9,})/) || [])[1];
+    if (own.size) for (const arr of [live, sold]) if (Array.isArray(arr))
+      for (let i = arr.length - 1; i >= 0; i--) if (own.has(itm(arr[i]))) arr.splice(i, 1); }
   mark("comps");
   // Sold first: what buyers paid is the strongest evidence, and the repricer reads top-down. Web
   // results go last, minus any page eBay already gave us.
