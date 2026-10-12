@@ -91,8 +91,23 @@ export async function ownerStats(db, env, ms = Date.now()) {
   // Ad visitors step by step (7 days): distinct visit sessions reaching each step, per source.
   const steps = (await db.prepare(`SELECT src, COALESCE(ev,'land') ev, COUNT(DISTINCT COALESCE(sid, rowid)) n FROM landing_hits WHERE at>=? GROUP BY 1,2`).bind(d7).all().catch(() => ({ results: [] }))).results || [];
   const funnelSteps = {}; for (const r of steps) (funnelSteps[r.src] = funnelSteps[r.src] || {})[r.ev] = n(r.n);
+  // Last 24 hours at a glance (2026-10-12): so a test run, or a real visitor's, shows up here
+  // without anyone querying the database.
+  const d1 = iso(ms - 86400e3);
+  const rows = async (sql, ...b) => ((await db.prepare(sql).bind(...b).all().catch(() => ({ results: [] }))).results || []);
+  const day = {
+    visits: n((await one(db, `SELECT COUNT(DISTINCT COALESCE(sid, rowid)) n FROM landing_hits WHERE at>=? AND COALESCE(ev,'land')='land'`, d1).catch(() => ({}))).n),
+    guests: n((await one(db, `SELECT COUNT(*) n FROM guest_starts WHERE at>=?`, d1).catch(() => ({}))).n),
+    ests: await rows(`SELECT a.created_at at, a.status, COALESCE(i.ai_title, i.name) title, u.email,
+        json_extract(a.result_json,'$.price_range.low') lo, json_extract(a.result_json,'$.price_range.high') hi,
+        json_extract(a.result_json,'$.timings_ms.total') took, json_extract(a.result_json,'$.thin_evidence') thin
+      FROM appraisals a JOIN items i ON i.id=a.item_id LEFT JOIN sales s ON s.id=i.sale_id LEFT JOIN users u ON u.id=s.user_id
+      WHERE a.created_at>=? ORDER BY a.created_at DESC LIMIT 30`, d1),
+    signups: await rows(`SELECT created_at at, email, signup_source src, signup_campaign camp FROM users
+      WHERE created_at>=? AND email NOT LIKE '%@guest.invalid' ORDER BY created_at DESC LIMIT 20`, d1),
+  };
   const acc = await accuracy.accuracyRows(db).catch(() => []);
-  return { at: iso(ms), alerts, partnerClicks, sources, visits, funnelSteps, acc, accSum: accuracy.summary(acc), funnel, winback, unsent, winbackPreview, users, est, paid, ebay, garage, market, promos, feedback: await feedback.ownerList(db).catch(() => []), labels: { used: await labelpay.monthCount(db, ms), cap: labelpay.houseCap(env), pay_on: labelpay.payOn(env), payments: labelPays, problems: labelProblems, voids },
+  return { at: iso(ms), day, alerts, partnerClicks, sources, visits, funnelSteps, acc, accSum: accuracy.summary(acc), funnel, winback, unsent, winbackPreview, users, est, paid, ebay, garage, market, promos, feedback: await feedback.ownerList(db).catch(() => []), labels: { used: await labelpay.monthCount(db, ms), cap: labelpay.houseCap(env), pay_on: labelpay.payOn(env), payments: labelPays, problems: labelProblems, voids },
            errors: { jobs: jobErrors, last: lastErrors, estimates: estErrors, listings: listErrors }, recent };
 }
 
@@ -119,6 +134,12 @@ th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertic
 .ok{color:var(--ok);font-weight:700}.err{color:var(--bad);font-weight:700}.sc{overflow-x:auto}a{color:inherit}</style></head><body><div class="w">
 <h1>Guestimator owner</h1><div class="m">As of ${when(s.at)} UTC · <a href="/owner">refresh</a> · <a href="/">back to the app</a></div>
 <div style="margin-top:12px">${problems ? `<span class="err">⚠ ${problems} thing${problems === 1 ? "" : "s"} need a look</span> (see below)` : `<span class="ok">✓ Nothing needs a look</span>`}</div>
+${s.day ? `<h2>Last 24 hours</h2><div class="g">
+${tile("Visits from links", n(s.day.visits), "tagged links, per visit")}${tile("Tried free", n(s.day.guests), "guest accounts started")}
+${tile("Guestimates", s.day.ests.length, `${s.day.ests.filter(e => e.status === "done").length} finished`)}${tile("Sign-ups", s.day.signups.length, "real accounts")}</div>
+<div class="sc" style="margin-top:8px">${table(["When (UTC)", "Who", "Item", "Guestimate", "Took"], s.day.ests.map(e => `<tr><td>${when(e.at)}</td><td>${/@guest\.invalid$/.test(e.email || "") ? "guest" : esc(e.email || "")}</td><td>${esc(String(e.title || "").slice(0, 70))}</td>
+  <td>${e.status === "done" && n(e.hi) ? `$${n(e.lo).toLocaleString()}–$${n(e.hi).toLocaleString()}${e.thin ? ' <span class="m">(rough guess)</span>' : ""}` : `<span class="${e.status === "error" ? "err" : "m"}">${esc(e.status)}</span>`}</td><td>${n(e.took) ? Math.round(n(e.took) / 1000) + "s" : ""}</td></tr>`), "No Guestimates in the last 24 hours.")}</div>
+${s.day.signups.length ? `<div class="sc" style="margin-top:8px">${table(["Signed up (UTC)", "Email", "Came from"], s.day.signups.map(u => `<tr><td>${when(u.at)}</td><td>${esc(u.email)}</td><td>${esc([u.src, u.camp].filter(Boolean).join(" / ") || "direct")}</td></tr>`), "")}</div>` : ""}` : ""}
 <h2>People</h2><div class="g">
 ${tile("Accounts", n(s.users.total), `+${n(s.users.new7)} this week · +${n(s.users.new30)} in 30 days`)}
 ${tile("Made an estimate", n(s.users.estimators), `${n(s.users.active7)} active this week`)}

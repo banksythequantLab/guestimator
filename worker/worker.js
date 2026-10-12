@@ -161,6 +161,10 @@ const clearCookie = "bt_session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Ag
 // limited to the Google endpoint so nothing else ever sees it. bt_session stays Lax.
 const guestClaimCookie = token => `gs_guest=${token}; HttpOnly; Secure; SameSite=None; Path=/api/auth/google; Max-Age=2592000`;
 const clearGuestClaim = "gs_guest=; HttpOnly; Secure; SameSite=None; Path=/api/auth/google; Max-Age=0";
+// Short links for outreach email (2026-10-12). The long tagged link wrapped at a hyphen in plain-text
+// email and arrived cut off ("utm_campaign=pos-"). /t/<code> has no hyphen to break at and sends the
+// visitor to the tagged landing page, so the visit still counts under its source and campaign.
+export const TLINKS = { pa: ["terry", "pos-antique"], pf: ["terry", "pos-followup"], gc: ["terry", "gx-cleanup"] };
 async function guestFromClaim(request, db) {
   const tok = getCookie(request, "gs_guest"); if (!tok) return null;
   const s = await db.prepare("SELECT user_id, expires_at FROM sessions WHERE token=?").bind(tok).first();
@@ -349,6 +353,11 @@ export default {
       if (parts[0] === "market" && parts.length === 1 && m === "GET") return await market.marketPage(env, url);
     if (parts[0] === "go" && parts.length === 2 && m === "GET" && Object.hasOwn(partners.PARTNERS, parts[1])) return await partners.go(env, url, parts[1]);
     if (parts[0] === "hit" && parts.length === 1 && m === "POST") return await landingHit(env, request);
+    if (parts[0] === "t" && parts.length === 2 && m === "GET") {
+      const t = Object.hasOwn(TLINKS, parts[1]) ? TLINKS[parts[1]] : null;
+      return new Response(null, { status: 302, headers: { "cache-control": "no-store",
+        location: t ? `/?utm_source=${t[0]}&utm_medium=email&utm_campaign=${t[1]}` : "/" } });
+    }
       // Market terms: public once MARKET_TERMS_LIVE is on; until then a DRAFT only the owner sees.
       if (parts[0] === "market-terms" && parts.length === 1 && m === "GET") {
         let ok = terms.termsLive(env);

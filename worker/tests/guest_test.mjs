@@ -94,9 +94,18 @@ st = await own.ownerStats(db, env, Date.now());
 ok("owner funnel: 2 landed, 1 tried", st.funnelSteps.zeely && st.funnelSteps.zeely.land === 2 && st.funnelSteps.zeely.try_click === 1, st.funnelSteps);
 const page = await call("GET", "/owner", undefined, (await call("POST", "/api/auth/register", { email: "boss@example.com", password: "password123" })).cookie);
 ok("owner page shows the step table", page.status === 200);
+ok("owner: last 24 hours counts visits and guest tries", st.day && st.day.visits === 2 && st.day.guests >= 3 && Array.isArray(st.day.ests) && st.day.signups.length >= 1, st.day);
+{ const html = (await worker.fetch(new Request("https://g.test/owner", { headers: { cookie: (await call("POST", "/api/auth/login", { email: "boss@example.com", password: "password123" })).cookie } }), env, { waitUntil() {} })).status === 200
+    ? await (await worker.fetch(new Request("https://g.test/owner", { headers: { cookie: (await call("POST", "/api/auth/login", { email: "boss@example.com", password: "password123" })).cookie } }), env, { waitUntil() {} })).text() : "";
+  ok("owner page has the Last 24 hours section", html.includes("Last 24 hours") && html.includes("Tried free"), html.slice(0, 200)); }
 
 // the landing page's real example: best-evidenced price-guide entry, or none
 { const ex = await call("GET", "/api/public/example");
   ok("example endpoint answers (none yet in an empty guide)", ex.status === 200 && ex.json.example === null, ex.json); }
+// short email links
+{ const go = async c => (await worker.fetch(new Request("https://g.test/t/" + c), env, { waitUntil() {} }));
+  const a = await go("pa"), z = await go("nope"), h = await go("hasOwnProperty");
+  ok("/t/pa -> tagged landing link", a.status === 302 && a.headers.get("location") === "/?utm_source=terry&utm_medium=email&utm_campaign=pos-antique", a.headers.get("location"));
+  ok("unknown short code -> plain home", z.status === 302 && z.headers.get("location") === "/" && h.headers.get("location") === "/"); }
 console.log(`guest_test: ${pass} passed, ${fail} failed`);
 if (fail) process.exitCode = 1;
