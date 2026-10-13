@@ -22,8 +22,8 @@ android {
         applicationId "ai.banksy.bottletree"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 10
-        versionName "1.2.2"
+        versionCode 11
+        versionName "1.2.3"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -36,6 +36,9 @@ android {
             // R8 on (Play: DEX optimization below threshold, fix by Feb 2027). mapping.txt from
             // build/outputs/mapping/release/ goes to Play with the bundle so crash reports are readable.
             minifyEnabled true
+            // Drop unused images/layouts too (Play recommendation, 2026-10-13). keep.xml protects the
+            // splash and icons, which plugins look up by name at run time.
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             if (ksFile.exists()) signingConfig signingConfigs.release
         }
