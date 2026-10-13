@@ -974,7 +974,7 @@ const SHOTS = [
   { kind: "damage", label: "Damage", hint: "Chips, repairs, wear (optional)" },
 ];
 function renderCapture(pre) {
-  state.tab = "items"; setChrome();
+  state.tab = "items"; setChrome(); state.wordsOnly = false;
   const shots = {};
   app.innerHTML = `<button class="back" id="cBack" style="padding:8px 0">‹ Back</button>
     <h1 class="h1">Add item with AI</h1>
@@ -1107,6 +1107,23 @@ function renderCapture(pre) {
       renderItemDetail(id);
     } catch (e) { toast(e.message); $("#cGo").disabled = false; $("#cGo").textContent = "✨ Guestimate it"; }
   };
+  // Everyone, not only the ad's camera half (2026-10-13): price it from words when the thing
+  // isn't to hand. simplifyCapture() swaps this for its own copy.
+  const shotsCard = $("#shots") && $("#shots").closest(".card");
+  if (shotsCard) {
+    const wo = Object.assign(document.createElement("a"), { href: "#", id: "wordsOnly", textContent: "No item in front of you? Just type what it is" });
+    wo.style.cssText = "display:block;text-align:center;margin:-4px 0 12px;font-size:.88rem;font-weight:700;color:var(--cobalt)";
+    wo.onclick = e => {
+      e.preventDefault(); state.wordsOnly = true; track("words_only");
+      shotsCard.style.display = "none"; wo.style.display = "none";
+      const tip = app.querySelector("h1.h1 ~ .muted"); if (tip && /marks photo/.test(tip.textContent)) tip.style.display = "none";
+      const note = document.createElement("div"); note.className = "muted"; note.style.cssText = "font-size:.85rem;margin:0 0 10px";
+      note.textContent = "OK, no photo. Say what it is as exactly as you can: maker, model, size, any writing on it. A photo later makes it sharper.";
+      shotsCard.after(note);
+      const t = $("#cTitle"); if (t) { t.placeholder = "e.g. Seiko 5 automatic watch SNK809"; t.focus(); }
+    };
+    shotsCard.after(wo);
+  }
 }
 // How sharp a photo is, as the variance of its Laplacian: high where edges are crisp, near zero
 // where everything is a smudge. Measured on a fixed 320px width so the number means the same
@@ -2080,6 +2097,7 @@ function simplifyCapture() {
   // 2026-10-13: 10 ad visitors reached this step and none took a photo - most likely the thing
   // isn't in front of them. Words alone price it (the appraiser says so in its warnings).
   state.wordsOnly = false;
+  { const old = $("#wordsOnly"); if (old) old.remove(); }
   const wo = Object.assign(document.createElement("a"), { href: "#", id: "wordsOnly", textContent: "No item in front of you? Just type what it is" });
   wo.style.cssText = "display:block;text-align:center;margin:10px 0 2px;font-size:.88rem;font-weight:700;color:var(--cobalt)";
   wo.onclick = e => {
