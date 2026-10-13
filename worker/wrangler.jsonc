@@ -41,6 +41,9 @@
   // has to be set up for sending in the dashboard; until then sends fail and are only logged.
   "send_email": [{ "name": "EMAIL" }],
   "vars": {
+    // eBay sold-price lookups (SoldComps) went from 5-11s to over 15s on 2026-10-13: every fresh lookup
+    // that day hit the 15s cap and estimates fell back to asking prices. Max allowed is 30000.
+    "SOLD_CAP_MS": "30000",
     "ALERT_FROM": "alerts@theguestimator.com",
     // Accounts allowed to BUY shipping labels. Labels are charged to the Shippo account behind
     // SHIPPO_API_TOKEN (Derek's), so this stays his alone until sellers pay for their own.
