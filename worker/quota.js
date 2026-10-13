@@ -9,6 +9,12 @@ import { adminEmail } from "./shipops.js";
 export const SERVICES = [
   { key: "soldcomps", name: "SoldComps (sold prices)", re: /sold-price lookup allowance for this month is used up/i,
     fix: "Raise the plan or wait for the monthly reset at sold-comps.com. Until then estimates use asking prices only." },
+  // Not a limit but the same outcome (2026-10-13): every sold-price lookup that day ran past the cap
+  // and estimates quietly used asking prices. One slow lookup is noise, so the email waits for two
+  // in 24 hours; the owner page shows every hit.
+  { key: "soldslow", name: "SoldComps (too slow)", re: /sold-price lookup took longer than \d+ seconds/i, min24h: 2,
+    subject: "Guestimator: sold-price lookups are timing out",
+    fix: "Estimates are using asking prices, which run high. If sold-comps.com is just slow, raise SOLD_CAP_MS in wrangler.jsonc (max 30000) and redeploy; if it is down, wait it out." },
   { key: "tavily", name: "Tavily (web search)", re: /market-search (quota is exhausted|key was rejected)/i,
     fix: "Top up or check the key at tavily.com. Until then estimates skip the web search." },
   { key: "ebay", name: "eBay API", re: /eBay rejected the API credentials|ebay auth (401|403)/i,
@@ -31,8 +37,14 @@ async function record(env, hits, text) {
     const row = await db.prepare("SELECT emailed_at FROM service_alerts WHERE service=?").bind(s.key).first();
     const last = row && row.emailed_at ? Date.parse(row.emailed_at) : 0;
     const to = adminEmail(env);
-    if (to && Date.now() - last > 24 * 3600e3) {
-      await sendAlert(env, { to, subject: `Guestimator: ${s.name} has hit its limit`,
+    let enough = true;
+    if (s.min24h) {
+      const since = new Date(Date.now() - 24 * 3600e3).toISOString();
+      const c = await db.prepare("SELECT COUNT(*) n FROM appraisals WHERE created_at>=? AND result_json LIKE '%lookup took longer than%'").bind(since).first().catch(() => null);
+      enough = Number(c && c.n) >= s.min24h;
+    }
+    if (to && enough && Date.now() - last > 24 * 3600e3) {
+      await sendAlert(env, { to, subject: s.subject || `Guestimator: ${s.name} has hit its limit`,
         text: `${s.name} failed on a Guestimate just now:\n\n${String(text).slice(0, 300)}\n\nWhat to do: ${s.fix}\n\nYou'll get at most one of these a day per service. The owner page lists recent hits.` }).catch(() => null);
       await db.prepare("UPDATE service_alerts SET emailed_at=? WHERE service=?").bind(now, s.key).run();
     }
