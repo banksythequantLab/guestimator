@@ -198,7 +198,7 @@ async function newSession(db, userId) {
 // told apart from "the clicks never reached us". Source names only; nothing about the person.
 const clean = v => String(v || "").toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 40);
 // Funnel steps a tagged visit can report, in order (owner page "Ad visitors, step by step").
-export const FUNNEL = ["land", "try_click", "guest_ready", "photo_added", "estimate_start", "estimate_done", "guest_return", "signup_form", "signup_done"];
+export const FUNNEL = ["land", "try_click", "guest_ready", "photo_added", "words_only", "estimate_start", "estimate_done", "guest_return", "signup_form", "signup_done"];
 async function landingHit(env, request) {
   try {
     const b = await request.json().catch(() => ({}));
@@ -1586,13 +1586,16 @@ export default {
         }
         if (parts[3] === "appraise" && m === "POST") {
           const photos = (await db.prepare("SELECT * FROM photos WHERE item_id=? ORDER BY sort, created_at").bind(iid).all()).results;
-          if (!photos.length) return J({ error: "add at least one photo first" }, 400);
           // Photographs alone are not enough. Four rolls of nickels stood on end were identified
           // five different ways across five runs — shotgun shells once, a 2023 Silver Eagle set
           // another time, which priced the lot at $260 when its silver alone was worth $585. One
           // line from the dealer settles what no amount of pixel-reading can. Checked here and
           // not only in the page, because the client is not the only way in.
           const b = await readJson(request).catch(() => ({}));
+          // Words only (2026-10-13): ad visitors reach the photo step and leave without a photo (0 of
+          // 10), most likely because the thing is not in front of them. The appraiser has always run
+          // on a description alone and says so in its warnings; the caller has to ask for it.
+          if (!photos.length && b.words_only !== true) return J({ error: "add at least one photo first" }, 400);
           // `dealer_description` — never `description`. The item page's description box is the
           // LISTING copy the model wrote, and it used to be posted here under the name this
           // endpoint reads as the dealer's own account, replacing "4 rolls of world war 2 silver

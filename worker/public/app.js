@@ -1081,7 +1081,8 @@ function renderCapture(pre) {
   $("#cGo").onclick = async () => {
     track("estimate_start");
     const files = [...Object.entries(shots).map(([k, f]) => ({ kind: k, f })), ...more.map(f => ({ kind: "other", f }))];
-    if (!files.length) return toast("Take at least one photo");
+    const wordsOnly = !files.length && state.wordsOnly;
+    if (!files.length && !wordsOnly) return toast("Take at least one photo");
     const description = withSize($("#cDesc").value.trim(), "cSz"), markings = $("#cMarks").value.trim();
     // Photographs alone are not enough, and the dealer standing in front of the item knows more
     // than any camera does. Four rolls of nickels shot end-on were read as shotgun shells; the
@@ -1094,13 +1095,15 @@ function renderCapture(pre) {
     $("#cGo").disabled = true; $("#cGo").textContent = "Uploading…";
     try {
       const { id } = await api("/items", { method: "POST", body: JSON.stringify({ name: $("#cTitle").value.trim() || "New item", description, markings }) });
-      const fd = new FormData();
-      for (const { kind, f } of files) fd.append("photos", await shrink(f), f.name || (kind + ".jpg"));
-      fd.append("kinds", files.map(x => x.kind).join(","));
-      const up = await fetch("/api/items/" + id + "/photos", { method: "POST", body: fd, credentials: "same-origin" });
-      if (!up.ok) throw new Error((await up.json()).error || "upload failed");
+      if (files.length) {
+        const fd = new FormData();
+        for (const { kind, f } of files) fd.append("photos", await shrink(f), f.name || (kind + ".jpg"));
+        fd.append("kinds", files.map(x => x.kind).join(","));
+        const up = await fetch("/api/items/" + id + "/photos", { method: "POST", body: fd, credentials: "same-origin" });
+        if (!up.ok) throw new Error((await up.json()).error || "upload failed");
+      }
       $("#cGo").textContent = "Pricing it…";
-      await api("/items/" + id + "/appraise", { method: "POST", body: JSON.stringify({}) });
+      await api("/items/" + id + "/appraise", { method: "POST", body: JSON.stringify(wordsOnly ? { words_only: true } : {}) });
       renderItemDetail(id);
     } catch (e) { toast(e.message); $("#cGo").disabled = false; $("#cGo").textContent = "✨ Guestimate it"; }
   };
@@ -2074,6 +2077,20 @@ function simplifyCapture() {
   if (cam) { cam.className = "btn cam"; cam.textContent = "📷 Take a photo"; cam.style.marginTop = "8px"; }
   if (pick) { pick.className = "pick"; pick.textContent = "or upload one"; pick.style.cssText = "background:none;border:0;color:var(--cobalt);font:inherit;font-size:.85rem;text-decoration:underline;margin-top:6px;cursor:pointer"; }
   const btns = front.querySelector(".shotbtns"); if (btns) btns.style.cssText = "display:flex;flex-direction:column;align-items:stretch";
+  // 2026-10-13: 10 ad visitors reached this step and none took a photo - most likely the thing
+  // isn't in front of them. Words alone price it (the appraiser says so in its warnings).
+  state.wordsOnly = false;
+  const wo = Object.assign(document.createElement("a"), { href: "#", id: "wordsOnly", textContent: "No item in front of you? Just type what it is" });
+  wo.style.cssText = "display:block;text-align:center;margin:10px 0 2px;font-size:.88rem;font-weight:700;color:var(--cobalt)";
+  wo.onclick = e => {
+    e.preventDefault(); state.wordsOnly = true; track("words_only");
+    box.style.display = "none"; extra.style.display = "none"; wo.style.display = "none";
+    const note = document.createElement("div"); note.className = "muted"; note.style.cssText = "font-size:.85rem;text-align:center;margin:6px 0";
+    note.textContent = "OK, no photo. Say what it is as exactly as you can: maker, model, size. A photo later makes it sharper.";
+    box.after(note);
+    const t = $("#cTitle"); if (t) { t.placeholder = "e.g. Seiko 5 automatic watch SNK809"; t.scrollIntoView({ behavior: "smooth", block: "center" }); t.focus({ preventScroll: true }); }
+  };
+  box.after(wo);
   // Second card: "What is it?" and the button; description, size and marks fold away.
   const title = $("#cTitle"), go = $("#cGo");
   if (title && go) {
