@@ -499,7 +499,10 @@ export default {
             url: (env.PUBLIC_ORIGIN || url.origin) + priceguide.pagePath(g) }; };
         // Up to 3 different items; the landing shows one at random, so someone with a dresser doesn't
         // only ever see a RAM stick (2026-10-12). Items with 2+ actual sales first when there are 2+ of them.
-        const ranked = gs.sort((a, b) => score(b) - score(a));
+        // Everyday things before computer parts (2026-10-13): ad visitors have dressers and Pyrex, not
+        // server RAM, and a RAM stick as the only example says "this is a computer-parts tool".
+        const techy = g => /\b(ddr\d?|dimm|rdimm|ram|memory module|gpu|graphics card|server|optane|nvidia|intel|amd|ssd|nvme|cpu|processor|motherboard|ecc)\b/i.test(String(g.title || ""));
+        const ranked = gs.sort((a, b) => (techy(a) - techy(b)) || (score(b) - score(a)));
         const strong = ranked.filter(g => g.comps.filter(c => c.sold).length >= 2);
         const pick = [], seen = new Set();
         for (const g of (strong.length >= 2 ? strong : ranked)) {

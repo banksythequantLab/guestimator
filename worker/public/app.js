@@ -292,7 +292,7 @@ function renderAuth(mode) {
   // A real Guestimate from the price guide, so visitors see the result before trying (2026-10-12).
   if ($("#exampleCard")) fetch("/api/public/example").then(r => r.json()).then(d => {
     const xs = d && d.examples && d.examples.length ? d.examples : d && d.example ? [d.example] : [];
-    const x = xs[Math.floor(Math.random() * xs.length)], el = $("#exampleCard"); if (!x || !el) return;
+    const x = xs[0], el = $("#exampleCard"); if (!x || !el) return;   // the server puts everyday items first
     el.innerHTML = `<div class="card" style="padding:12px 16px"><div class="muted" style="font-size:.75rem;text-transform:uppercase;letter-spacing:.04em">A real Guestimate</div>
       <b>${esc(x.title)}</b><div style="font-size:1.5rem;font-weight:800;margin:2px 0">$${Math.round(x.low).toLocaleString()} – $${Math.round(x.high).toLocaleString()}</div>
       <div class="muted" style="font-size:.82rem;margin-bottom:4px">${x.sold >= 2 ? `From ${x.sold} actual eBay sales` : `From ${x.comps} eBay listings`}, for example:</div>
