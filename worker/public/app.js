@@ -1002,7 +1002,7 @@ function renderCapture(pre) {
     </div>`;
   const more = [];
   const setShot = (kind, f) => {
-    shots[kind] = f;
+    shots[kind] = f; track("photo_added");
     const ph = $("#ph-" + kind); ph.innerHTML = `<img src="${URL.createObjectURL(f)}" alt="">`;
   };
   app.querySelectorAll(".shot input").forEach(inp => inp.onchange = async () => {
@@ -2042,6 +2042,60 @@ async function autoCameraOrAuth() {
   renderCapture();
   const h = app.querySelector("h1.h1"); if (!h) return;
   h.textContent = "Your free Guestimate";
-  h.insertAdjacentHTML("afterend", `<div class="card" style="border-color:var(--green);padding:10px 14px;font-size:.88rem">Snap the item (the front first, then any marks or labels) and get its price from real eBay sales in about a minute. No account needed. <a href="#" id="camWhat">What is this?</a><div id="camMore" class="muted" style="display:none;margin-top:6px">Guestimator prices used and vintage things from what's actually selling on eBay, and can list them on your own eBay account. You only sign up afterwards, if you like the result.</div></div>`);
+  h.insertAdjacentHTML("afterend", `<div class="card" style="border-color:var(--green);padding:10px 14px;font-size:.88rem">Take one photo of the item, say what it is in a few words, and get its price from real eBay sales in about a minute. No account needed. <a href="#" id="camWhat">What is this?</a><div id="camMore" class="muted" style="display:none;margin-top:6px">Guestimator prices used and vintage things from what's actually selling on eBay, and can list them on your own eBay account. You only sign up afterwards, if you like the result.</div></div>`);
   const w = $("#camWhat"); if (w) w.onclick = e => { e.preventDefault(); $("#camMore").style.display = "block"; w.remove(); };
+  simplifyCapture();
+}
+// The camera half reached the photo step 8 times in 6 hours and took 0 photos (2026-10-13): the
+// full dealer form (4 photo slots, title, description, size, marks, 3 buttons) is a lot to face
+// from an ad. For them: one photo, a few words, one button. Everything else is still there,
+// folded under "optional". A Guestimate still needs a photo and a few words about the item.
+function simplifyCapture() {
+  const box = $("#shots"), front = app.querySelector('.shot[data-kind="front"]');
+  { const tip = app.querySelector("h1.h1 ~ .muted"); if (tip && /marks photo matters most/.test(tip.textContent)) tip.style.display = "none"; }
+  if (!box || !front) return;
+  const extra = document.createElement("details");
+  extra.innerHTML = '<summary class="muted" style="font-size:.85rem;margin-top:10px;cursor:pointer">Add more photos (optional): back, underside, marks</summary><div class="shots" style="margin-top:8px"></div>';
+  const grid = extra.querySelector(".shots");
+  box.querySelectorAll('.shot:not([data-kind="front"])').forEach(s => grid.appendChild(s));
+  ["#moreCam", "#moreCount"].forEach(sel => { const el = $(sel); if (el) extra.appendChild(el); });
+  const moreLabel = $("#moreShots") && $("#moreShots").closest("label"); if (moreLabel) extra.appendChild(moreLabel);
+  box.after(extra);
+  box.style.gridTemplateColumns = "1fr";
+  const ph = front.querySelector(".ph"); if (ph) { ph.style.maxWidth = "240px"; ph.style.margin = "0 auto"; ph.style.width = "100%"; }
+  const sl = front.querySelector(".sl"); if (sl) sl.textContent = "Your item";
+  const sh = front.querySelector(".sh"); if (sh) sh.textContent = "The whole thing, in good light";
+  const cam = front.querySelector(".cam"), pick = front.querySelector(".pick");
+  if (cam) { cam.className = "btn cam"; cam.textContent = "📷 Take a photo"; cam.style.marginTop = "8px"; }
+  if (pick) { pick.className = "pick"; pick.textContent = "or upload one"; pick.style.cssText = "background:none;border:0;color:var(--cobalt);font:inherit;font-size:.85rem;text-decoration:underline;margin-top:6px;cursor:pointer"; }
+  const btns = front.querySelector(".shotbtns"); if (btns) btns.style.cssText = "display:flex;flex-direction:column;align-items:stretch";
+  // Second card: "What is it?" and the button; description, size and marks fold away.
+  const title = $("#cTitle"), go = $("#cGo");
+  if (title && go) {
+    const lab = title.previousElementSibling; if (lab && lab.tagName === "LABEL") lab.textContent = "What is it? (a few words)";
+    title.placeholder = "e.g. Oak dresser, Pyrex bowl set, Seiko watch";
+    const more = document.createElement("details");
+    more.innerHTML = '<summary class="muted" style="font-size:.85rem;margin-top:10px;cursor:pointer">Add details (optional): condition, size, marks</summary>';
+    let n = title.nextElementSibling; const move = [];
+    while (n && n !== go) { move.push(n); n = n.nextElementSibling; }
+    move.forEach(el => more.appendChild(el));
+    title.after(more);
+    more.after(Object.assign(document.createElement("div"), { style: "height:12px" }));
+    go.textContent = "✨ Get my free Guestimate";
+    // The form wants a description or marks; for this one-box version the few words are it.
+    const orig = go.onclick;
+    go.onclick = e => {
+      const d = $("#cDesc"), m = $("#cMarks");
+      if (d && !d.value.trim() && !(m && m.value.trim())) {
+        if (!title.value.trim()) { title.focus(); title.style.borderColor = "var(--rust)"; return toast("Say what it is in a few words"); }
+        d.value = title.value.trim();
+      }
+      return orig && orig.call(go, e);
+    };
+    const skip = $("#cSkip"); if (skip) { const note = skip.nextElementSibling; skip.style.display = "none"; if (note && note.classList.contains("muted")) note.style.display = "none"; }
+  }
+  // First photo in: count it, and bring the next step into view.
+  const fph = $("#ph-front");
+  if (fph) new MutationObserver((_, obs) => { if (fph.querySelector("img")) { obs.disconnect(); track("photo_added");
+    setTimeout(() => { if (title) { title.scrollIntoView({ behavior: "smooth", block: "center" }); title.focus({ preventScroll: true }); } }, 300); } }).observe(fph, { childList: true, subtree: true });
 }

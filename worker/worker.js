@@ -198,7 +198,7 @@ async function newSession(db, userId) {
 // told apart from "the clicks never reached us". Source names only; nothing about the person.
 const clean = v => String(v || "").toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 40);
 // Funnel steps a tagged visit can report, in order (owner page "Ad visitors, step by step").
-export const FUNNEL = ["land", "try_click", "guest_ready", "estimate_start", "estimate_done", "guest_return", "signup_form", "signup_done"];
+export const FUNNEL = ["land", "try_click", "guest_ready", "photo_added", "estimate_start", "estimate_done", "guest_return", "signup_form", "signup_done"];
 async function landingHit(env, request) {
   try {
     const b = await request.json().catch(() => ({}));
