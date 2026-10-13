@@ -244,6 +244,11 @@ const pitchHtml = () => `<div class="card" style="padding:14px 16px">
   <div id="demoLink">${demoLinkHtml()}</div>
   <div class="muted" style="font-size:.8rem;margin-top:10px;border-top:1px solid var(--line, #e0d2b4);padding-top:8px"><b>Free:</b> garage &amp; estate sale pages, QR price tags, online checkout for your buyers, and discounted shipping labels. After that, estimates and eBay listings use credits.</div></div>`;
 
+// Visitors from the Zeely "free Guestimate" ad (2026-10-13: 24 of 27 left the landing page without
+// tapping Try). The general pitch ("Sell it", list on eBay) doesn't match an ad that promised a free
+// price, so they get the ad's promise in plain words and a button that says it.
+const adVisit = () => { try { const v = JSON.parse(sessionStorage.getItem("gs_visit") || "null"); return !!v && /^zeely/.test(v.s || ""); } catch { return false; } };
+const TRY_LABEL = () => adVisit() ? "📷 Price my item free" : "📷 Try it free, no account";
 function renderAuth(mode) {
   mode = mode || firstAuthMode();
   state.view = "auth"; state.saleId = null; state.detail = null; setChrome();
@@ -251,10 +256,10 @@ function renderAuth(mode) {
   const isLogin = mode === "login";
   app.innerHTML = `
     <div style="text-align:center;margin:34px 0 8px">
-      <div class="big" style="font-size:1.7rem">${isLogin ? "Welcome back" : state.guest ? "Keep your Guestimate" : "What's it worth? Sell it."}</div>
-      <div class="muted">${isLogin ? "Sign in to your items." : state.guest ? "Create your free account to save it and get more free Guestimates. No card needed." : "Price anything from what's selling now, then list it on eBay in minutes."}</div>
+      <div class="big" style="font-size:1.7rem">${isLogin ? "Welcome back" : state.guest ? "Keep your Guestimate" : adVisit() ? "What's your stuff worth?" : "What's it worth? Sell it."}</div>
+      <div class="muted">${isLogin ? "Sign in to your items." : state.guest ? "Create your free account to save it and get more free Guestimates. No card needed." : adVisit() ? "Snap one photo. See what things like it actually sold for on eBay. Free, no account." : "Price anything from what's selling now, then list it on eBay in minutes."}</div>
     </div>
-    ${!isLogin && !state.guest ? `<div class="card" style="text-align:center;border-color:var(--green)"><button class="btn" id="tryFree">📷 Try it free, no account</button><div class="muted" style="font-size:.82rem;margin-top:6px">Price one thing right now. Sign up after, only if you like it.</div></div><div id="exampleCard"></div>` : ""}
+    ${!isLogin && !state.guest ? `<div class="card" style="text-align:center;border-color:var(--green)"><button class="btn" id="tryFree">${TRY_LABEL()}</button><div class="muted" style="font-size:.82rem;margin-top:6px">${adVisit() ? "Takes about a minute. Sign up after, only if you like it." : "Price one thing right now. Sign up after, only if you like it."}</div></div><div id="exampleCard"></div>` : ""}
     ${isLogin || state.guest ? "" : pitchHtml()}
     ${lsGet("gs_ref") && !isLogin ? `<div class="card" style="padding:10px 14px;border-color:var(--green);font-size:.88rem">🎁 A friend invited you. You both get free credits after your first purchase.</div>` : ""}
     ${lsGet("gs_code") ? `<div class="card" style="padding:10px 14px;border-color:var(--cobalt);font-size:.88rem">🎁 Code <b>${esc(lsGet("gs_code"))}</b> will be applied when you ${isLogin ? "sign in" : "create your account"}.</div>` : ""}
@@ -291,13 +296,13 @@ function renderAuth(mode) {
     el.innerHTML = `<div class="card" style="padding:12px 16px"><div class="muted" style="font-size:.75rem;text-transform:uppercase;letter-spacing:.04em">A real Guestimate</div>
       <b>${esc(x.title)}</b><div style="font-size:1.5rem;font-weight:800;margin:2px 0">$${Math.round(x.low).toLocaleString()} – $${Math.round(x.high).toLocaleString()}</div>
       <div class="muted" style="font-size:.82rem;margin-bottom:4px">${x.sold >= 2 ? `From ${x.sold} actual eBay sales` : `From ${x.comps} eBay listings`}, for example:</div>
-      ${x.show.map(c => `<div class="row" style="justify-content:space-between;gap:8px;font-size:.85rem"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.title)}</span><b>$${Math.round(c.price).toLocaleString()}${c.sold ? " sold" : ""}</b></div>`).join("")}
+      ${x.show.map(c => `<div class="row" style="justify-content:space-between;gap:8px;font-size:.85rem"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.title)}</span><b style="white-space:nowrap;flex-shrink:0">$${Math.round(c.price).toLocaleString()}${c.sold ? " sold" : ""}</b></div>`).join("")}
       <a href="${esc(x.url)}" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px;font-size:.85rem;font-weight:700;color:var(--cobalt)">See the full Guestimate ↗</a></div>`;
   }).catch(() => {});
   if ($("#tryFree")) $("#tryFree").onclick = async () => {
     const b = $("#tryFree"); track("try_click"); b.disabled = true; b.textContent = "One moment…";
     try { await api("/auth/guest", { method: "POST" }); state.guest = true; user = null; track("guest_ready"); renderCapture(); }
-    catch (e) { toast(e.message); b.disabled = false; b.textContent = "📷 Try it free, no account"; }
+    catch (e) { toast(e.message); b.disabled = false; b.textContent = TRY_LABEL(); }
   };
   $("#auPw").addEventListener("keydown", e => { if (e.key === "Enter") go(); });
   $("#auToggle").onclick = e => { e.preventDefault(); renderAuth(isLogin ? "register" : "login"); };
