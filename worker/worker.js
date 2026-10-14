@@ -502,7 +502,7 @@ export default {
         // Everyday things before computer parts (2026-10-13): ad visitors have dressers and Pyrex, not
         // server RAM, and a RAM stick as the only example says "this is a computer-parts tool".
         const techy = g => /\b(ddr\d?|dimm|rdimm|ram|memory module|gpu|graphics card|server|optane|nvidia|intel|amd|ssd|nvme|cpu|processor|motherboard|ecc)\b/i.test(String(g.title || ""));
-        const ranked = gs.sort((a, b) => (techy(a) - techy(b)) || (score(b) - score(a)));
+        const ranked = gs.sort((a, b) => (techy(a) - techy(b)) || ((b.comps.filter(c => c.sold).length >= 2) - (a.comps.filter(c => c.sold).length >= 2)) || ((b.range.high || 0) - (a.range.high || 0)) || (score(b) - score(a)));   // real sales first, then the bigger number (a $400 Pyrex set beats a $20 casserole as an example)
         const strong = ranked.filter(g => g.comps.filter(c => c.sold).length >= 2);
         const pick = [], seen = new Set();
         for (const g of (strong.length >= 2 ? strong : ranked)) {
