@@ -1696,6 +1696,18 @@ export function bareFilter(dealerText, hits) {
   return { kept, dropped: (hits || []).length - kept.length };
 }
 
+// Turntables (2026-11-06): a sale that came with a premium phono cartridge is not what the deck
+// sells for. Dual 1219 was priced $820-$1,281 from a $500 sale and a $1,550 one "& SHURE V15".
+// Only named premium cartridges: nearly every turntable sells with a basic one, and that is the item.
+export const TURNTABLE = /\b(?:turntables?|record\s+players?|record\s+decks?)\b/i;
+export const PREMIUM_CART = /\b(?:shure\s*v-?15|shure\s*m-?97|ortofon\s*2m[\s-]*(?:blue|bronze|black)|ortofon\s*(?:spu|cadenza|quintet)|sumiko|nagaoka|goldring|hana\s*(?:sl|el|sh|ml)\b|denon\s*dl-?103|(?:audio-?technica\s*)?at-?(?:oc9|art\d+|440mla?)|audio-?technica\s*vm(?:5|7)\d{2}|grado\s*(?:gold|silver|platinum|prestige\s+gold|reference|sonata|statement))/i;
+export function cartFilter(dealerText, hits) {
+  const d = String(dealerText || "");
+  if (!TURNTABLE.test(d) || PREMIUM_CART.test(d)) return { kept: hits || [], dropped: 0 };
+  const kept = (hits || []).filter(h => !PREMIUM_CART.test(String((h && h.title) || "")));
+  return { kept, dropped: (hits || []).length - kept.length };
+}
+
 export function compsQuery(ident) {
   const out = [], seen = new Set();
   for (const chunk of [ident.name, ident.maker, ident.period]) {
@@ -2101,7 +2113,13 @@ export async function appraise(env, req) {
     for (const arr of [live, sold, web]) if (Array.isArray(arr)) {
       const f = bareFilter(dealerText, arr); dropped += f.dropped; arr.splice(0, arr.length, ...f.kept);
     }
-    if (dropped) warnings.push(`left out ${dropped} sale${dropped === 1 ? "" : "s"} or listing${dropped === 1 ? "" : "s"} that came with extras (controllers, games, a lens, a bundle or refurbishing), because you said the item is on its own`); }
+    if (dropped) warnings.push(`left out ${dropped} sale${dropped === 1 ? "" : "s"} or listing${dropped === 1 ? "" : "s"} that came with extras (controllers, games, a lens, a bundle or refurbishing), because you said the item is on its own`);
+    // The identified name counts too: "Dual 1219" alone doesn't say turntable, the identification does.
+    const deckText = `${dealerText} ${(ident && ident.name) || ""} ${(ident && ident.category) || ""}`; let carts = 0;
+    for (const arr of [live, sold, web]) if (Array.isArray(arr)) {
+      const f = cartFilter(deckText, arr); carts += f.dropped; arr.splice(0, arr.length, ...f.kept);
+    }
+    if (carts) warnings.push(`left out ${carts} sale${carts === 1 ? "" : "s"} or listing${carts === 1 ? "" : "s"} that came with a premium phono cartridge (Shure V15, Ortofon 2M and the like), which can add hundreds to the price. Say which cartridge yours has if it has one, and re-run`); }
   mark("comps");
   // Sold first: what buyers paid is the strongest evidence, and the repricer reads top-down. Web
   // results go last, minus any page eBay already gave us.
