@@ -334,7 +334,9 @@ async function chat(c, body, timeoutMs) {
     const txt = await r.text();
     if (!r.ok) throw new Error(`token factory ${r.status}: ${txt.slice(0, 200)}`);
     const j = JSON.parse(txt);
-    return j.choices?.[0]?.message?.content || "";
+    const content = j.choices?.[0]?.message?.content || "";
+    if (!content.trim()) console.log("model empty answer", JSON.stringify({ model: body.model, max_tokens: body.max_tokens, finish: j.choices?.[0]?.finish_reason, usage: j.usage || null }));
+    return content;
   } finally { clearTimeout(t); }
 }
 
@@ -2198,7 +2200,9 @@ export async function appraise(env, req) {
       catch (e1) {
         if (!/no JSON object|unterminated JSON/.test(String(e1 && e1.message))) throw e1;
         console.log("reprice retry", e1.message);
-        second = await textJson(c, REPRICE_SYSTEM, repriceUser, 1000);
+        // A reasoning model that spent its whole budget thinking answers with nothing; the same
+        // budget again tends to end the same way (Kirby Super Star, F-Zero 2026-11-06), so double it.
+        second = await textJson(c, REPRICE_SYSTEM, repriceUser, 12000);
       }
       // The whole promise of this second pass is that the price gets re-set against real listings.
       // When the model answers with comparables and a basis note but NO price_range, that silently
