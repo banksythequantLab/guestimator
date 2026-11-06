@@ -1410,7 +1410,10 @@ function grade(s) {
 const whole = v => v >= 20 ? Math.round(v) : v;
 function priceOf(d, currency) {
   d = d || {};
-  let low = whole(num(d.low)), high = whole(num(d.high));
+  // The repricer sometimes answers {"min": 23.99, "max": 42.99} instead of low/high (seen in the
+  // log on Mario Kart 64, 2026-11-06). Read as zeros, that threw away a good price and dropped to the
+  // cold pass, and on runs where the cold pass also kept no comparables the 30 real sales were ignored.
+  let low = whole(num(d.low ?? d.min)), high = whole(num(d.high ?? d.max));
   if (high < low) [low, high] = [high, low];
   const mid = (low || high) ? whole((low + high) / 2) : 0;
   return {
