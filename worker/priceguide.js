@@ -130,6 +130,7 @@ export function guidePage(g, origin, more = []) {
   const crumbs = { "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: [
     { "@type": "ListItem", position: 1, name: "Price guide", item: origin + "/prices" },
     { "@type": "ListItem", position: 2, name: hub.name, item: origin + hubPath(hub) }, { "@type": "ListItem", position: 3, name: g.title, item: url }] };
+  const faq = itemFaq(g, hub);
   // Same category first, then the newest of the rest.
   const others = more.filter(o => o.listing_id !== g.listing_id);
   more = [...others.filter(o => hubOf(o) === hub), ...others.filter(o => hubOf(o) !== hub)];
@@ -143,10 +144,13 @@ ${g.live ? `<div class="card"><b>This one is for sale:</b> ${dollars(g.live.pric
 ${about.length ? `<h2>About it</h2><div>${about.map(esc).join(" · ")}</div>` : ""}
 ${g.comps.length ? `<h2>Comparable listings we priced it against</h2><table><thead><tr><th>Listing</th><th>Condition</th><th class="r">Price</th></tr></thead><tbody>
 ${g.comps.map(c => `<tr><td>${c.url ? `<a href="${esc(epn(c.url, "gs-guide-comp"))}" rel="sponsored nofollow noopener" target="_blank">${esc(c.title)}</a>` : esc(c.title)}${c.sold ? " <b>(sold)</b>" : ""}</td><td>${esc(c.condition || "")}</td><td class="r">${dollars(c.price)}</td></tr>`).join("")}</tbody></table>` : ""}
+${faq.length ? `<h2>Common questions</h2>${faq.map(q => `<h3 style="font-size:1rem;margin:14px 0 4px">${esc(q.q)}</h3><p style="margin:0">${esc(q.a)}</p>`).join("")}
+<p class="m"><a href="${esc(hubPath(hub))}">More on ${esc(hub.name.toLowerCase())} prices</a></p>` : ""}
 <div class="card" style="margin-top:22px"><h2 style="margin-top:0">Have one to sell?</h2><p>Snap 2–4 photos and Guestimator prices yours from what's selling now, then lists it on your own eBay account. You check every word first.</p>
 <a class="cta" href="/?utm_source=price_guide">Guestimate mine</a></div>
 ${more.length ? `<h2>More ${esc(hub.name.toLowerCase())} and other prices</h2><p class="m"><a href="${esc(hubPath(hub))}">See all ${esc(hub.name.toLowerCase())}</a></p><ul class="l">${more.slice(0, 6).map(o => `<li><a href="${esc(pagePath(o))}">${esc(o.title)}</a><div class="m">${dollars(o.range.low)}–${dollars(o.range.high)}</div></li>`).join("")}</ul>` : ""}`;
-  return shell(title, desc, url, body, [jsonld, crumbs]);
+  const faqLd = faq.length ? { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faq.map(q => ({ "@type": "Question", name: q.q, acceptedAnswer: { "@type": "Answer", text: q.a } })) } : null;
+  return shell(title, desc, url, body, [jsonld, crumbs, faqLd].filter(Boolean));
 }
 
 export function indexPage(guides, origin) {
@@ -168,23 +172,48 @@ export function sitemap(guides, origin, extra = []) {
 // links to its own kind instead of whatever was published last. Order matters: first match wins.
 export const HUBS = [
   { slug: "video-games", name: "Video games and consoles", blurb: "Game cartridges, consoles and handhelds: Nintendo, Game Boy, PlayStation, Sega, Xbox.",
+    tips: ["Loose cartridge or disc vs. complete in box: the box and manual can add as much as the game itself, so say which you have.","Authentic vs. reproduction: popular titles are widely faked. Check the label print, the board inside, and the screws.","Region: a US game sells to US buyers. Japanese and PAL copies are a different market and usually sell for less here.","Tested and working, with a clean label, sells above \"untested\". Old save batteries in some games run dry, and buyers know it."],
     re: /\b(?:nintendo|game ?boy|gamecube|n64|snes|nes|wii|switch lite|3ds|ds lite|playstation|ps[1-5]|psp|xbox|sega|dreamcast|saturn|pok[eé]mon|video games?|game cartridge)\b/i },
   { slug: "film-cameras", name: "Film cameras", blurb: "35mm SLRs, compacts, rangefinders, TLRs and instant cameras.",
+    tips: ["Body only vs. with a lens: a working lens can be worth more than the body, so price them as what you actually have.","A working light meter and accurate shutter speeds are what serious buyers check first. \"Meter works\" in a listing adds real money.","Lens fungus, haze or separation lowers the price a lot. Look through it at a bright light.","Cosmetics matter less than function, but dents and brassing still move the price within the working range."],
     re: /\b(?:camera|tlr|rangefinder|polaroid)\b/i },
   { slug: "vintage-audio", name: "Vintage audio", blurb: "Stereo receivers, turntables and portable cassette and CD players.",
+    tips: ["Fully working on every input, both channels, all lamps lit, is the baseline buyers expect at full price.","Serviced or recapped units sell for more. Scratchy controls, dead lamps or one weak channel sell for less.","Original knobs, faceplate and wood case condition matter: replacement parts and cracked veneer cut the price.","For turntables, the cartridge and stylus that come with it can change the price a lot. Say which one it has."],
     re: /\b(?:receiver|turntable|amplifier|walkman|discman|cassette (?:deck|player)|tape deck)\b/i },
   { slug: "sewing-machines", name: "Sewing machines", blurb: "Singer, Bernina and other vintage sewing machines.",
+    tips: ["Runs smoothly with its foot pedal and power cord is the starting point; missing parts lower it.","The original case, manual and attachments add value, especially for collectible models like the Featherweight.","Rust, worn decals and frozen mechanisms cut the price; a recent service raises it.","Heavy machines cost a lot to ship, so local pickup prices often run lower than shipped sales."],
     re: /\bsewing machines?\b/i },
   { slug: "kitchen", name: "Kitchen and cookware", blurb: "Pyrex, Corning Ware, Fire-King, cast iron and stand mixers.",
+    tips: ["For Pyrex and similar glass: the exact pattern and color, and how much the color has faded (dishwasher wear), drive the price.","Chips, cracks and crazing lower the value a lot. Complete sets sell for more than the bowls one at a time.","For cast iron: the maker's mark and logo style (a Griswold large block logo, for example) and the size number set the market.","A cast iron pan that sits flat, with no cracks or deep pitting, sells for the most. Wobble and cracks cut it hard."],
     re: /\b(?:pyrex|corning ?ware|fire-?king|jade-?ite|cast iron|skillet|dutch oven|le creuset|kitchenaid|stand mixer|casserole|mixing bowls?)\b/i },
   { slug: "watches", name: "Watches", blurb: "Mechanical, automatic and digital watches.",
+    tips: ["Running and keeping time is the baseline. Not running, or \"for parts\", is a different, much lower market.","Original dial, hands and crown add value; replacement or aftermarket parts lower it, especially on collectible models.","Box, papers and a recent service raise the price. So does a bracelet or strap that came with the watch.","The exact reference number matters: two watches that look alike can sell for very different amounts."],
     re: /\b(?:watch|wristwatch)\b/i },
   { slug: "computer-parts", name: "Computer parts and electronics", blurb: "Server memory, graphics cards, calculators and music players.",
+    tips: ["The exact part number decides the price: speed, capacity, ECC or registered, and generation all change it.","Tested and working with proof (a screenshot or test log) sells above \"pulled from a working system\".","Selling one stick vs. a matched kit or a lot changes the per-piece price. Price per piece and say how many.","Server parts move in bulk. Check that the comparables are the same configuration, not just the same brand."],
     re: /\b(?:ddr\d|dimm|rdimm|memory module|graphics card|gpu|optane|calculator|ipod)\b/i },
-  { slug: "more", name: "More finds", blurb: "Art, collectibles, tools and everything else.", re: null },
+  { slug: "more", name: "More finds", blurb: "Art, collectibles, tools and everything else.",
+    tips: ["A maker's mark, signature or label is the biggest single thing that moves the price. Photograph it close up.","Condition: chips, cracks, repairs and missing parts lower the price; original finish raises it.","Size and form matter. A miniature or a tabletop version of something is a different market from the full-size piece.","Where it came from (provenance) and any paperwork can add value for art and collectibles."], re: null },
 ];
 export const hubOf = g => HUBS.find(h => h.re && h.re.test(String((g && g.title) || ""))) ||
   HUBS.find(h => h.re && h.re.test(String((g && g.about && g.about.category) || ""))) || HUBS[HUBS.length - 1];
+/** Questions answered from this page's own numbers, so each page says something no other page does. */
+export function itemFaq(g, hub = hubOf(g)) {
+  const out = [], r = g.range, when = day(g.estimated_at);
+  const basis = g.sold ? `, based on ${g.sold.count} recent eBay sales with a median of ${dollars(g.sold.median)}`
+    : g.market ? `, based on ${g.market.count} comparable eBay listings` : "";
+  out.push({ q: `How much is a ${g.title} worth?`,
+    a: `About ${dollars(r.low)} to ${dollars(r.high)} as of ${when}${basis}.` +
+       (g.market && g.market.count ? ` Similar ones are listed right now for ${dollars(g.market.low)} to ${dollars(g.market.high)}, but asking prices run higher than what things sell for.` : "") +
+       (g.thin ? " Few real sales were found, so treat this as a rough guess." : "") });
+  const sold = (g.comps || []).filter(c => c.sold).slice(0, 4);
+  if (sold.length >= 2)
+    out.push({ q: `What has a ${g.title} sold for recently?`,
+      a: `Recent eBay sales: ${sold.map(c => `${dollars(c.price)} (${c.title.length > 70 ? c.title.slice(0, 70).replace(/\s+\S*$/, "") + "…" : c.title})`).join("; ")}.` });
+  if ((hub.tips || []).length)
+    out.push({ q: `What makes one worth more or less?`, a: hub.tips.slice(0, 3).join(" ") });
+  return out;
+}
 export const hubBySlug = slug => HUBS.find(h => h.slug === String(slug || "")) || null;
 export const hubPath = h => `/prices/${h.slug}`;
 /** Hubs that have at least one page, with their pages, in HUBS order. */
@@ -200,6 +229,7 @@ export function hubPage(hub, guides, origin) {
     itemListElement: mine.slice(0, 100).map((g, i) => ({ "@type": "ListItem", position: i + 1, url: origin + pagePath(g), name: g.title })) };
   const body = `<div class="m"><a href="/prices">Price guide</a> › ${esc(hub.name)}</div><h1>${esc(hub.name)}: what they're worth</h1>
 <p>${esc(hub.blurb)} Each range is priced from recent eBay sales and current listings. ${mine.length} item${mine.length === 1 ? "" : "s"}.</p>
+${(hub.tips || []).length ? `<div class="card"><h2 style="margin-top:0">What moves the price</h2><ul>${hub.tips.map(t => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
 <ul class="l">${mine.map(itemLi).join("") || `<li class="m">Nothing here yet.</li>`}</ul>
 <div class="card"><a class="cta" href="/?utm_source=price_guide_hub">Guestimate yours</a></div>
 ${others.length ? `<h2>Other categories</h2><ul class="l">${others.map(x => `<li><a href="${esc(hubPath(x.hub))}">${esc(x.hub.name)}</a> <span class="m">(${x.guides.length})</span></li>`).join("")}</ul>` : ""}`;
