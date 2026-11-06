@@ -134,7 +134,7 @@ eq("the web 10-pack id maps to the 10-pack", productKey("10estimate"), "estimate
 // ---------- subscriptions ----------
 {
   const db = shop();
-  const exp = Date.UTC(2026, 9, 24, 12, 0, 0);
+  const exp = Date.now() + 30 * 86400e3;   // in the future, or planFor() rightly reads it as expired (fixed Oct 24 date broke 2026-11)
   const r = await applyRevenueCatEvent(db, ev({ id: "s1", type: "INITIAL_PURCHASE", product_id: "pro_monthly:p1m", expiration_at_ms: exp }));
   ok("a subscription is applied", r.applied);
   eq("the plan is set", user(db).plan, "pro");

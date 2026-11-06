@@ -14,7 +14,7 @@ const ok = (n, c, got) => { c ? pass++ : (fail++, console.log(`FAIL ${n}${got !=
 
 // ---------- pure ----------
 const rawOrder = (id, sku, extra = {}, legacy = "198678618562") => ({
-  orderId: id, creationDate: "2026-09-30T15:00:00.000Z", orderFulfillmentStatus: "NOT_STARTED", orderPaymentStatus: "PAID",
+  orderId: id, creationDate: new Date(Date.now() - 86400e3).toISOString() /* recent: the orders list hides fulfilled sales older than its window (fixed date broke 2026-11) */, orderFulfillmentStatus: "NOT_STARTED", orderPaymentStatus: "PAID",
   cancelStatus: { cancelState: "NONE_REQUESTED" }, buyer: { username: "buyer_bob" }, pricingSummary: { total: { value: "206.50", currency: "USD" } },
   fulfillmentStartInstructions: [{ shippingStep: { shippingServiceCode: "USPSParcel", shipTo: { fullName: "Bob Buyer", primaryPhone: { phoneNumber: "5125550100" },
     contactAddress: { addressLine1: "1 Congress Ave", city: "Austin", stateOrProvince: "TX", postalCode: "78701", countryCode: "US" } } } }],
