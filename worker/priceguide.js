@@ -4,6 +4,7 @@
 // are, their photos, or comparable sellers' usernames. Each page ends with "Guestimate yours".
 
 import { epn } from "./epn.js";
+import { GOOD_REFRESH } from "./freshen.js";
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const dollars = n => "$" + Math.round(Number(n)).toLocaleString("en-US");
@@ -18,7 +19,7 @@ const BASE = `SELECT l.listing_id, l.listing_url, l.status, l.price_cents, l.sol
     COALESCE(i.ai_title, i.name) AS title, i.listing_status, a.result_json, a.created_at AS estimated_at,
     EXISTS (SELECT 1 FROM ebay_orders o WHERE o.listing_id=l.listing_id AND o.status<>'CANCELLED') AS sold_here
   FROM ebay_listings l JOIN items i ON i.id=l.item_id
-  JOIN appraisals a ON a.id=(SELECT id FROM appraisals x WHERE x.item_id=l.item_id AND x.status='done' ORDER BY x.created_at DESC LIMIT 1)
+  JOIN appraisals a ON a.id=(SELECT id FROM appraisals x WHERE x.item_id=l.item_id AND x.status='done' AND ${GOOD_REFRESH("x")} ORDER BY x.created_at DESC LIMIT 1)
   WHERE l.listing_id IS NOT NULL AND l.status<>'draft' AND l.status<>'error'
     AND l.created_at=(SELECT MAX(created_at) FROM ebay_listings y WHERE y.item_id=l.item_id AND y.listing_id IS NOT NULL)`;
 const SHOWN = " AND COALESCE(i.guide_hidden,0)=0";
@@ -28,7 +29,7 @@ export const optKey = itemId => "g" + String(itemId || "").replace(/[^0-9a-f]/gi
 const OPT = `SELECT 'g' || lower(substr(replace(i.id,'-',''),1,12)) AS listing_id, NULL AS listing_url, 'optin' AS status, NULL AS price_cents,
     NULL AS sold_count, NULL AS sold_median_cents, NULL AS sold_checked_at, a.created_at AS updated_at,
     COALESCE(i.ai_title, i.name) AS title, i.listing_status, a.result_json, a.created_at AS estimated_at, 0 AS sold_here
-  FROM items i JOIN appraisals a ON a.id=(SELECT id FROM appraisals x WHERE x.item_id=i.id AND x.status='done' ORDER BY x.created_at DESC LIMIT 1)
+  FROM items i JOIN appraisals a ON a.id=(SELECT id FROM appraisals x WHERE x.item_id=i.id AND x.status='done' AND ${GOOD_REFRESH("x")} ORDER BY x.created_at DESC LIMIT 1)
   WHERE COALESCE(i.guide_public,0)=1 AND COALESCE(i.guide_hidden,0)=0
     AND NOT EXISTS (SELECT 1 FROM ebay_listings e WHERE e.item_id=i.id AND e.listing_id IS NOT NULL AND e.status<>'draft' AND e.status<>'error')`;
 

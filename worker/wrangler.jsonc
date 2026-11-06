@@ -44,6 +44,9 @@
     // eBay sold-price lookups (SoldComps) went from 5-11s to over 15s on 2026-10-13: every fresh lookup
     // that day hit the 15s cap and estimates fell back to asking prices. Max allowed is 30000.
     "SOLD_CAP_MS": "30000",
+    // Price guide refresh (freshen.js): the owner's opt-in pages re-price at 30+ days, this many a day.
+    "PRICE_REFRESH_OWNER": "dj@soltis.info",
+    "PRICE_REFRESH_PER_DAY": "4",
     "ALERT_FROM": "alerts@theguestimator.com",
     // Accounts allowed to BUY shipping labels. Labels are charged to the Shippo account behind
     // SHIPPO_API_TOKEN (Derek's), so this stays his alone until sellers pay for their own.

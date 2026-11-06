@@ -80,6 +80,7 @@ import * as onboard from "./onboard.js";
 import * as growth from "./growth.js";
 import * as priceguide from "./priceguide.js";
 import { RANGED, rangedAsset } from "./media.js";
+import { freshenOne } from "./freshen.js";
 import * as etsy from "./etsy.js";
 import * as site from "./site.js";
 
@@ -1690,6 +1691,9 @@ export default {
         for (const id of r.new || []) await ebaySoldAlert(db, env, id, origin).catch(e => console.log("ebaySoldAlert", e));
       } catch (e) { await owner.opsFail(db, "ebay order sync failed", e); console.log("ebay order sync failed", user_id, String(e && e.message || e)); }
     }
+    // Price guide: re-price one stale page (30+ days) per run, within PRICE_REFRESH_PER_DAY (freshen.js).
+    try { const f = await freshenOne(env, db); if (f.started) console.log("price refresh", JSON.stringify(f)); }
+    catch (e) { console.log("price refresh failed", String(e && e.message || e)); }
     // Etsy cross-listings: a sale there ends the eBay copy and emails the seller.
     try {
       const sold = await etsy.pollSold(env, db, origin);
