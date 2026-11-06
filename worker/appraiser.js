@@ -1665,6 +1665,23 @@ export function detectLot(description, markings) {
 // first, a wartime-nickel query broadened to "United States Mint These" and found postage
 // stamps: three steps of broadening had thrown away every word that named the object and kept
 // only the mint. A maker is context for an identification, never a substitute for one.
+// "Console only" / "body only" (2026-11-06): an Original Xbox asked for as console only was priced
+// $195-$265 from bundles with controllers and games and "fully reconditioned" units; a Dreamcast
+// came back $208-$325 the same way. When the dealer says the item is bare, sales that clearly
+// came with extras (controllers, games, a lens, a "bundle", refurbishing) are left out.
+export const BARE_ONLY = /\b(?:console|body|unit|machine|camera|handheld|system|device|calculator)\s+only\b|\b(?:no|without)\s+(?:controllers?|games|lens(?:es)?|accessories)\b/i;
+const EXTRA_THING = "(?:controllers?|controls|remotes?|games?|joy-?cons?|gamepads?|memory\\s+cards?|lens(?:es)?|flash(?:es)?|accessor(?:y|ies)|attachments)";
+export const EXTRAS = new RegExp(
+  "\\b(?:bundle|bundled|lot\\s+of\\s+games|cib|complete\\s+in\\s+box)\\b" +
+  "|\\b(?:refurbished|reconditioned|recapped|modded|modified)\\b" +
+  "|\\b\\d+\\s+(?:games|controllers|lenses)\\b" +
+  "|(?:\\bw\\/|\\bwith\\b|\\+|\\bplus\\b|\\bincludes?\\b|\\bincluding\\b|&)[^|]{0,40}?\\b" + EXTRA_THING + "\\b", "i");
+export function bareFilter(dealerText, hits) {
+  if (!BARE_ONLY.test(String(dealerText || ""))) return { kept: hits || [], dropped: 0 };
+  const kept = (hits || []).filter(h => !EXTRAS.test(String((h && h.title) || "")));
+  return { kept, dropped: (hits || []).length - kept.length };
+}
+
 export function compsQuery(ident) {
   const out = [], seen = new Set();
   for (const chunk of [ident.name, ident.maker, ident.period]) {
@@ -2066,6 +2083,11 @@ export async function appraise(env, req) {
     const mine = x => own.has(itm(x)) || (me && String((x && x.seller) || "").trim().toLowerCase() === me);
     if (own.size || me) for (const arr of [live, sold]) if (Array.isArray(arr))
       for (let i = arr.length - 1; i >= 0; i--) if (mine(arr[i])) arr.splice(i, 1); }
+  { const dealerText = `${req.description || ""} ${req.markings || ""}`; let dropped = 0;
+    for (const arr of [live, sold, web]) if (Array.isArray(arr)) {
+      const f = bareFilter(dealerText, arr); dropped += f.dropped; arr.splice(0, arr.length, ...f.kept);
+    }
+    if (dropped) warnings.push(`left out ${dropped} sale${dropped === 1 ? "" : "s"} or listing${dropped === 1 ? "" : "s"} that came with extras (controllers, games, a lens, a bundle or refurbishing), because you said the item is on its own`); }
   mark("comps");
   // Sold first: what buyers paid is the strongest evidence, and the repricer reads top-down. Web
   // results go last, minus any page eBay already gave us.
