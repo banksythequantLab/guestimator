@@ -1737,6 +1737,19 @@ const pick = (d, keys) => { const o = {}; for (const k of keys) if (d && d[k] !=
 const IDENT_KEYS = ["name", "category", "maker", "origin", "period", "style"];
 const LISTING_KEYS = ["title", "description", "tags", "condition_grade"];
 const COMP_KEYS = ["title", "price", "url", "source", "note"];
+// A sale is marked by its source ("ebay.com (sold)"), not always by a sold flag - the price guide
+// already read it that way (priceguide.js guideOf); thin_evidence did not (2026-11-06).
+export const isSoldComp = cp => !!(cp && (cp.sold || /\(sold\)/i.test(String(cp.source || ""))));
+// The repricer sometimes keeps a comparable by title alone, with no price (Diddy Kong Racing,
+// 2026-11-06: two kept, one without a price, so the page was marked "rough guess"). The listing it
+// names is in the pool we sent it; take the price, link and source from there.
+export function fillComp(cp, hits) {
+  if (!cp || Number(cp.price) > 0) return cp;
+  const h = (hits || []).find(x => x && ((cp.url && x.url && String(x.url).split("?")[0] === String(cp.url).split("?")[0]) ||
+                                         (cp.title && x.title && String(x.title).trim() === String(cp.title).trim())));
+  if (!h || !(Number(h.price) > 0)) return cp;
+  return { ...cp, price: Number(h.price), url: cp.url || h.url, source: cp.source || h.source };
+}
 
 // ---------- per-photo vision ----------
 async function safeVision(c, prompt, url, maxTokens, _label) {
@@ -2246,7 +2259,7 @@ export async function appraise(env, req) {
       // and "fair market value ... between $150 and $220" in the sentence under it.
       if (secondPrice && second.basis_note) price.basis = (price.basis + " " + String(second.basis_note)).trim();
       for (const cp of (second.comparables || []).slice(0, 4))
-        if (cp && typeof cp === "object" && cp.title) comparables.push(pick(cp, COMP_KEYS));
+        if (cp && typeof cp === "object" && cp.title) comparables.push(pick(fillComp(cp, hits), COMP_KEYS));
 
       // The model has always been free to discard comparables — "keep at most 4 that are actually
       // similar" is a judgement call it makes on every appraisal — but until now it made it
@@ -2552,7 +2565,7 @@ export async function appraise(env, req) {
     price_range: price,
     comparables,
     // Few real comparables: the app labels the range a rough guess instead of a price.
-    thin_evidence: (comparables || []).filter(cp => cp && Number(cp.price) > 0).length <= 1 && !(comparables || []).some(cp => cp && cp.sold),
+    thin_evidence: (comparables || []).filter(cp => cp && Number(cp.price) > 0).length <= 1 && !(comparables || []).some(isSoldComp),
     listing,
     questions_for_dealer: clean(strs(first.questions_for_dealer)),
     shipping: shippingEstimate(first.shipping, lotInfo),
