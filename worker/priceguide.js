@@ -126,9 +126,14 @@ export function guidePage(g, origin, more = []) {
     : g.market && g.market.low > 0 && g.market.high > 0 ? { "@type": "AggregateOffer", lowPrice: Number(g.market.low).toFixed(2), highPrice: Number(g.market.high).toFixed(2), offerCount: g.market.count, priceCurrency: "USD" } : null;
   const jsonld = offers ? { "@context": "https://schema.org", "@type": "Product", name: g.title, ...(g.about.maker ? { brand: { "@type": "Brand", name: g.about.maker } } : {}), offers } : null;
   // Breadcrumbs: Price guide > this item (helps search engines show where the page sits).
+  const hub = hubOf(g);
   const crumbs = { "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: [
-    { "@type": "ListItem", position: 1, name: "Price guide", item: origin + "/prices" }, { "@type": "ListItem", position: 2, name: g.title, item: url }] };
-  const body = `<h1>${esc(g.title)}: what it's worth</h1><div class="m">Guestimated ${esc(day(g.estimated_at))}</div>
+    { "@type": "ListItem", position: 1, name: "Price guide", item: origin + "/prices" },
+    { "@type": "ListItem", position: 2, name: hub.name, item: origin + hubPath(hub) }, { "@type": "ListItem", position: 3, name: g.title, item: url }] };
+  // Same category first, then the newest of the rest.
+  const others = more.filter(o => o.listing_id !== g.listing_id);
+  more = [...others.filter(o => hubOf(o) === hub), ...others.filter(o => hubOf(o) !== hub)];
+  const body = `<div class="m"><a href="/prices">Price guide</a> › <a href="${esc(hubPath(hub))}">${esc(hub.name)}</a></div><h1>${esc(g.title)}: what it's worth</h1><div class="m">Guestimated ${esc(day(g.estimated_at))}</div>
 <div class="card"><div class="m">${g.thin ? "Guestimate · rough guess" : "Guestimate"}</div><div class="big">${dollars(r.low)} – ${dollars(r.high)}</div>
 ${g.thin ? `<div class="m" style="margin-top:4px">Few real sales to compare against (${g.comps.length ? "one comparable listing" : "none found"}), so treat this range as a rough guess.</div>` : ""}
 ${g.sold ? `<div style="margin-top:6px"><b>Recently sold on eBay:</b> median ${dollars(g.sold.median)} across ${g.sold.count} sales <span class="m">(checked ${esc(day(g.sold.as_of))})</span></div>` : ""}
@@ -140,20 +145,65 @@ ${g.comps.length ? `<h2>Comparable listings we priced it against</h2><table><the
 ${g.comps.map(c => `<tr><td>${c.url ? `<a href="${esc(epn(c.url, "gs-guide-comp"))}" rel="sponsored nofollow noopener" target="_blank">${esc(c.title)}</a>` : esc(c.title)}${c.sold ? " <b>(sold)</b>" : ""}</td><td>${esc(c.condition || "")}</td><td class="r">${dollars(c.price)}</td></tr>`).join("")}</tbody></table>` : ""}
 <div class="card" style="margin-top:22px"><h2 style="margin-top:0">Have one to sell?</h2><p>Snap 2–4 photos and Guestimator prices yours from what's selling now, then lists it on your own eBay account. You check every word first.</p>
 <a class="cta" href="/?utm_source=price_guide">Guestimate mine</a></div>
-${more.length ? `<h2>More from the price guide</h2><ul class="l">${more.slice(0, 6).map(o => `<li><a href="${esc(pagePath(o))}">${esc(o.title)}</a><div class="m">${dollars(o.range.low)}–${dollars(o.range.high)}</div></li>`).join("")}</ul>` : ""}`;
+${more.length ? `<h2>More ${esc(hub.name.toLowerCase())} and other prices</h2><p class="m"><a href="${esc(hubPath(hub))}">See all ${esc(hub.name.toLowerCase())}</a></p><ul class="l">${more.slice(0, 6).map(o => `<li><a href="${esc(pagePath(o))}">${esc(o.title)}</a><div class="m">${dollars(o.range.low)}–${dollars(o.range.high)}</div></li>`).join("")}</ul>` : ""}`;
   return shell(title, desc, url, body, [jsonld, crumbs]);
 }
 
 export function indexPage(guides, origin) {
+  const groups = hubsWith(guides);
   const body = `<h1>What's it worth? Price guide</h1><p class="m">Real items priced by Guestimator from current eBay data. ${guides.length} item${guides.length === 1 ? "" : "s"} so far.</p>
-<ul class="l">${guides.map(g => `<li><a href="${esc(pagePath(g))}"><b>${esc(g.title)}</b></a><div class="m">${dollars(g.range.low)}–${dollars(g.range.high)} · ${esc(day(g.estimated_at))}</div></li>`).join("") || `<li class="m">Nothing here yet.</li>`}</ul>
+${groups.length ? `<div class="card"><b>Browse by category:</b> ${groups.map(x => `<a href="${esc(hubPath(x.hub))}">${esc(x.hub.name)}</a> <span class="m">(${x.guides.length})</span>`).join(" · ")}</div>` : ""}
+${groups.map(x => `<h2><a href="${esc(hubPath(x.hub))}">${esc(x.hub.name)}</a></h2><ul class="l">${x.guides.map(itemLi).join("")}</ul>`).join("") || `<ul class="l"><li class="m">Nothing here yet.</li></ul>`}
 <div class="card"><a class="cta" href="/?utm_source=price_guide">Guestimate something</a></div>`;
   return shell("Price guide: what's it worth? | Guestimator", "What things are actually worth, priced from current eBay listings and sales.", origin + "/prices", body, null);
 }
 
 export function sitemap(guides, origin, extra = []) {
   const u = (loc, mod) => `<url><loc>${esc(origin + loc)}</loc>${mod ? `<lastmod>${esc(day(mod))}</lastmod>` : ""}</url>`;
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${u("/prices", guides[0]?.updated_at)}${guides.map(g => u(pagePath(g), g.updated_at)).join("")}${extra.map(x => u(x.loc, x.mod)).join("")}</urlset>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${u("/prices", guides[0]?.updated_at)}${hubsWith(guides).map(x => u(hubPath(x.hub), x.guides[0].updated_at)).join("")}${guides.map(g => u(pagePath(g), g.updated_at)).join("")}${extra.map(x => u(x.loc, x.mod)).join("")}</urlset>`;
+}
+
+// Category hubs (2026-11-06): /prices/<hub>. 83 pages sat on one flat list and Google had indexed
+// one of them. Hubs give every page a second way in, a three-level breadcrumb, and "more like this"
+// links to its own kind instead of whatever was published last. Order matters: first match wins.
+export const HUBS = [
+  { slug: "video-games", name: "Video games and consoles", blurb: "Game cartridges, consoles and handhelds: Nintendo, Game Boy, PlayStation, Sega, Xbox.",
+    re: /\b(?:nintendo|game ?boy|gamecube|n64|snes|nes|wii|switch lite|3ds|ds lite|playstation|ps[1-5]|psp|xbox|sega|dreamcast|saturn|pok[eé]mon|video games?|game cartridge)\b/i },
+  { slug: "film-cameras", name: "Film cameras", blurb: "35mm SLRs, compacts, rangefinders, TLRs and instant cameras.",
+    re: /\b(?:camera|tlr|rangefinder|polaroid)\b/i },
+  { slug: "vintage-audio", name: "Vintage audio", blurb: "Stereo receivers, turntables and portable cassette and CD players.",
+    re: /\b(?:receiver|turntable|amplifier|walkman|discman|cassette (?:deck|player)|tape deck)\b/i },
+  { slug: "sewing-machines", name: "Sewing machines", blurb: "Singer, Bernina and other vintage sewing machines.",
+    re: /\bsewing machines?\b/i },
+  { slug: "kitchen", name: "Kitchen and cookware", blurb: "Pyrex, Corning Ware, Fire-King, cast iron and stand mixers.",
+    re: /\b(?:pyrex|corning ?ware|fire-?king|jade-?ite|cast iron|skillet|dutch oven|le creuset|kitchenaid|stand mixer|casserole|mixing bowls?)\b/i },
+  { slug: "watches", name: "Watches", blurb: "Mechanical, automatic and digital watches.",
+    re: /\b(?:watch|wristwatch)\b/i },
+  { slug: "computer-parts", name: "Computer parts and electronics", blurb: "Server memory, graphics cards, calculators and music players.",
+    re: /\b(?:ddr\d|dimm|rdimm|memory module|graphics card|gpu|optane|calculator|ipod)\b/i },
+  { slug: "more", name: "More finds", blurb: "Art, collectibles, tools and everything else.", re: null },
+];
+export const hubOf = g => HUBS.find(h => h.re && h.re.test(String((g && g.title) || ""))) ||
+  HUBS.find(h => h.re && h.re.test(String((g && g.about && g.about.category) || ""))) || HUBS[HUBS.length - 1];
+export const hubBySlug = slug => HUBS.find(h => h.slug === String(slug || "")) || null;
+export const hubPath = h => `/prices/${h.slug}`;
+/** Hubs that have at least one page, with their pages, in HUBS order. */
+export const hubsWith = guides => HUBS.map(h => ({ hub: h, guides: guides.filter(g => hubOf(g) === h) })).filter(x => x.guides.length);
+const itemLi = g => `<li><a href="${esc(pagePath(g))}"><b>${esc(g.title)}</b></a><div class="m">${dollars(g.range.low)}–${dollars(g.range.high)} · ${esc(day(g.estimated_at))}</div></li>`;
+
+export function hubPage(hub, guides, origin) {
+  const mine = guides.filter(g => hubOf(g) === hub), others = hubsWith(guides).filter(x => x.hub !== hub);
+  const url = origin + hubPath(hub);
+  const crumbs = { "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: [
+    { "@type": "ListItem", position: 1, name: "Price guide", item: origin + "/prices" }, { "@type": "ListItem", position: 2, name: hub.name, item: url }] };
+  const list = { "@context": "https://schema.org", "@type": "ItemList", name: `${hub.name} prices`,
+    itemListElement: mine.slice(0, 100).map((g, i) => ({ "@type": "ListItem", position: i + 1, url: origin + pagePath(g), name: g.title })) };
+  const body = `<div class="m"><a href="/prices">Price guide</a> › ${esc(hub.name)}</div><h1>${esc(hub.name)}: what they're worth</h1>
+<p>${esc(hub.blurb)} Each range is priced from recent eBay sales and current listings. ${mine.length} item${mine.length === 1 ? "" : "s"}.</p>
+<ul class="l">${mine.map(itemLi).join("") || `<li class="m">Nothing here yet.</li>`}</ul>
+<div class="card"><a class="cta" href="/?utm_source=price_guide_hub">Guestimate yours</a></div>
+${others.length ? `<h2>Other categories</h2><ul class="l">${others.map(x => `<li><a href="${esc(hubPath(x.hub))}">${esc(x.hub.name)}</a> <span class="m">(${x.guides.length})</span></li>`).join("")}</ul>` : ""}`;
+  return shell(`${hub.name} prices: what they sell for | Guestimator`, `${hub.blurb} Prices from recent eBay sales, ${mine.length} items.`, url, body, [crumbs, list]);
 }
 
 export const robots = origin => `User-agent: *\nDisallow: /api/\nDisallow: /owner\nDisallow: /stickers\nDisallow: /tax-summary\nDisallow: /shippo/\nAllow: /\n\nSitemap: ${origin}/sitemap.xml\n`;

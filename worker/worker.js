@@ -405,16 +405,21 @@ export default {
         return new Response(null, { status: 302, headers: { location: back(true), "cache-control": "no-store" } });
       }
       // ---------- public price guide, sitemap and robots (priceguide.js) ----------
-      if (m === "GET" && (url.pathname === "/prices" || url.pathname.startsWith("/price/") || url.pathname === "/sitemap.xml" || url.pathname === "/robots.txt")) {
+      if (m === "GET" && (url.pathname === "/prices" || url.pathname.startsWith("/prices/") || url.pathname.startsWith("/price/") || url.pathname === "/sitemap.xml" || url.pathname === "/robots.txt")) {
         const origin = env.PUBLIC_ORIGIN || url.origin, pub = { "cache-control": "public, max-age=3600" };
         if (url.pathname === "/robots.txt") return new Response(priceguide.robots(origin), { headers: { "content-type": "text/plain; charset=utf-8", ...pub } });
         if (url.pathname === "/sitemap.xml") return new Response(priceguide.sitemap(await priceguide.allGuides(db), origin, await market.sitemapEntries(env, db).catch(() => [])), { headers: { "content-type": "application/xml; charset=utf-8", ...pub } });
         if (url.pathname === "/prices") return new Response(priceguide.indexPage(await priceguide.allGuides(db), origin), { headers: { "content-type": "text/html; charset=utf-8", ...pub } });
+        if (url.pathname.startsWith("/prices/")) {
+          const hub = priceguide.hubBySlug(url.pathname.slice(8).replace(/\/$/, ""));
+          if (!hub) return Response.redirect(origin + "/prices", 301);
+          return new Response(priceguide.hubPage(hub, await priceguide.allGuides(db), origin), { headers: { "content-type": "text/html; charset=utf-8", ...pub } });
+        }
         const idm = url.pathname.match(/^\/price\/(?:[a-z0-9-]*-)?(\d{6,20}|g[0-9a-f]{12})\/?$/);
         const g = idm && await priceguide.guideById(db, idm[1]);
         if (!g) return new Response(`<!doctype html><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width"><p style="font-family:system-ui;padding:24px">That price page isn't here. <a href="/prices">See the price guide</a>.</p>`, { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
         if (url.pathname !== priceguide.pagePath(g)) return Response.redirect(origin + priceguide.pagePath(g), 301);
-        const more = (await priceguide.allGuides(db, 7)).filter(o => o.listing_id !== g.listing_id);
+        const more = (await priceguide.allGuides(db)).filter(o => o.listing_id !== g.listing_id);
       return new Response(priceguide.guidePage(g, origin, more), { headers: { "content-type": "text/html; charset=utf-8", ...pub } });
       }
       // ---------- share target without the service worker (first visit, or SW not installed yet):

@@ -79,7 +79,7 @@ ok("shown again", (await get(path)).status === 200);
   const h = PG.guidePage(g, "https://g.test", [o]);
   ok("no live listing -> AggregateOffer from comparable listings", h.includes('"@type":"AggregateOffer"') && h.includes('"lowPrice":"12.00"') && h.includes('"offerCount":4'));
   ok("breadcrumbs in JSON-LD", h.includes('"@type":"BreadcrumbList"') && h.includes('"item":"https://g.test/prices"'));
-  ok("links to other price-guide pages", h.includes("More from the price guide") && h.includes('href="/price/brass-lamp-2"'));
+  ok("links to other price-guide pages", h.includes("and other prices") && h.includes('href="/price/brass-lamp-2"'));
   ok("no market data -> no offers at all", !PG.guidePage({ ...g, market: null }, "https://g.test").includes('"offers"'));
 }
 // Opt-in (2026-10-08): a finished Guestimate published without an eBay listing
