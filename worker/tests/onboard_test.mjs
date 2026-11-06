@@ -40,6 +40,14 @@ ok("demo Short linked in text and html", mails[0].text.includes("See it work in 
 mails.length = 0;
 await welcomeEmail({ ...env, DEMO_VIDEO_URL: "javascript:alert(1)" }, "a@b.c", "https://g.test");
 ok("a non-YouTube link is never sent", !/javascript:|30 seconds/.test(mails[0].text + mails[0].html));
+mails.length = 0;
+await welcomeEmail({ ...env, DEMO_VIDEO_URL: "/how-it-works" }, "a@b.c", "https://g.test");
+ok("site demo page made absolute in the email", mails[0].text.includes("https://g.test/how-it-works") && mails[0].html.includes('href="https://g.test/how-it-works"'));
+mails.length = 0;
+await welcomeEmail({ ...env, DEMO_VIDEO_URL: "//evil.example/x" }, "a@b.c", "https://g.test");
+ok("protocol-relative link never sent", !/evil\.example/.test(mails[0].text + mails[0].html));
+const cfg2 = await (await worker.fetch(new Request("https://g.test/api/auth/config"), { ...env, DEMO_VIDEO_URL: "/how-it-works" }, { waitUntil() {} })).json();
+ok("config hands the app the site page", cfg2.demo_video === "/how-it-works", cfg2);
 const cfg = await (await worker.fetch(new Request("https://g.test/api/auth/config"), { ...env, DEMO_VIDEO_URL: "https://youtube.com/shorts/i4Mi9YwJobE" }, { waitUntil() {} })).json();
 ok("config hands the app the demo link", cfg.demo_video === "https://youtube.com/shorts/i4Mi9YwJobE", cfg);
 

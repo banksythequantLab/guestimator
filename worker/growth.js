@@ -128,7 +128,9 @@ function mail(title, lines, link, linkText, off) {
 
 // Free estimates for new accounts (same rule as worker.js signupCredits) and the demo Short.
 const freeN = env => { const n = Number(env.SIGNUP_CREDITS ?? 5); return Number.isFinite(n) && n > 0 ? Math.min(20, Math.floor(n)) : 0; };
-const demoUrl = env => /^https:\/\/(www\.)?(youtube\.com|youtu\.be)\//.test(String(env.DEMO_VIDEO_URL || "")) ? env.DEMO_VIDEO_URL : null;
+// YouTube, or a page on this site ("/how-it-works", 2026-11-06), made absolute for the email.
+const demoUrl = env => { const dv = String(env.DEMO_VIDEO_URL || ""), o = String(env.PUBLIC_ORIGIN || "");
+  return /^https:\/\/(www\.)?(youtube\.com|youtu\.be)\//.test(dv) ? dv : /^\/[a-z0-9-]+$/.test(dv) && /^https:\/\//.test(o) ? o + dv : null; };
 const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
 // ---------- one-time win-back with free estimates (owner button, 2026-10-05) ----------

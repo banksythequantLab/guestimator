@@ -1,0 +1,33 @@
+// Run: node worker/tests/media_test.mjs
+// Byte ranges for the how-it-works video (Safari needs 206).
+import { parseRange, rangedAsset } from "../media.js";
+let pass = 0, fail = 0;
+const ok = (n, c, got) => { c ? pass++ : (fail++, console.log("FAIL " + n + (got !== undefined ? "\n   got " + JSON.stringify(got) : ""))); };
+const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+ok("bytes=0-1", eq(parseRange("bytes=0-1", 100), { start: 0, end: 1 }));
+ok("open end", eq(parseRange("bytes=10-", 100), { start: 10, end: 99 }));
+ok("suffix", eq(parseRange("bytes=-10", 100), { start: 90, end: 99 }));
+ok("end past size is shortened", eq(parseRange("bytes=50-500", 100), { start: 50, end: 99 }));
+ok("start past size -> 416", parseRange("bytes=100-", 100) === false);
+ok("reversed -> 416", parseRange("bytes=9-3", 100) === false);
+ok("no header -> whole file", parseRange(null, 100) === null && parseRange("", 100) === null);
+ok("multi-range unsupported -> whole file", parseRange("bytes=0-1,5-6", 100) === null);
+const body = new Uint8Array(100).map((_, i) => i);
+const env = { ASSETS: { fetch: async () => new Response(body, { headers: { "content-type": "video/mp4" } }) } };
+const req = (h, method = "GET") => new Request("https://g.test/how-it-works.mp4", { method, headers: h });
+let r = await rangedAsset(req({ range: "bytes=0-1" }), env, "/how-it-works.mp4");
+ok("206 + content-range", r.status === 206 && r.headers.get("content-range") === "bytes 0-1/100" && r.headers.get("accept-ranges") === "bytes", r.status);
+let b = new Uint8Array(await r.arrayBuffer());
+ok("206 body is the slice", b.length === 2 && b[0] === 0 && b[1] === 1, [...b]);
+r = await rangedAsset(req({ range: "bytes=98-" }), env, "/how-it-works.mp4");
+b = new Uint8Array(await r.arrayBuffer());
+ok("tail slice", r.status === 206 && b.length === 2 && b[0] === 98, [...b]);
+r = await rangedAsset(req({}), env, "/how-it-works.mp4");
+ok("no range -> 200 whole + accept-ranges", r.status === 200 && (await r.arrayBuffer()).byteLength === 100 && r.headers.get("accept-ranges") === "bytes");
+r = await rangedAsset(req({ range: "bytes=200-" }), env, "/how-it-works.mp4");
+ok("416 with size", r.status === 416 && r.headers.get("content-range") === "bytes */100");
+r = await rangedAsset(req({ range: "bytes=0-9" }, "HEAD"), env, "/how-it-works.mp4");
+ok("HEAD: headers, no body", r.status === 206 && r.headers.get("content-length") === "10" && (await r.arrayBuffer()).byteLength === 0);
+ok("type kept", r.headers.get("content-type") === "video/mp4");
+console.log(`media: ${pass} passed, ${fail} failed`);
+if (fail) process.exit(1);

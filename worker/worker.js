@@ -8,7 +8,8 @@ import { planFor, consumeEstimate, refundEstimate, applyRevenueCatEvent, redeemP
 // using it becomes a habit before anyone pays (Derek: "3 to 5 ... if they don't like it they
 // wouldn't have spent money"). SIGNUP_CREDITS overrides; 0 restores pay-from-the-start.
 // The 30-second demo Short shown on the sign-up screen. Only an https YouTube link is passed through.
-const demoVideo = env => { const u = String(env.DEMO_VIDEO_URL || ""); return /^https:\/\/(www\.)?(youtube\.com|youtu\.be)\//.test(u) ? u : null; };
+// YouTube, or a page on this site (2026-11-06: /how-it-works, the video served from our own assets).
+const demoVideo = env => { const u = String(env.DEMO_VIDEO_URL || ""); return /^https:\/\/(www\.)?(youtube\.com|youtu\.be)\//.test(u) || /^\/[a-z0-9-]+$/.test(u) ? u : null; };
 const signupCredits = env => { const n = Number(env.SIGNUP_CREDITS ?? 5); return Number.isFinite(n) && n >= 0 ? Math.min(20, Math.floor(n)) : 5; };   // 5 (2026-10-05): price + list 2 items, price a 3rd
 // A free estimate for rating how close one was; capped per calendar month.
 const ratingCredits = env => { const n = Number(env.RATING_CREDITS_PER_MONTH ?? 5); return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 5; };
@@ -78,6 +79,7 @@ import * as ebaycare from "./ebaycare.js";
 import * as onboard from "./onboard.js";
 import * as growth from "./growth.js";
 import * as priceguide from "./priceguide.js";
+import { RANGED, rangedAsset } from "./media.js";
 import * as etsy from "./etsy.js";
 import * as site from "./site.js";
 
@@ -404,6 +406,8 @@ export default {
         catch (e) { await owner.opsFail(db, "etsy oauth failed", e); return fail(String(e.message || e)); }
         return new Response(null, { status: 302, headers: { location: back(true), "cache-control": "no-store" } });
       }
+      // ---------- video with byte ranges (media.js): static assets ignore Range, Safari needs 206 ----------
+      if ((m === "GET" || m === "HEAD") && RANGED.has(url.pathname)) return rangedAsset(request, env, url.pathname);
       // ---------- public price guide, sitemap and robots (priceguide.js) ----------
       if (m === "GET" && (url.pathname === "/prices" || url.pathname.startsWith("/prices/") || url.pathname.startsWith("/price/") || url.pathname === "/sitemap.xml" || url.pathname === "/robots.txt")) {
         const origin = env.PUBLIC_ORIGIN || url.origin, pub = { "cache-control": "public, max-age=3600" };

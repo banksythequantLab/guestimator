@@ -18,7 +18,9 @@ export const freeCreditsLine = n => `${Number(n) || 0} free credit${Number(n) ==
 
 export function welcomeEmail(env, email, origin) {
   const link = `${origin}/`;
-  const demo = /^https:\/\/(www\.)?(youtube\.com|youtu\.be)\//.test(String(env.DEMO_VIDEO_URL || "")) ? env.DEMO_VIDEO_URL : null;
+  // YouTube, or a page on this site ("/how-it-works", 2026-11-06), made absolute for the email.
+  const dv = String(env.DEMO_VIDEO_URL || "");
+  const demo = /^https:\/\/(www\.)?(youtube\.com|youtu\.be)\//.test(dv) ? dv : /^\/[a-z0-9-]+$/.test(dv) && /^https:\/\//.test(String(origin || "")) ? `${origin}${dv}` : null;
   const text = [
     "Welcome to Guestimator!", "",
     "Here's how to sell your first thing:",
