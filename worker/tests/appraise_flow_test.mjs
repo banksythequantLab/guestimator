@@ -43,6 +43,7 @@ globalThis.fetch = async (u, init = {}) => {
     if (/pricing an item against live comparable listings/.test(sys)) {
       seen.reprice.push(user);
       if (mode === "fail" || mode === "allfail") return said("I could not decide on a price for this one.");
+      if (mode === "flaky" && seen.reprice.length === 1) return said("");
       if (mode === "allrej") return said({ comparables: [], rejected: SOLD.map(([title]) => ({ title, why: "a different item" })),
         price_range: { low: 300, high: 550, suggested_retail: 425, floor: 280, currency: "USD", basis: "Own guess." } });
       const kept = { comparables: SOLD.slice(0, 3).map(([title, price, url]) => ({ title, price, url, source: "ebay.com (sold)" })),
@@ -118,6 +119,15 @@ r = await run("ok");
 ok("without it, the same listing is used", /itm\/200000000/.test(seen.reprice[0] || "") || /itm\/200000000/.test(JSON.stringify(r)));
 r = await run("ok", { own_seller: "DJSoltis" });
 ok("the owner's own eBay listings are left out by seller name too", !/itm\/200000001/.test(seen.reprice[0] || "") && !/itm\/200000001/.test(JSON.stringify(r)), (seen.reprice[0] || "").slice(0, 300));
+
+// ---------- flaky: the repricer's first answer is empty, the retry answers (2026-11-06) ----------
+r = await run("flaky");
+ok("flaky: the repricer was asked twice", seen.reprice.length === 2, seen.reprice.length);
+ok("flaky: no failure warning, no cold pass", !/re-pricing failed/.test(W(r)) && seen.cold.length === 0, W(r));
+ok("flaky: priced from the three matching sales", r.price_range.low === 128 && r.price_range.high === 190, r.price_range);
+ok("flaky: the sales were judged and kept", r.sold_market && r.sold_market.count === 3 && r.sold_market.judged !== false, r.sold_market);
+r = await run("fail");
+ok("fail: retried once, not forever", seen.reprice.length === 2, seen.reprice.length);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

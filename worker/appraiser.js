@@ -2160,7 +2160,17 @@ export async function appraise(env, req) {
       }
     };
     try {
-      const second = await textJson(c, REPRICE_SYSTEM, repriceUser, 1000);
+      // One retry when the answer has no JSON in it. 14 of 118 appraisals from Oct 20 to Nov 6 failed here
+      // with "model returned no JSON object" (the reasoning model spends its whole budget thinking and
+      // answers with nothing). The fallback then priced from unjudged asking prices and ignored real sales:
+      // Pokemon Blue came out "no completed sales matched" with five sales sitting in the result.
+      let second;
+      try { second = await textJson(c, REPRICE_SYSTEM, repriceUser, 1000); }
+      catch (e1) {
+        if (!/no JSON object|unterminated JSON/.test(String(e1 && e1.message))) throw e1;
+        console.log("reprice retry", e1.message);
+        second = await textJson(c, REPRICE_SYSTEM, repriceUser, 1000);
+      }
       // The whole promise of this second pass is that the price gets re-set against real listings.
       // When the model answers with comparables and a basis note but NO price_range, that silently
       // does not happen: the first-pass estimate - made before any listing was seen - stands, while
