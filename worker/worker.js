@@ -48,7 +48,7 @@ async function upgradeGrant(env, db, id, ts) {
   await db.prepare("INSERT INTO billing_events (id,user_id,source,type,credits_delta,raw_json,created_at) VALUES (?,?,'admin','signup_free',?,?,?)")
     .bind(crypto.randomUUID(), id, extra, JSON.stringify({ reason: "free estimates for new accounts (after a guest try)" }), ts).run();
 }
-import { appraise, sizeOnly, writeListingCopy, dealerSized } from "./appraiser.js";
+import { appraise, sizeOnly, writeListingCopy, dealerSized, dealerWords } from "./appraiser.js";
 import * as quota from "./quota.js";
 import * as partners from "./partners.js";
 import * as ebay from "./ebay.js";
@@ -227,7 +227,7 @@ async function runAppraisal(env, appraisalId, item, photos) {
   try {
     const body = {
       item_id: item.id,
-      description: item.description || "",
+      description: dealerWords(item.name, item.description),
       markings: item.markings || "",
       currency: "USD",
       photos: photos.map(p => ({ url: `${env.PUBLIC_ORIGIN}/p/${p.r2_key}`, kind: p.kind })),
@@ -1615,7 +1615,7 @@ export default {
             console.log("appraise: ignoring legacy `description` field for item", iid);
             delete b.description;
           }
-          if (!String(b.dealer_description ?? item.description ?? "").trim() &&
+          if (!dealerWords(item.name, b.dealer_description ?? item.description) &&
               !String(b.markings ?? item.markings ?? "").trim())
             return J({ error: "Tell us what it is, even roughly — a photo on its own is identified wrong too often.",
                        needs_description: true }, 400);

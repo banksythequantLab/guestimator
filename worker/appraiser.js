@@ -1708,6 +1708,17 @@ export function cartFilter(dealerText, hits) {
   return { kept, dropped: (hits || []).length - kept.length };
 }
 
+// What the dealer typed in "What is it?" (2026-11-06). It is stored as the item's name and was never
+// sent to the appraiser: "Game Boy Color, Atomic Purple" with "Console only. Works great" came back
+// "Unidentified electronic console, 20% sure", priced from an Xbox One S. The name leads, then the
+// description, unless the description already says it. The app's placeholder names say nothing.
+const PLACEHOLDER_NAME = /^(?:new item|item|untitled|unnamed|n\/?a|-+)$/i;
+export function dealerWords(name, description) {
+  const nm = String(name || "").trim(), ds = String(description || "").trim();
+  if (!nm || PLACEHOLDER_NAME.test(nm) || ds.toLowerCase().includes(nm.toLowerCase())) return ds;
+  return ds ? `${nm}. ${ds}` : nm;
+}
+
 export function compsQuery(ident) {
   const out = [], seen = new Set();
   for (const chunk of [ident.name, ident.maker, ident.period]) {
