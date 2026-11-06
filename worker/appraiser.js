@@ -651,8 +651,19 @@ function pluralOfQuery(query, title) {
 
 function isSetQuery(q) { return SET_WORD.test(q) || EXPLICIT_COUNT.test(q); }
 
+// Video games are region-locked and priced by region (2026-11-06): a US Pokemon Red cartridge came
+// back $14-$18 from "Pocket Monsters Red, Japanese" sales. Only for games - "Made in Japan" on
+// pottery or a camera says nothing about which market it is for.
+export const GAME_ITEM = /\b(?:game\s?boy|gameboy|gba|nintendo|n64|snes|nes|sega|dreamcast|playstation|ps[1-5]|psp|xbox|gamecube|wii|ds\s?lite|3ds|cartridge|video\s?game)\b/i;
+export const OTHER_REGION = /\b(?:japanese|japan|jpn|jp\s+import|pocket\s+monsters|imports?|imported|pal|ntsc-j|famicom|mega\s+drive|eur|european|uk\s+version|australian)\b/i;
+export function wrongRegion(query, title) {
+  const q = String(query || ""), t = String(title || "");
+  return GAME_ITEM.test(q) && OTHER_REGION.test(t) && !OTHER_REGION.test(q);
+}
+
 export function contradictsSpec(query, title) {
   const q = String(query || ""), t = String(title || "");
+  if (wrongRegion(q, t)) return true;
 
   const qs = sizesIn(q), ts = sizesIn(t);
   for (const [unit, qv] of qs) {
