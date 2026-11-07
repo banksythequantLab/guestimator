@@ -3,6 +3,7 @@
 import { BARE_ONLY, EXTRAS, bareFilter } from "../appraiser.js";
 let pass = 0, fail = 0;
 const ok = (n, c, got) => { c ? pass++ : (fail++, console.log("FAIL " + n + (got !== undefined ? "\n     got " + JSON.stringify(got) : ""))); };
+ok("hyphenated count is an extra", EXTRAS.test("2-CONTROLLERS Original SEGA Genesis") && EXTRAS.test("Sega Genesis 3-games") && !EXTRAS.test("Sega Genesis Model 1 MK-1601 console only"));
 ok("console only is bare", BARE_ONLY.test("Original Microsoft Xbox console only, working"));
 ok("body only is bare", BARE_ONLY.test("Canon AE-1 35mm film camera body only, black"));
 ok("no controllers is bare", BARE_ONLY.test("Dreamcast, no controllers"));

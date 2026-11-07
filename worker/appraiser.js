@@ -1690,7 +1690,7 @@ const EXTRA_THING = "(?:controllers?|controls|remotes?|games?|joy-?cons?|gamepad
 export const EXTRAS = new RegExp(
   "\\b(?:bundle|bundled|lot\\s+of\\s+games|cib|complete\\s+in\\s+box)\\b" +
   "|\\b(?:refurbished|reconditioned|recapped|modded|modified)\\b" +
-  "|\\b\\d+\\s+(?:games|controllers|lenses)\\b" +
+  "|\\b\\d+[\\s-]*(?:games|controllers|lenses)\\b" +
   "|(?:\\bw\\/|\\bwith\\b|\\+|\\bplus\\b|\\bincludes?\\b|\\bincluding\\b|&)[^|]{0,40}?\\b" + EXTRA_THING + "\\b", "i");
 export function bareFilter(dealerText, hits) {
   if (!BARE_ONLY.test(String(dealerText || ""))) return { kept: hits || [], dropped: 0 };
