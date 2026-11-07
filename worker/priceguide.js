@@ -157,6 +157,7 @@ ${more.length ? `<h2>More ${esc(hub.name.toLowerCase())} and other prices</h2><p
 export function indexPage(guides, origin) {
   const groups = hubsWith(guides);
   const body = `<h1>What's it worth? Price guide</h1><p class="m">Real items priced by Guestimator from current eBay data. ${guides.length} item${guides.length === 1 ? "" : "s"} so far.</p>
+<div class="card"><b>Guides:</b> ${ARTICLES.map(a => `<a href="${esc(articlePath(a))}">${esc(a.title)}</a>`).join(" · ")}</div>
 ${groups.length ? `<div class="card"><b>Browse by category:</b> ${groups.map(x => `<a href="${esc(hubPath(x.hub))}">${esc(x.hub.name)}</a> <span class="m">(${x.guides.length})</span>`).join(" · ")}</div>` : ""}
 ${groups.map(x => `<h2><a href="${esc(hubPath(x.hub))}">${esc(x.hub.name)}</a></h2><ul class="l">${x.guides.map(itemLi).join("")}</ul>`).join("") || `<ul class="l"><li class="m">Nothing here yet.</li></ul>`}
 <div class="card"><a class="cta" href="/?utm_source=price_guide">Guestimate something</a></div>`;
@@ -165,7 +166,7 @@ ${groups.map(x => `<h2><a href="${esc(hubPath(x.hub))}">${esc(x.hub.name)}</a></
 
 export function sitemap(guides, origin, extra = []) {
   const u = (loc, mod) => `<url><loc>${esc(origin + loc)}</loc>${mod ? `<lastmod>${esc(day(mod))}</lastmod>` : ""}</url>`;
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${u("/prices", guides[0]?.updated_at)}${u("/how-it-works", "2026-11-06")}${hubsWith(guides).map(x => u(hubPath(x.hub), x.guides[0].updated_at)).join("")}${guides.map(g => u(pagePath(g), g.updated_at)).join("")}${extra.map(x => u(x.loc, x.mod)).join("")}</urlset>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${u("/prices", guides[0]?.updated_at)}${u("/how-it-works", "2026-11-06")}${ARTICLES.map(a => u(articlePath(a), guides[0]?.updated_at)).join("")}${hubsWith(guides).map(x => u(hubPath(x.hub), x.guides[0].updated_at)).join("")}${guides.map(g => u(pagePath(g), g.updated_at)).join("")}${extra.map(x => u(x.loc, x.mod)).join("")}</urlset>`;
 }
 
 // Category hubs (2026-11-06): /prices/<hub>. 83 pages sat on one flat list and Google had indexed
@@ -229,12 +230,79 @@ export function hubPage(hub, guides, origin) {
   const list = { "@context": "https://schema.org", "@type": "ItemList", name: `${hub.name} prices`,
     itemListElement: mine.slice(0, 100).map((g, i) => ({ "@type": "ListItem", position: i + 1, url: origin + pagePath(g), name: g.title })) };
   const body = `<div class="m"><a href="/prices">Price guide</a> › ${esc(hub.name)}</div><h1>${esc(hub.name)}: what they're worth</h1>
+${ARTICLES.filter(a => a.hub === hub.slug).map(a => `<p><a href="${esc(articlePath(a))}"><b>${esc(a.title)}</b></a></p>`).join("")}
 <p>${esc(hub.blurb)} Each range is priced from recent eBay sales and current listings. ${mine.length} item${mine.length === 1 ? "" : "s"}.</p>
 ${(hub.tips || []).length ? `<div class="card"><h2 style="margin-top:0">What moves the price</h2><ul>${hub.tips.map(t => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
 <ul class="l">${mine.map(itemLi).join("") || `<li class="m">Nothing here yet.</li>`}</ul>
 <div class="card"><a class="cta" href="/?utm_source=price_guide_hub">Guestimate yours</a></div>
 ${others.length ? `<h2>Other categories</h2><ul class="l">${others.map(x => `<li><a href="${esc(hubPath(x.hub))}">${esc(x.hub.name)}</a> <span class="m">(${x.guides.length})</span></li>`).join("")}</ul>` : ""}`;
   return shell(`${hub.name} prices: what they sell for | Guestimator`, `${hub.blurb} Prices from recent eBay sales, ${mine.length} items.`, url, body, [crumbs, list]);
+}
+
+
+// Guides (2026-11-06): pages that answer what people actually search ("how much are my old video
+// games worth"), built from the live price guide so the numbers move when prices refresh. Each one
+// links into its category and the item pages it quotes.
+export const ARTICLES = [
+  { slug: "old-video-games-worth", hub: "video-games",
+    title: "How much are my old video games worth?",
+    desc: "What old Nintendo, Sega and PlayStation games and consoles actually sell for, from recent eBay sales, and how to check yours.",
+    intro: "Most old games are worth less than the asking prices you see online, and a few are worth a lot more. The only numbers that matter are what copies actually sold for. Here is what the most common ones went for recently, and how to work out what yours is worth.",
+    steps: ["Find the exact title and system on the label, and check it is a US copy (Japanese and European copies are a different market).",
+            "Decide what you have: cartridge only, or complete with box and manual. Complete copies sell for a lot more.",
+            "Test it if you can. \"Tested, works\" sells above \"untested\".",
+            "Look up recent sold prices, not asking prices, or Guestimate it from a photo."] },
+  { slug: "old-film-camera-worth", hub: "film-cameras",
+    title: "What is my old film camera worth?",
+    desc: "What common 35mm, rangefinder and point-and-shoot film cameras actually sell for, from recent eBay sales, and what moves the price.",
+    intro: "Film cameras have come back, and some that sat in drawers for decades now sell for real money. Working condition matters more than looks. Here is what common models sold for recently, and how to tell where yours fits.",
+    steps: ["Read the model name on the front or top plate, and check whether you have just the body or a lens too.",
+            "Put in a battery if it takes one and see whether the meter responds. Fire the shutter at a few speeds.",
+            "Hold the lens up to a light and look for haze, fungus or scratches.",
+            "Compare with recent sold prices for the same model, body only or with a lens."] },
+  { slug: "vintage-stereo-worth", hub: "vintage-audio",
+    title: "What is my vintage stereo receiver or turntable worth?",
+    desc: "What vintage receivers and turntables from Marantz, Pioneer, Kenwood and Technics actually sell for, from recent eBay sales.",
+    intro: "Seventies and eighties receivers and turntables are in demand, and the right model in good working order can sell for hundreds. Here is what common models sold for recently, and what pushes one to the top or bottom of its range.",
+    steps: ["Find the model number on the front panel or the back.",
+            "Check every function: both channels, every input, the lamps, and the tuner. Note anything scratchy or dead.",
+            "For a turntable, note which cartridge and stylus it has. A premium cartridge can be worth more than the deck.",
+            "Compare with recent sold prices for working units of the same model."] },
+  { slug: "cast-iron-skillet-worth", hub: "kitchen", match: /cast iron|skillet|dutch oven|griddle|griswold|wagner|le creuset/i,
+    title: "What is my cast iron skillet worth?",
+    desc: "What Griswold, Wagner and other vintage cast iron and kitchenware actually sell for, from recent eBay sales.",
+    intro: "Old cast iron from makers like Griswold and Wagner often sells for far more than a new pan, and the size number and logo can change the price several times over. Here is what common pieces sold for recently.",
+    steps: ["Turn it over: read the maker, the logo and the size number on the bottom.",
+            "Set it on a flat surface. A pan that spins or rocks is warped, which lowers the price.",
+            "Look for cracks (hold it up to a light) and deep pitting.",
+            "Compare with recent sold prices for the same maker, logo and size."] },
+];
+export const articleBySlug = slug => ARTICLES.find(a => a.slug === String(slug || "")) || null;
+export const articlePath = a => `/guides/${a.slug}`;
+export function articlePage(a, guides, origin) {
+  // An article can narrow its category (the cast iron guide quotes pans, not Pyrex bowls).
+  const hub = hubBySlug(a.hub), mine = guides.filter(g => hubOf(g) === hub && !g.thin && (!a.match || a.match.test(g.title)));
+  const top = [...mine].sort((x, y) => y.range.high - x.range.high).slice(0, 15);
+  const asOf = mine.map(g => day(g.estimated_at)).sort().pop() || "";
+  const url = origin + articlePath(a);
+  const faq = [{ q: a.title, a: top.length ? `It depends on the exact model and condition. Recent eBay sales put common ones between ${dollars(Math.min(...mine.map(g => g.range.low)))} and ${dollars(Math.max(...mine.map(g => g.range.high)))}; for example, ${top.slice(0, 3).map(g => `${g.title} at ${dollars(g.range.low)}–${dollars(g.range.high)}`).join(", ")}.` : a.intro },
+               { q: "What makes one worth more?", a: (hub.tips || []).slice(0, 3).join(" ") }];
+  const ld = [{ "@context": "https://schema.org", "@type": "Article", headline: a.title, description: a.desc, dateModified: asOf || undefined, mainEntityOfPage: url,
+                publisher: { "@type": "Organization", name: "Guestimator" } },
+              { "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: [
+                { "@type": "ListItem", position: 1, name: "Price guide", item: origin + "/prices" }, { "@type": "ListItem", position: 2, name: a.title, item: url }] },
+              { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faq.map(q => ({ "@type": "Question", name: q.q, acceptedAnswer: { "@type": "Answer", text: q.a } })) }];
+  const body = `<div class="m"><a href="/prices">Price guide</a> › <a href="${esc(hubPath(hub))}">${esc(hub.name)}</a></div>
+<h1>${esc(a.title)}</h1>${asOf ? `<div class="m">Prices from recent eBay sales, updated ${esc(asOf)}</div>` : ""}
+<p>${esc(a.intro)}</p>
+${top.length ? `<h2>What they sold for recently</h2><table><thead><tr><th>Item</th><th class="r">Sold range</th></tr></thead><tbody>
+${top.map(g => `<tr><td><a href="${esc(pagePath(g))}">${esc(g.title)}</a></td><td class="r">${dollars(g.range.low)}–${dollars(g.range.high)}</td></tr>`).join("")}</tbody></table>
+<p class="m">${mine.length} priced so far. <a href="${esc(hubPath(hub))}">See all ${esc(hub.name.toLowerCase())}</a>.</p>` : ""}
+<h2>How to find out what yours is worth</h2><ol>${a.steps.map(s => `<li>${esc(s)}</li>`).join("")}</ol>
+${(hub.tips || []).length ? `<h2>What moves the price</h2><ul>${hub.tips.map(t => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
+<div class="card" style="margin-top:22px"><h2 style="margin-top:0">Price yours in a minute</h2><p>Snap a photo or type what it is, and Guestimator prices it from what actually sold. Free to try, no account needed.</p>
+<a class="cta" href="/?utm_source=price_guide_article">Guestimate mine</a></div>`;
+  return shell(`${a.title} | Guestimator`, a.desc, url, body, ld);
 }
 
 export const robots = origin => `User-agent: *\nDisallow: /api/\nDisallow: /owner\nDisallow: /stickers\nDisallow: /tax-summary\nDisallow: /shippo/\nAllow: /\n\nSitemap: ${origin}/sitemap.xml\n`;

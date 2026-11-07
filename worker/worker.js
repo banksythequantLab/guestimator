@@ -410,11 +410,16 @@ export default {
       // ---------- video with byte ranges (media.js): static assets ignore Range, Safari needs 206 ----------
       if ((m === "GET" || m === "HEAD") && RANGED.has(url.pathname)) return rangedAsset(request, env, url.pathname);
       // ---------- public price guide, sitemap and robots (priceguide.js) ----------
-      if (m === "GET" && (url.pathname === "/prices" || url.pathname.startsWith("/prices/") || url.pathname.startsWith("/price/") || url.pathname === "/sitemap.xml" || url.pathname === "/robots.txt")) {
+      if (m === "GET" && (url.pathname === "/prices" || url.pathname.startsWith("/prices/") || url.pathname.startsWith("/price/") || url.pathname.startsWith("/guides/") || url.pathname === "/sitemap.xml" || url.pathname === "/robots.txt")) {
         const origin = env.PUBLIC_ORIGIN || url.origin, pub = { "cache-control": "public, max-age=3600" };
         if (url.pathname === "/robots.txt") return new Response(priceguide.robots(origin), { headers: { "content-type": "text/plain; charset=utf-8", ...pub } });
         if (url.pathname === "/sitemap.xml") return new Response(priceguide.sitemap(await priceguide.allGuides(db), origin, await market.sitemapEntries(env, db).catch(() => [])), { headers: { "content-type": "application/xml; charset=utf-8", ...pub } });
         if (url.pathname === "/prices") return new Response(priceguide.indexPage(await priceguide.allGuides(db), origin), { headers: { "content-type": "text/html; charset=utf-8", ...pub } });
+        if (url.pathname.startsWith("/guides/")) {
+          const a = priceguide.articleBySlug(url.pathname.slice(8).replace(/\/$/, ""));
+          if (!a) return Response.redirect(origin + "/prices", 301);
+          return new Response(priceguide.articlePage(a, await priceguide.allGuides(db), origin), { headers: { "content-type": "text/html; charset=utf-8", ...pub } });
+        }
         if (url.pathname.startsWith("/prices/")) {
           const hub = priceguide.hubBySlug(url.pathname.slice(8).replace(/\/$/, ""));
           if (!hub) return Response.redirect(origin + "/prices", 301);

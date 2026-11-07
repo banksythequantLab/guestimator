@@ -1,0 +1,34 @@
+// Run: node worker/tests/articles_test.mjs
+// Guide pages built from live price-guide data (2026-11-06).
+import { ARTICLES, articleBySlug, articlePage, articlePath, indexPage, hubPage, hubBySlug, sitemap, pagePath, HUBS } from "../priceguide.js";
+let pass = 0, fail = 0;
+const ok = (n, c, got) => { c ? pass++ : (fail++, console.log("FAIL " + n + (got !== undefined ? "\n   got " + JSON.stringify(got).slice(0, 300) : ""))); };
+let seq = 1000000000;
+const G = (title, low, high, extra = {}) => ({ listing_id: String(seq++), title, range: { low, high }, about: {}, comps: [], estimated_at: "2026-11-06T10:00:00Z", updated_at: "2026-11-06", ...extra });
+const guides = [G("Super Metroid SNES cartridge", 81, 109), G("Duck Hunt NES cartridge", 4, 6), G("Rare thin game cartridge", 500, 900, { thin: true }),
+  G("Nikon F3 35mm film camera body", 276, 431), G("Griswold No. 10 cast iron skillet", 162, 232)];
+const o = "https://g.test";
+ok("every article points at a real hub", ARTICLES.every(a => HUBS.some(h => h.slug === a.hub)), ARTICLES.map(a => a.hub));
+ok("slugs unique", new Set(ARTICLES.map(a => a.slug)).size === ARTICLES.length);
+const a = articleBySlug("old-video-games-worth");
+const p = articlePage(a, guides, o);
+ok("title and canonical", p.includes("<title>How much are my old video games worth? | Guestimator</title>") && p.includes(`<link rel="canonical" href="${o}/guides/old-video-games-worth">`));
+ok("table quotes live prices, highest first", p.indexOf("Super Metroid") > 0 && p.indexOf("Super Metroid") < p.indexOf("Duck Hunt") && p.includes("$81–$109"));
+ok("links the item pages it quotes", p.includes(`href="${pagePath(guides[0])}"`));
+ok("thin pages are not quoted", !p.includes("Rare thin game"));
+ok("other categories not quoted", !p.includes("Nikon F3") && !p.includes("Griswold"));
+ok("as-of date", p.includes("updated 2026-11-06"));
+ok("steps + tips + CTA", p.includes("How to find out what yours is worth") && p.includes("What moves the price") && p.includes("utm_source=price_guide_article"));
+ok("Article + FAQ markup", /"@type":"Article"/.test(p) && /"@type":"FAQPage"/.test(p));
+ok("FAQ answer uses real range", /between \$4 and \$109/.test(p), p.match(/between [^.]+/));
+ok("unknown slug", articleBySlug("nope") === null);
+ok("index links all guides", ARTICLES.every(x => indexPage(guides, o).includes(`href="${articlePath(x)}"`)));
+ok("hub links its guide", hubPage(hubBySlug("film-cameras"), guides, o).includes(`href="/guides/old-film-camera-worth"`));
+const sm = sitemap(guides, o);
+ok("sitemap lists guides", ARTICLES.every(x => sm.includes(`${o}${articlePath(x)}<`)));
+const empty = articlePage(articleBySlug("vintage-stereo-worth"), [], o);
+ok("no data: still renders, no table", empty.includes("What is my vintage stereo") && !empty.includes("<table>"));
+const ci = articlePage(articleBySlug("cast-iron-skillet-worth"), [...guides, G("Vintage Pyrex Butterprint mixing bowl set", 184, 249)], o);
+ok("cast iron guide quotes pans, not Pyrex", ci.includes("Griswold No. 10") && !ci.includes("Pyrex Butterprint"));
+console.log(`articles: ${pass} passed, ${fail} failed`);
+if (fail) process.exit(1);
