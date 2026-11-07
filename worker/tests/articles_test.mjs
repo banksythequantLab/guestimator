@@ -30,5 +30,8 @@ const empty = articlePage(articleBySlug("vintage-stereo-worth"), [], o);
 ok("no data: still renders, no table", empty.includes("What is my vintage stereo") && !empty.includes("<table>"));
 const ci = articlePage(articleBySlug("cast-iron-skillet-worth"), [...guides, G("Vintage Pyrex Butterprint mixing bowl set", 184, 249)], o);
 ok("cast iron guide quotes pans, not Pyrex", ci.includes("Griswold No. 10") && !ci.includes("Pyrex Butterprint"));
+const con = articlePage(articleBySlug("old-game-console-worth"), [...guides, G("Sega Dreamcast HKT-3020 console", 75, 102), G("Nintendo DS Lite handheld gaming console", 50, 72)], o);
+ok("console guide quotes consoles, not cartridges", con.includes("Sega Dreamcast") && con.includes("DS Lite") && !con.includes("Super Metroid"));
+ok("sewing guide exists", !!articleBySlug("old-sewing-machine-worth") && ARTICLES.length === 6);
 console.log(`articles: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

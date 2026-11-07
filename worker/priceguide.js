@@ -277,6 +277,24 @@ export const ARTICLES = [
             "Look for cracks (hold it up to a light) and deep pitting.",
             "Compare with recent sold prices for the same maker, logo and size."] },
 ];
+ARTICLES.push(
+  { slug: "old-game-console-worth", hub: "video-games", match: /\bconsole\b|handheld/i,
+    title: "What is my old game console worth?",
+    desc: "What old Nintendo, Sega, Sony and Microsoft consoles and handhelds actually sell for, from recent eBay sales, and how to check yours.",
+    intro: "Old consoles still sell, and a working one with its original parts can be worth more than people expect. Bundles with games and controllers sell for more, so compare like with like. Here is what common consoles sold for recently on their own.",
+    steps: ["Find the model number on the bottom or back (for example NES-001, CGB-001, SCPH-90001).",
+            "Decide what you are selling: the console alone, or with controllers, cables and games. Price each the way you will list it.",
+            "Power it on and test it with a game. \"Tested, works\" sells well above \"untested\".",
+            "Check the screen on handhelds for scratches and dead pixels, and look for yellowing and cracks on the shell."] },
+  { slug: "old-sewing-machine-worth", hub: "sewing-machines",
+    title: "What is my old sewing machine worth?",
+    desc: "What vintage Singer, Bernina and other sewing machines actually sell for, from recent eBay sales, and what moves the price.",
+    intro: "Most old sewing machines sell for modest amounts, but a few models, like the Singer Featherweight and the Slant-o-Matic series, have a real following. Here is what common machines sold for recently, and how to tell where yours fits.",
+    steps: ["Find the model number, usually on a plate on the front or back of the machine, or look up the serial number.",
+            "Plug it in and run it with the foot pedal. Check that the hand wheel turns freely and that it stitches.",
+            "Gather what came with it: the case or cabinet, the manual, bobbins and attachments.",
+            "Remember that heavy machines cost a lot to ship. Local pickup often sells for less than the shipped prices below."] },
+);
 export const articleBySlug = slug => ARTICLES.find(a => a.slug === String(slug || "")) || null;
 export const articlePath = a => `/guides/${a.slug}`;
 export function articlePage(a, guides, origin) {
