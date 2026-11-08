@@ -294,6 +294,22 @@ ARTICLES.push(
             "Plug it in and run it with the foot pedal. Check that the hand wheel turns freely and that it stitches.",
             "Gather what came with it: the case or cabinet, the manual, bobbins and attachments.",
             "Remember that heavy machines cost a lot to ship. Local pickup often sells for less than the shipped prices below."] },
+  { slug: "old-pokemon-games-worth", hub: "video-games", match: /pok[eé]mon/i,
+    title: "Are old Pokémon games worth anything?",
+    desc: "What old Pokémon Game Boy, Game Boy Color and Nintendo 64 games actually sell for, from recent eBay sales, and how to tell a real cartridge from a fake.",
+    intro: "Yes. Original Pokémon cartridges are some of the most collected games from the 1990s and 2000s, and loose carts still sell every day. Prices depend on which game it is, whether it is authentic, and whether the save battery still works. Here is what they sold for recently.",
+    steps: ["Read the label: the exact title and version (Red, Blue, Yellow, Gold, Silver, Crystal) and the system it is for.",
+            "Check that it is authentic. Real Game Boy carts have a Nintendo seal and a number stamped into the label, and a code molded on the back. Fakes often have glossy labels and screws that look wrong.",
+            "Turn it on. On Gold, Silver and Crystal a dead save battery shows a clock error; carts with a working or replaced battery sell for more.",
+            "Price it the way you will sell it: cartridge only, or with the box and manual, which is a very different market."] },
+  { slug: "vintage-watch-worth", hub: "watches",
+    title: "What is my old watch worth?",
+    desc: "What used Seiko, Citizen, Casio, Timex and other watches actually sell for, from recent eBay sales, and what moves the price.",
+    intro: "Most used watches sell for a fraction of their original price, but some models hold their value well, especially popular divers and classic digital watches. Here is what common watches sold for recently, and how to find where yours fits.",
+    steps: ["Find the model or reference number. It is usually on the case back, sometimes between the lugs, or on the dial.",
+            "Check that it runs and keeps time. Wind or shake an automatic; for a quartz watch, try a new battery first.",
+            "Look at the crystal, the bezel and the case for scratches and dents, and note whether the band is the original.",
+            "Gather the box, papers and spare links if you have them. A complete set sells for more."] },
 );
 export const articleBySlug = slug => ARTICLES.find(a => a.slug === String(slug || "")) || null;
 export const articlePath = a => `/guides/${a.slug}`;
