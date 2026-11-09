@@ -315,6 +315,15 @@ ARTICLES.push(
             "Check that it runs and keeps time. Wind or shake an automatic; for a quartz watch, try a new battery first.",
             "Look at the crystal, the bezel and the case for scratches and dents, and note whether the band is the original.",
             "Gather the box, papers and spare links if you have them. A complete set sells for more."] },
+  // Pokemon cards (2026-11-09): every card in the trading-cards hub except sports cards.
+  { slug: "old-pokemon-cards-worth", hub: "trading-cards", match: /^(?!.*\b(?:topps|fleer|upper deck|panini|bowman|donruss|baseball|basketball|football|hockey)\b)/i,
+    title: "Are my old Pokémon cards worth anything?",
+    desc: "What Base Set, Jungle, Fossil, Neo and modern chase Pokémon cards actually sell for raw, from recent eBay sales, and how to tell which version you have.",
+    intro: "Some are worth a lot, most are worth a little. Holo rares from the first sets (Base Set, Jungle, Fossil, Team Rocket, Neo) and modern alternate-art cards are where the money is. Which edition you have and its condition matter more than anything else. Here is what well-known cards sold for recently, raw (not graded).",
+    steps: ["Find the set and number at the bottom of the card (for example 4/102). A small symbol to the right of the picture tells you the set; Base Set cards have none.",
+            "Check the edition. A black \"Edition 1\" stamp on the left under the picture means 1st Edition, worth far more. Base Set cards with no shadow on the right edge of the picture box are \"Shadowless\", also worth more. The prices below are for the common Unlimited version unless the title says otherwise.",
+            "Judge the condition honestly: look at the corners, edges and back for whitening, scratches on the holo, creases and bends. Lightly played sells well below near mint.",
+            "Compare with a real card if anything looks off. Fakes are common: wrong font, washed-out colors, a glossy or thin feel, or no layer visible when you look at the edge."] },
 );
 export const articleBySlug = slug => ARTICLES.find(a => a.slug === String(slug || "")) || null;
 export const articlePath = a => `/guides/${a.slug}`;

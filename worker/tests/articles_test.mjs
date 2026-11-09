@@ -32,7 +32,9 @@ const ci = articlePage(articleBySlug("cast-iron-skillet-worth"), [...guides, G("
 ok("cast iron guide quotes pans, not Pyrex", ci.includes("Griswold No. 10") && !ci.includes("Pyrex Butterprint"));
 const con = articlePage(articleBySlug("old-game-console-worth"), [...guides, G("Sega Dreamcast HKT-3020 console", 75, 102), G("Nintendo DS Lite handheld gaming console", 50, 72)], o);
 ok("console guide quotes consoles, not cartridges", con.includes("Sega Dreamcast") && con.includes("DS Lite") && !con.includes("Super Metroid"));
-ok("sewing guide exists", !!articleBySlug("old-sewing-machine-worth") && ARTICLES.length === 8);
+ok("sewing guide exists", !!articleBySlug("old-sewing-machine-worth") && ARTICLES.length === 9);
+const pc = articlePage(articleBySlug("old-pokemon-cards-worth"), [...guides, G("Pokémon Base Set Charizard 4/102 holo card (Unlimited)", 307, 442), G("Lugia 9/111 Neo Genesis holo card", 90, 130), G("1989 Upper Deck Ken Griffey Jr. #1 rookie card", 77, 104)], o);
+ok("pokemon card guide quotes Pokemon cards, not sports cards or games", pc.includes("Charizard 4/102") && pc.includes("Lugia") && !pc.includes("Griffey") && !pc.includes("Super Metroid"));
 const pk = articlePage(articleBySlug("old-pokemon-games-worth"), [...guides, G("Pokemon Red Version Game Boy cartridge", 40, 62), G("Pokémon Snap Nintendo 64 cartridge", 20, 30)], o);
 ok("pokemon guide quotes only Pokemon games", pk.includes("Pokemon Red") && pk.includes("Pokémon Snap") && !pk.includes("Super Metroid") && !pk.includes("Duck Hunt"));
 const wt = articlePage(articleBySlug("vintage-watch-worth"), [...guides, G("Seiko SKX007 automatic dive watch", 250, 340)], o);
