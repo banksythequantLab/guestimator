@@ -34,3 +34,29 @@ export async function freshenOne(env, db, now = new Date()) {
   await env.APPRAISALS.send({ appraisalId: id, itemId: row.id });
   return { started: row.id, last: row.at };
 }
+
+// A sweep (2026-11-09): re-price a named set of the owner's published pages now, outside the
+// 30-day cadence and the daily cap. For when the pricer changes under the pages - the platform,
+// complete-vs-loose and graded-copy filters shipped in one day and about 170 game pages had been
+// priced without them. Same funded_by 'refresh', so GOOD_REFRESH still decides whether each result
+// replaces its page: a sweep can only improve a page, never weaken it. Pages with a run already
+// pending are skipped, and the queue's own concurrency (6) paces the work.
+export async function freshenSweep(env, db, ids, now = new Date()) {
+  const owner = String(env.PRICE_REFRESH_OWNER || "").trim().toLowerCase();
+  if (!owner || !env.APPRAISALS) return { error: "refresh is off" };
+  const want = [...new Set((ids || []).map(String).filter(Boolean))].slice(0, 100);
+  if (!want.length) return { started: [], skipped: [] };
+  const marks = want.map(() => "?").join(",");
+  const rows = (await db.prepare(
+    `SELECT i.id FROM items i JOIN sales s ON s.id=i.sale_id JOIN users u ON u.id=s.user_id
+      WHERE lower(u.email)=? AND COALESCE(i.guide_public,0)=1 AND COALESCE(i.guide_hidden,0)=0 AND i.id IN (${marks})
+        AND NOT EXISTS (SELECT 1 FROM appraisals p WHERE p.item_id=i.id AND p.status='pending')`).bind(owner, ...want).all()).results || [];
+  const started = [];
+  for (const row of rows) {
+    const id = crypto.randomUUID();
+    await db.prepare("INSERT INTO appraisals (id,item_id,status,created_at,funded_by) VALUES (?,?,'pending',?,'refresh')").bind(id, row.id, now.toISOString()).run();
+    await env.APPRAISALS.send({ appraisalId: id, itemId: row.id });
+    started.push(row.id);
+  }
+  return { started, skipped: want.filter(x => !started.includes(x)) };
+}

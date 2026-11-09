@@ -1,7 +1,7 @@
 // Run: node worker/tests/freshen_test.mjs
 // Price-guide refresh: due pages only, owner's only, daily cap, one at a time, weak refreshes never shown.
 import { DatabaseSync } from "node:sqlite";
-import { freshenOne, GOOD_REFRESH } from "../freshen.js";
+import { freshenOne, freshenSweep, GOOD_REFRESH } from "../freshen.js";
 let pass = 0, fail = 0;
 const ok = (n, c, got) => { c ? pass++ : (fail++, console.log("FAIL " + n + (got !== undefined ? "\n   got " + JSON.stringify(got) : ""))); };
 const raw = new DatabaseSync(":memory:");
@@ -33,6 +33,15 @@ r = await freshenOne(env, db, new Date("2026-12-21T12:00:00Z"));
 ok("never: fresh, hidden, private or someone else's", r.skipped === "none due", r);
 ok("off without owner", (await freshenOne({ ...env, PRICE_REFRESH_OWNER: "" }, db, now)).skipped === "off");
 ok("off at cap 0", (await freshenOne({ ...env, PRICE_REFRESH_PER_DAY: "0" }, db, now)).skipped === "off");
+// sweep: named pages now, cap and age ignored, pending and foreign and hidden skipped
+{ sent.length = 0;
+  const sw = await freshenSweep(env, db, ["fresh", "older", "hidden", "theirs", "nope", "fresh"], now);
+  ok("sweep: starts the owner's visible pages whatever their age, once each", sw.started.length === 2 && sw.started.includes("fresh") && sw.started.includes("older") && sent.length === 2, sw);
+  ok("sweep: hidden, someone else's and unknown ids are reported skipped", sw.skipped.length === 3 && sw.skipped.includes("hidden") && sw.skipped.includes("theirs") && sw.skipped.includes("nope"), sw);
+  ok("sweep: rows are pending refresh runs", raw.prepare("SELECT COUNT(*) n FROM appraisals WHERE item_id IN ('fresh','older') AND status='pending' AND funded_by='refresh'").get().n === 2);
+  const again = await freshenSweep(env, db, ["fresh"], now);
+  ok("sweep: a page with a run pending is not started twice", again.started.length === 0 && again.skipped[0] === "fresh", again);
+  raw.exec("UPDATE appraisals SET status='done' WHERE funded_by='refresh'"); }
 // a weak refresh never replaces the page
 raw.exec(`INSERT INTO appraisals VALUES ('good-old','w','done','{"confidence":0.9,"sold_market":{"count":4}}','2026-10-01T00:00:00Z','credit'),
   ('weak-new','w','done','{"thin_evidence":true,"confidence":0.4,"sold_market":{"count":1}}','2026-12-01T00:00:00Z','refresh'),

@@ -80,7 +80,7 @@ import * as onboard from "./onboard.js";
 import * as growth from "./growth.js";
 import * as priceguide from "./priceguide.js";
 import { RANGED, rangedAsset } from "./media.js";
-import { freshenOne } from "./freshen.js";
+import { freshenOne, freshenSweep } from "./freshen.js";
 import * as etsy from "./etsy.js";
 import * as site from "./site.js";
 
@@ -465,6 +465,18 @@ export default {
         const ids = Array.isArray(b.ids) ? b.ids.map(String).slice(0, 100) : [];
         if (!ids.length) return J({ error: "nobody ticked" }, 400);
         return J(await growth.winbackResend(env, db, env.PUBLIC_ORIGIN || url.origin, ids));
+      }
+      // Owner-only: re-price named published pages now (freshen.js sweep). Weak results never show.
+      if (parts[0] === "owner" && parts[1] === "sweep" && parts.length === 2 && m === "POST") {
+        const uidS = await currentUser(request, db);
+        const meS = uidS ? await db.prepare("SELECT email FROM users WHERE id=?").bind(uidS).first() : null;
+        if (!meS || !owner.isOwner(env, meS.email) || request.headers.get("x-gs-owner") !== "1") return J({ error: "not found" }, 404);
+        const b = await readJson(request);
+        const ids = Array.isArray(b.ids) ? b.ids.map(String).slice(0, 100) : [];
+        if (!ids.length) return J({ error: "no ids" }, 400);
+        const r = await freshenSweep(env, db, ids);
+        console.log("price sweep", JSON.stringify({ started: r.started?.length, skipped: r.skipped?.length }));
+        return J(r);
       }
       // Owner-only: set a feedback item's status (and the note its sender sees).
       if (parts[0] === "owner" && parts[1] === "feedback" && parts.length === 2 && m === "POST") {
