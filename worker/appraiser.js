@@ -1829,8 +1829,10 @@ export function caseFilter(dealerText, hits) {
 //  1. a sale or listing in new condition is dropped;
 //  2. when two or more say authentic / genuine / OEM, the ones that don't and cost under 40% of
 //     the authentic median are dropped (sold prices when two exist, else all authentic ones).
-export const RETRO_CART = /\b(?:game\s?boy|gameboy|gba|gbc|n64|nintendo\s*64|snes|super\s+nintendo|nes|famicom|sega\s+genesis|genesis|game\s?gear)\b/i;
-const CART_WORD = /\b(?:cartridge|cart|carts|game\s?boy|gameboy|gba|gbc|n64|snes|nes|genesis)\b/i;
+// DS and 3DS added 2026-11-09: Pokemon HeartGold, SoulSilver, Black and White 2 are the most faked
+// cartridges on eBay after the GBA Pokemon games, and the DS pages were being priced without this.
+export const RETRO_CART = /\b(?:game\s?boy|gameboy|gba|gbc|n64|nintendo\s*64|snes|super\s+nintendo|nes|famicom|sega\s+genesis|genesis|game\s?gear|nintendo\s*ds|ds\s+(?:game|cartridge|cart)|3ds|dsi)\b/i;
+const CART_WORD = /\b(?:cartridge|cart|carts|game\s?boy|gameboy|gba|gbc|n64|snes|nes|genesis|ds|3ds)\b/i;
 const SAYS_NEW = /\b(?:new|sealed|nib|nos|unopened)\b/i;
 const AUTHENTIC = /\b(?:authentic|genuine|oem|official|legit)\b/i;
 const NEW_CONDITION = /^\s*(?:brand\s+new|new(?:\s*\(other\)|\s+other|\s+with\s+box)?)\s*$/i;

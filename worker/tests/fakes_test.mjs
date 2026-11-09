@@ -32,5 +32,10 @@ ok("no authentic markers: only new-condition rule applies", g.dropped === 1 && g
 ok("one authentic is not enough to judge", fakeFilter("Pokemon Red Game Boy cartridge", [S("Pokemon Red authentic", 60, "Used"), S("Pokemon Red", 10, "Used")]).dropped === 0);
 ok("hits without a condition are kept", fakeFilter("Kirby 64 N64 cartridge", [{ title: "Kirby 64", price: 40 }]).dropped === 0);
 ok("retro detector", RETRO_CART.test("Game Boy Advance cartridge") && RETRO_CART.test("N64 cart") && !RETRO_CART.test("PlayStation 2 Slim"));
+// DS Pokemon (2026-11-09): the same two rules apply to DS and 3DS carts.
+{ const hg = [S("Pokemon HeartGold Version DS Tested Saves", 24, "Brand New"), S("Pokemon HeartGold Nintendo DS Authentic Tested", 115, "Pre-Owned"), S("Pokemon HeartGold Authentic US DS Cartridge", 120, "Pre-Owned"), S("Pokemon HeartGold DS game", 22, "Pre-Owned"), S("Pokemon HeartGold (Nintendo DS) cart only", 108, "Pre-Owned")];
+  const r = fakeFilter("Pokemon HeartGold Version for Nintendo DS, authentic loose cartridge only", hg);
+  ok("DS: new-condition and under-40%-of-authentic sales dropped", r.dropped === 2 && r.kept.length === 3 && r.kept.every(h => h.price >= 100), r.kept.map(h => h.price));
+  ok("DS covered by RETRO_CART", RETRO_CART.test("Pokemon SoulSilver Nintendo DS cartridge") && RETRO_CART.test("Mario Kart 7 3DS game") && !RETRO_CART.test("Seiko SKX007 dive watch")); }
 console.log(`fakes: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
