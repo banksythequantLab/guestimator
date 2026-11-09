@@ -132,5 +132,15 @@ ok("shown again", (await get(path)).status === 200);
   ok("related: never itself, never the receiver or the bowls", !rel.includes("me") && !rel.includes("e") && !rel.includes("f"), rel);
   const html = P.guidePage(me, "https://g.test", all);
   ok("related: the page shows them under Related prices, nearest first", html.includes("Related prices") && html.indexOf("Majora") < html.indexOf("Pokemon Red")); }
+// Lots and sets (2026-11-09): a one-piece-x-N page says its sales are per piece; a whole-set page does not.
+{ const base = { listing_id: "l1", title: "Pyrex Snowflake Garland Cinderella bowl set", range: { low: 120, high: 176 }, market: null, about: {}, estimated_at: "2026-11-09", updated_at: "2026-11-09", live: null, sold_on_ebay: false,
+    sold: { count: 3, median: 35, as_of: "2026-11-09" }, comps: [{ title: "Pyrex 442 Snowflake bowl", price: 35, sold: true, url: null }, { title: "Pyrex 443 Snowflake bowl", price: 47, sold: true, url: null }] };
+  const perPiece = P.guidePage({ ...base, lot: { count: 4, unit_low: 30, unit_high: 44, whole_set: false } }, "https://g.test", []);
+  ok("lot page: price is for all pieces, sales marked per piece", perPiece.includes("for all 4 pieces") && perPiece.includes("Recently sold on eBay (per piece)") && perPiece.includes("About $30–$44 per piece") && perPiece.includes("(single pieces)"));
+  const whole = P.guidePage({ ...base, range: { low: 164, high: 221 }, sold: { count: 4, median: 192, as_of: "2026-11-09" }, lot: { count: 4, unit_low: 41, unit_high: 55, whole_set: true } }, "https://g.test", []);
+  ok("whole-set page: sales are the set's own, per-piece shown as a division", whole.includes("for all 4 pieces") && !whole.includes("(per piece)") && whole.includes("priced from sales of the complete set") && !whole.includes("(single pieces)"));
+  const single = P.guidePage({ ...base, lot: null }, "https://g.test", []);
+  ok("single item: no lot wording", !single.includes("pieces") && !single.includes("per piece"));
+  ok("guideOf carries the lot", (P.guideOf({ listing_id: "x", title: "Set", status: "optin", result_json: JSON.stringify({ price_range: { low: 10, high: 20 }, lot: { count: 4, unit_low: 2, unit_high: 5, whole_set: true } }) }) || {}).lot?.whole_set === true); }
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

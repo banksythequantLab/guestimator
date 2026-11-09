@@ -51,6 +51,10 @@ export function guideOf(row) {
     sold: Number(row.sold_count) >= 3 && row.sold_median_cents ? { count: Number(row.sold_count), median: row.sold_median_cents / 100, as_of: row.sold_checked_at }
       : r.sold_market && Number(r.sold_market.count) >= 2 && r.sold_market.median > 0 && comps.filter(c => c.sold).length >= 2 ? { count: Number(r.sold_market.count), median: Number(r.sold_market.median), as_of: r.sold_market.as_of || row.estimated_at } : null,
     about: { maker: id.maker || null, category: id.category || null, period: id.period || null },
+    // A lot or set (2026-11-09): the price is for all N pieces. When it was built as one piece x N
+    // (whole_set false) the sales and comparables below are PER PIECE, and the page has to say so -
+    // a Pyrex set page read "$120-$176" over sales of "$35-$47" and looked wrong.
+    lot: r.lot && Number(r.lot.count) > 1 ? { count: Number(r.lot.count), unit_low: Number(r.lot.unit_low) || null, unit_high: Number(r.lot.unit_high) || null, whole_set: !!r.lot.whole_set } : null,
     comps, estimated_at: row.estimated_at, updated_at: row.updated_at || row.estimated_at,
     live: live ? { price: row.price_cents / 100, url: row.listing_url || `https://www.ebay.com/itm/${row.listing_id}` } : null,
     sold_on_ebay: !!row.sold_here,
@@ -160,14 +164,15 @@ export function guidePage(g, origin, more = []) {
   // The pages most like this one (shared title words), not the newest.
   more = relatedGuides(g, more, 6);
   const body = `<div class="m"><a href="/prices">Price guide</a> › <a href="${esc(hubPath(hub))}">${esc(hub.name)}</a></div><h1>${esc(g.title)}: what it's worth</h1><div class="m">Guestimated ${esc(day(g.estimated_at))}</div>
-<div class="card"><div class="m">${g.thin ? "Guestimate · rough guess" : "Guestimate"}</div><div class="big">${dollars(r.low)} – ${dollars(r.high)}</div>
+<div class="card"><div class="m">${g.thin ? "Guestimate · rough guess" : "Guestimate"}${g.lot ? ` · for all ${g.lot.count} pieces` : ""}</div><div class="big">${dollars(r.low)} – ${dollars(r.high)}</div>
+${g.lot && g.lot.unit_low && g.lot.unit_high ? `<div class="m" style="margin-top:4px">About ${dollars(g.lot.unit_low)}–${dollars(g.lot.unit_high)} per piece${g.lot.whole_set ? ", priced from sales of the complete set" : `; the sales and comparables below are for single pieces, and the set total is ${g.lot.count} times that`}.</div>` : ""}
 ${g.thin ? `<div class="m" style="margin-top:4px">Few real sales to compare against (${g.comps.length ? "one comparable listing" : "none found"}), so treat this range as a rough guess.</div>` : ""}
-${g.sold ? `<div style="margin-top:6px"><b>Recently sold on eBay:</b> median ${dollars(g.sold.median)} across ${g.sold.count} sales <span class="m">(checked ${esc(day(g.sold.as_of))})</span></div>` : ""}
-${g.market ? `<div style="margin-top:4px"><b>Asking now:</b> ${dollars(g.market.low)}–${dollars(g.market.high)} across ${g.market.count} comparable listings, median ${dollars(g.market.median)}</div>` : ""}
+${g.sold ? `<div style="margin-top:6px"><b>Recently sold on eBay${g.lot && !g.lot.whole_set ? " (per piece)" : ""}:</b> median ${dollars(g.sold.median)} across ${g.sold.count} sales <span class="m">(checked ${esc(day(g.sold.as_of))})</span></div>` : ""}
+${g.market ? `<div style="margin-top:4px"><b>Asking now${g.lot && !g.lot.whole_set ? " (per piece)" : ""}:</b> ${dollars(g.market.low)}–${dollars(g.market.high)} across ${g.market.count} comparable listings, median ${dollars(g.market.median)}</div>` : ""}
 ${g.sold_on_ebay ? `<div style="margin-top:6px">✓ One of these sold on eBay through Guestimator.</div>` : ""}</div>
 ${g.live ? `<div class="card"><b>This one is for sale:</b> ${dollars(g.live.price)} on eBay. <a href="${esc(epn(g.live.url, "gs-guide"))}" rel="sponsored nofollow noopener" target="_blank">See the listing ↗</a></div>` : ""}
 ${about.length ? `<h2>About it</h2><div>${about.map(esc).join(" · ")}</div>` : ""}
-${g.comps.length ? `<h2>Comparable listings we priced it against</h2><table><thead><tr><th>Listing</th><th>Condition</th><th class="r">Price</th></tr></thead><tbody>
+${g.comps.length ? `<h2>Comparable listings we priced it against${g.lot && !g.lot.whole_set ? " (single pieces)" : ""}</h2><table><thead><tr><th>Listing</th><th>Condition</th><th class="r">Price</th></tr></thead><tbody>
 ${g.comps.map(c => `<tr><td>${c.url ? `<a href="${esc(epn(c.url, "gs-guide-comp"))}" rel="sponsored nofollow noopener" target="_blank">${esc(c.title)}</a>` : esc(c.title)}${c.sold ? " <b>(sold)</b>" : ""}</td><td>${esc(c.condition || "")}</td><td class="r">${dollars(c.price)}</td></tr>`).join("")}</tbody></table>` : ""}
 ${faq.length ? `<h2>Common questions</h2>${faq.map(q => `<h3 style="font-size:1rem;margin:14px 0 4px">${esc(q.q)}</h3><p style="margin:0">${esc(q.a)}</p>`).join("")}
 <p class="m"><a href="${esc(hubPath(hub))}">More on ${esc(hub.name.toLowerCase())} prices</a></p>` : ""}
