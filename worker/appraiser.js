@@ -1780,6 +1780,28 @@ export function cartFilter(dealerText, hits) {
   return { kept, dropped: (hits || []).length - kept.length };
 }
 
+// Complete vs loose (2026-11-09). Paper Mario: The Thousand-Year Door "disc with original case"
+// was priced $22-$32 from four "Disc Only" sales, and the repricer then rejected the one
+// "Case & Disc" listing as "a different product (disc only vs disc and case)" - the right rule,
+// applied backwards. For a disc or cartridge game the case is roughly half the price, so the
+// dealer's own words decide which half of the market is the comparable set: said with its case
+// (or CIB / complete / boxed) -> disc-only and loose sales go; said loose or disc only -> CIB
+// and with-case sales go. "No manual" with a case is still with the case. Games only.
+export const SAYS_COMPLETE = /\bcib\b|\bcomplete\b|\bboxed\b|\b(?:with|in|and|w\/|\+|including|includes)\s+(?:its\s+|the\s+)?(?:original\s+)?(?:case|box|packaging)\b|\bcase\s*(?:&|and|\+)\s*(?:disc|manual|cart)/i;
+export const SAYS_LOOSE = /\b(?:disc|cart|cartridge|game)\s+only\b|\bloose\b|\bno\s+(?:case|box)\b|\bwithout\s+(?:a\s+|the\s+|its\s+)?(?:case|box)\b/i;
+const TITLE_LOOSE = /\b(?:disc|cart|cartridge|game)\s+only\b|\bloose\b|\bno\s+(?:case|box)\b/i;
+const TITLE_COMPLETE = /\bcib\b|\bcomplete\b|\bboxed\b|\bin\s+box\b|\bwith\s+(?:case|box|manual)\b|\bw\/\s*(?:case|box|manual)\b|\bcase\s*(?:&|and|\+)\s*(?:disc|manual|cart)|\b(?:disc|cart|cartridge)\s*(?:&|and|\+)\s*(?:case|box|manual)\b/i;
+export function caseFilter(dealerText, hits) {
+  const d = String(dealerText || "");
+  if (!GAME_ITEM.test(d)) return { kept: hits || [], dropped: 0, mode: null };
+  // The dealer who writes "with case, no manual" has a case: the complete reading wins a tie.
+  const mode = SAYS_COMPLETE.test(d) ? "complete" : SAYS_LOOSE.test(d) ? "loose" : null;
+  if (!mode) return { kept: hits || [], dropped: 0, mode };
+  const bad = mode === "complete" ? TITLE_LOOSE : TITLE_COMPLETE;
+  const kept = (hits || []).filter(h => !bad.test(String((h && h.title) || "")));
+  return { kept, dropped: (hits || []).length - kept.length, mode };
+}
+
 // Counterfeit retro carts (2026-11-09). Loose Pokemon FireRed came back $11-$15 from four sales of
 // one seller's identical "Tested & Saves!" listing, two marked "Brand New" / "New (Other)" - a
 // 2004 cartridge sold loose and new is a reproduction - while two sales titled "Authentic" were
@@ -2246,6 +2268,13 @@ export async function appraise(env, req) {
     for (const arr of [live, sold, web]) if (Array.isArray(arr)) {
       const f = fakeFilter(deckText, arr); fakes += f.dropped; arr.splice(0, arr.length, ...f.kept);
     }
+    { let cased = 0, caseMode = null;
+      for (const arr of [live, sold, web]) if (Array.isArray(arr)) {
+        const f = caseFilter(dealerText, arr); cased += f.dropped; caseMode = f.mode; arr.splice(0, arr.length, ...f.kept);
+      }
+      if (cased) warnings.push(`left out ${cased} sale${cased === 1 ? "" : "s"} or listing${cased === 1 ? "" : "s"} ` +
+        (caseMode === "complete" ? "sold loose (disc or cartridge only), because you said yours comes with its case"
+                                 : "sold complete with case or box, because you said yours is loose")); }
     if (fakes) warnings.push(`left out ${fakes} sale${fakes === 1 ? "" : "s"} or listing${fakes === 1 ? "" : "s"} that look like reproductions (sold "new" or far below copies marked authentic). Popular retro games are widely faked; check the label, the board and the stamped number before you price yours`);
     if (carts) warnings.push(`left out ${carts} sale${carts === 1 ? "" : "s"} or listing${carts === 1 ? "" : "s"} that came with a premium phono cartridge (Shure V15, Ortofon 2M and the like), which can add hundreds to the price. Say which cartridge yours has if it has one, and re-run`); }
   mark("comps");
