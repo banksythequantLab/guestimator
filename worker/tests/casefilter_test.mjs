@@ -29,6 +29,18 @@ r = caseFilter("Pyrex Spring Blossom mixing bowl, complete set of 4, no box", H(
 ok("not a game: untouched", r.dropped === 0 && r.mode === null, r);
 r = caseFilter("Nintendo 64 console NUS-001, console only with power supply, no controller", H(["N64 console complete in box", "N64 console only"]));
 ok("console text is not disc/cart text: 'console only' alone does not read as loose", r.mode === null, r);
+// EarthBound (2026-11-09): "w/ Original Box", "Big Box CIB" and "w/ Player's Guide" are complete copies.
+r = caseFilter("EarthBound for Super Nintendo SNES, authentic loose cartridge only, US version", H([
+  "Nintendo EarthBound SNES Super Nintendo Game Cartridge w/ Original Box", "EarthBound SNES Super Nintendo Big Box CIB Guide Scratch & Sniff Cards Tested",
+  "EarthBound w/ Player's Guide (Super Nintendo Entertainment System, 1995)", "Earthbound SNES Cart - Tested Works", "EarthBound SNES (US) | Cartridge Only | Tested and Working"]));
+ok("loose: 'w/ Original Box', 'Big Box CIB' and 'w/ Player's Guide' all read as complete", r.dropped === 3 && r.kept.length === 2, r.kept.map(h => h.title));
+// Graded and sealed copies go whatever the dealer said about the case, unless theirs is one.
+r = caseFilter("Super Mario 64 for Nintendo 64, US version", H(["Super Mario 64 N64 WATA 9.4 A+ Sealed", "Super Mario 64 N64 cartridge tested", "Super Mario 64 (N64) factory sealed", "Super Mario 64 N64 CGC 8.5"]));
+ok("graded/sealed dropped with no case mode", r.dropped === 3 && r.mode === null && r.kept.length === 1, r);
+r = caseFilter("Super Mario 64 for Nintendo 64, factory sealed, WATA graded 9.0", H(["Super Mario 64 N64 WATA 9.4 A+ Sealed", "Super Mario 64 N64 cartridge tested"]));
+ok("dealer's own copy is graded: graded listings kept", r.dropped === 0, r);
+r = caseFilter("Mario Kart 64 for Nintendo 64, loose cartridge only", H(["Mario Kart 64 N64 CIB", "Mario Kart 64 N64 sealed", "Mario Kart 64 N64 cart only"]));
+ok("loose mode drops both complete and sealed", r.dropped === 2 && r.kept.length === 1, r);
 // The sold query asks for complete copies when the dealer has one.
 ok("hint: with case -> (cib,complete)", soldQueryHint("Paper Mario TTYD for Nintendo GameCube, disc with original case") === "(cib,complete)");
 ok("hint: loose -> none", soldQueryHint("Mario Kart 64 for Nintendo 64, loose cartridge only") === "");

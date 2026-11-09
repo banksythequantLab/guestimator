@@ -1793,7 +1793,12 @@ export function cartFilter(dealerText, hits) {
 export const SAYS_COMPLETE = /\bcib\b|\bcomplete\b|\bboxed\b|\b(?:with|in|and|w\/|\+|including|includes)\s+(?:its\s+|the\s+)?(?:original\s+)?(?:case|box|packaging)\b|\bcase\s*(?:&|and|\+)\s*(?:disc|manual|cart)/i;
 export const SAYS_LOOSE = /\b(?:disc|cart|cartridge|game)\s+only\b|\bloose\b|\bno\s+(?:case|box)\b|\bwithout\s+(?:a\s+|the\s+|its\s+)?(?:case|box)\b/i;
 const TITLE_LOOSE = /\b(?:disc|cart|cartridge|game)\s+only\b|\bloose\b|\bno\s+(?:case|box)\b/i;
-const TITLE_COMPLETE = /\bcib\b|\bcomplete\b|\bboxed\b|\bin\s+box\b|\bwith\s+(?:case|box|manual)\b|\bw\/\s*(?:case|box|manual)\b|\bcase\s*(?:&|and|\+)\s*(?:disc|manual|cart)|\b(?:disc|cart|cartridge)\s*(?:&|and|\+)\s*(?:case|box|manual)\b/i;
+// "w/ Original Box", "Big Box CIB", "w/ Player's Guide" (EarthBound, 2026-11-09): a word or two
+// between "with" and the thing, and the extras that only come with a complete copy.
+const TITLE_COMPLETE = /\bcib\b|\bcomplete\b|\bboxed\b|\bin\s+(?:big\s+)?box\b|\bbig\s+box\b|\b(?:with|w\/)\s*(?:(?:original|its|the|orig|player'?s|big)\s+){0,2}(?:case|box|manual|guide|inserts?|poster|map)\b|\bcase\s*(?:&|and|\+)\s*(?:disc|manual|cart)|\b(?:disc|cart|cartridge)\s*(?:&|and|\+)\s*(?:case|box|manual)\b/i;
+// Graded and factory-sealed copies are a collector market several times the played-copy price,
+// and the dealer's used copy is not in it unless they say so.
+const TITLE_GRADED = /\b(?:wata|vga|cgc|graded|sealed|factory\s+sealed|new\s+sealed)\b/i;
 // The sold feed returns the busiest half of a game's market, and for most discs that is the loose
 // half: TTYD "with original case" got 26 disc-only sales and nothing left after caseFilter
 // (2026-11-09). When the dealer says complete, the sold search asks for complete copies - eBay's
@@ -1809,9 +1814,10 @@ export function caseFilter(dealerText, hits) {
   if (!GAME_ITEM.test(d)) return { kept: hits || [], dropped: 0, mode: null };
   // The dealer who writes "with case, no manual" has a case: the complete reading wins a tie.
   const mode = SAYS_COMPLETE.test(d) ? "complete" : SAYS_LOOSE.test(d) ? "loose" : null;
-  if (!mode) return { kept: hits || [], dropped: 0, mode };
-  const bad = mode === "complete" ? TITLE_LOOSE : TITLE_COMPLETE;
-  const kept = (hits || []).filter(h => !bad.test(String((h && h.title) || "")));
+  const graded = TITLE_GRADED.test(d) ? null : TITLE_GRADED;   // the dealer's own graded or sealed copy keeps them
+  const bad = mode === "complete" ? TITLE_LOOSE : mode === "loose" ? TITLE_COMPLETE : null;
+  if (!bad && !graded) return { kept: hits || [], dropped: 0, mode };
+  const kept = (hits || []).filter(h => { const t = String((h && h.title) || ""); return !(bad && bad.test(t)) && !(graded && graded.test(t)); });
   return { kept, dropped: (hits || []).length - kept.length, mode };
 }
 
@@ -2294,8 +2300,9 @@ export async function appraise(env, req) {
         const f = caseFilter(dealerText, arr); cased += f.dropped; caseMode = f.mode; arr.splice(0, arr.length, ...f.kept);
       }
       if (cased) warnings.push(`left out ${cased} sale${cased === 1 ? "" : "s"} or listing${cased === 1 ? "" : "s"} ` +
-        (caseMode === "complete" ? "sold loose (disc or cartridge only), because you said yours comes with its case"
-                                 : "sold complete with case or box, because you said yours is loose")); }
+        (caseMode === "complete" ? "sold loose (disc or cartridge only) or graded/sealed, because you said yours is a played copy with its case"
+         : caseMode === "loose" ? "sold complete with case or box, or graded/sealed, because you said yours is a loose played copy"
+         : "that were graded or factory sealed, a collector market your played copy is not in")); }
     if (fakes) warnings.push(`left out ${fakes} sale${fakes === 1 ? "" : "s"} or listing${fakes === 1 ? "" : "s"} that look like reproductions (sold "new" or far below copies marked authentic). Popular retro games are widely faked; check the label, the board and the stamped number before you price yours`);
     if (carts) warnings.push(`left out ${carts} sale${carts === 1 ? "" : "s"} or listing${carts === 1 ? "" : "s"} that came with a premium phono cartridge (Shure V15, Ortofon 2M and the like), which can add hundreds to the price. Say which cartridge yours has if it has one, and re-run`); }
   mark("comps");
