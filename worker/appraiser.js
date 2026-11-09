@@ -2295,7 +2295,8 @@ export async function appraise(env, req) {
     for (const arr of [live, sold, web]) if (Array.isArray(arr)) {
       const f = fakeFilter(deckText, arr); fakes += f.dropped; arr.splice(0, arr.length, ...f.kept);
     }
-    { let cased = 0, caseMode = null;
+    let caseMode = null;
+    { let cased = 0;
       for (const arr of [live, sold, web]) if (Array.isArray(arr)) {
         const f = caseFilter(dealerText, arr); cased += f.dropped; caseMode = f.mode; arr.splice(0, arr.length, ...f.kept);
       }
@@ -2304,7 +2305,28 @@ export async function appraise(env, req) {
          : caseMode === "loose" ? "sold complete with case or box, or graded/sealed, because you said yours is a loose played copy"
          : "that were graded or factory sealed, a collector market your played copy is not in")); }
     if (fakes) warnings.push(`left out ${fakes} sale${fakes === 1 ? "" : "s"} or listing${fakes === 1 ? "" : "s"} that look like reproductions (sold "new" or far below copies marked authentic). Popular retro games are widely faked; check the label, the board and the stamped number before you price yours`);
-    if (carts) warnings.push(`left out ${carts} sale${carts === 1 ? "" : "s"} or listing${carts === 1 ? "" : "s"} that came with a premium phono cartridge (Shure V15, Ortofon 2M and the like), which can add hundreds to the price. Say which cartridge yours has if it has one, and re-run`); }
+    if (carts) warnings.push(`left out ${carts} sale${carts === 1 ? "" : "s"} or listing${carts === 1 ? "" : "s"} that came with a premium phono cartridge (Shure V15, Ortofon 2M and the like), which can add hundreds to the price. Say which cartridge yours has if it has one, and re-run`);
+    // The other half of the complete-copy hint (2026-11-09). The feed returns the 30 newest sales,
+    // and for a popular title those can all be bundles, complete copies and reproductions: the
+    // sweep left Metroid NES with 1 sale of 13 and the Saturn and Xbox consoles with none of 15-21.
+    // Loose and bare copies are the majority of the market but the minority of titles that SAY so,
+    // so this hint is a fallback, never the first ask: only when the filtered sold pool is under two.
+    const bareHint = caseMode === "loose" ? '("cartridge only","cart only","disc only",loose)'
+      : BARE_ONLY.test(dealerText) ? '("console only","system only","no games","no controller")' : "";
+    if (bareHint && Array.isArray(sold) && sold.length < 2 && !soldFailure()) {
+      const more = await ebaySold(env, q, 30, 2, bareHint).catch(() => null);
+      marks.sold_lookups += soldLookups();
+      if (more && more.length) {
+        let kept = bareFilter(dealerText, more).kept;
+        kept = cartFilter(deckText, kept).kept; kept = fakeFilter(deckText, kept).kept; kept = caseFilter(dealerText, kept).kept;
+        const seen = new Set(sold.map(h => String(h.url || "").split("?")[0]));
+        const fresh = kept.filter(h => !seen.has(String(h.url || "").split("?")[0]));
+        if (fresh.length) {
+          sold.push(...fresh);
+          warnings.push(`${fresh.length} more sale${fresh.length === 1 ? "" : "s"} of ${caseMode === "loose" ? "loose copies" : "bare units"} found with a second search, because the first mostly returned bundles and complete copies`);
+        }
+      }
+    } }
   mark("comps");
   // A "set of 4" in the dealer's words AND completed sales of the same four-piece set in the pool:
   // the set is the product and those sales are its price. The lot arithmetic (one piece x 4) is
