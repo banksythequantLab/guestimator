@@ -349,6 +349,44 @@ ARTICLES.push(
             "Judge the condition honestly: look at the corners, edges and back for whitening, scratches on the holo, creases and bends. Lightly played sells well below near mint.",
             "Compare with a real card if anything looks off. Fakes are common: wrong font, washed-out colors, a glossy or thin feel, or no layer visible when you look at the edge."] },
 );
+// Per-platform guides (2026-11-09): "how much are gamecube games worth" and its N64, SNES and
+// Wii cousins are the searches people actually type, and each now has 15-25 priced pages behind it.
+// Consoles and handhelds are left to the console guide; the match keeps each to its own carts or discs.
+ARTICLES.push(
+  { slug: "gamecube-games-worth", hub: "video-games", match: /\bgamecube\b(?!.*\b(?:console|controller)\b)/i,
+    title: "How much are GameCube games worth?",
+    desc: "What Nintendo GameCube games actually sell for, from recent eBay sales: Melee, Wind Waker, Pokémon XD, Fire Emblem and the rest, and how to price yours.",
+    intro: "GameCube games have climbed for years, and a few of them - Pokémon XD, Fire Emblem: Path of Radiance, Twilight Princess - now sell for more than the console did new. Most of the library is still cheap. The disc alone and a complete copy with its case and manual are two different markets, so decide which you have before you look anything up. Here is what the common ones sold for recently.",
+    steps: ["Check what you have: disc only, disc and case, or complete with the manual and any inserts. The case roughly doubles most prices.",
+            "Confirm it is the GameCube disc and not a later port. Several of these were remade for Wii, Wii U or Switch, and those sell for different money.",
+            "Look at the disc for scratches and at the case for cracks. A resurfaced disc still plays and still sells.",
+            "Look up recent sold prices for your exact version, or Guestimate it from a photo."] },
+  { slug: "wii-games-worth", hub: "video-games", match: /\bwii\b(?!.*\b(?:console|remote|controller|wii u)\b)/i,
+    title: "Are Wii games worth anything?",
+    desc: "What Nintendo Wii games actually sell for, from recent eBay sales: Mario Kart, Smash Bros. Brawl, Galaxy, Skyward Sword and more, and which ones are worth listing.",
+    intro: "Most Wii games sell for less than a takeaway coffee, because Nintendo sold a hundred million consoles and the games to match. A handful hold up: the first-party Mario and Zelda titles, Xenoblade Chronicles, and late releases that had small print runs. Here is what common Wii games sold for recently, so you can tell which are worth listing on their own and which belong in a lot.",
+    steps: ["Separate the few that sell alone (Mario, Zelda, Smash, Metroid Prime Trilogy, Xenoblade) from the sports and party titles, which do better bundled.",
+            "Check for the case and the manual. Wii games with their case sell for noticeably more than the loose disc.",
+            "Note anything that came with it: the Wii Wheel, the Zapper, or the MotionPlus adapter, which sell with the game.",
+            "Look up recent sold prices for the exact title, or Guestimate it from a photo."] },
+  { slug: "n64-games-worth", hub: "video-games", match: /\b(?:n64|nintendo 64)\b(?!.*\b(?:console|controller)\b)/i,
+    title: "How much are N64 games worth?",
+    desc: "What Nintendo 64 cartridges actually sell for, from recent eBay sales: Mario 64, Ocarina of Time, GoldenEye, Smash Bros., Pokémon Stadium and more, and how to spot a fake.",
+    intro: "Nintendo 64 cartridges are among the most searched-for retro games, and the prices have a wide spread: a loose Mario Kart 64 sells every day for the price of a new game, while Conker's Bad Fur Day and the Pokémon titles go for several times that. Reproduction cartridges are common for the popular titles. Here is what the common ones sold for recently, cartridge only unless the page says otherwise.",
+    steps: ["Read the label for the exact title and check it is the US (NTSC) version. European and Japanese carts are a different market.",
+            "Check it is authentic: a real cart has the Nintendo seal, a stamped number on the label, and a molded code on the back. Glossy labels and wrong screws are the usual tells.",
+            "Test it. If it will not boot, clean the contacts with isopropyl alcohol rather than blowing on them. \"Tested, works\" sells above \"untested\".",
+            "Decide whether you are selling the cartridge alone or complete in box, and look up sold prices for that, or Guestimate it from a photo."] },
+  { slug: "snes-games-worth", hub: "video-games", match: /\b(?:snes|super nintendo)\b(?!.*\b(?:console|controller)\b)/i,
+    title: "How much are SNES games worth?",
+    desc: "What Super Nintendo cartridges actually sell for, from recent eBay sales: Super Mario World, Chrono Trigger, EarthBound, Super Metroid, Zelda and more, and how to price yours.",
+    intro: "Super Nintendo games range from a few dollars for the sports titles to several hundred for the RPGs collectors chase - EarthBound, Chrono Trigger, Final Fantasy III. Save batteries from the 1990s are dying, and a cartridge that still saves is worth more than one that does not. Here is what the common ones sold for recently, cartridge only unless the page says otherwise.",
+    steps: ["Read the label for the exact title and check it is the US (NTSC) version; Super Famicom carts are a different shape and a different market.",
+            "Check it is authentic, especially for the RPGs: a real cart has the Nintendo seal, a stamped label number and a molded code on the back.",
+            "Turn it on and save a game. A working save battery adds to the price; a replaced one, noted honestly, is fine too.",
+            "Decide whether you are selling the cartridge alone or complete in box, and look up sold prices for that, or Guestimate it from a photo."] },
+);
+
 export const articleBySlug = slug => ARTICLES.find(a => a.slug === String(slug || "")) || null;
 export const articlePath = a => `/guides/${a.slug}`;
 export function articlePage(a, guides, origin) {

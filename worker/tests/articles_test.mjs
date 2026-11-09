@@ -32,7 +32,18 @@ const ci = articlePage(articleBySlug("cast-iron-skillet-worth"), [...guides, G("
 ok("cast iron guide quotes pans, not Pyrex", ci.includes("Griswold No. 10") && !ci.includes("Pyrex Butterprint"));
 const con = articlePage(articleBySlug("old-game-console-worth"), [...guides, G("Sega Dreamcast HKT-3020 console", 75, 102), G("Nintendo DS Lite handheld gaming console", 50, 72)], o);
 ok("console guide quotes consoles, not cartridges", con.includes("Sega Dreamcast") && con.includes("DS Lite") && !con.includes("Super Metroid"));
-ok("sewing guide exists", !!articleBySlug("old-sewing-machine-worth") && ARTICLES.length === 9);
+ok("sewing guide exists", !!articleBySlug("old-sewing-machine-worth") && ARTICLES.length === 13);
+// Platform guides (2026-11-09): each quotes its own platform's games, never consoles or another platform.
+{ const plat = [...guides, G("Super Smash Bros. Melee GameCube game", 45, 60), G("Mario Kart Wii game", 28, 40), G("Nintendo Wii (RVL-001) console", 40, 60),
+    G("GameCube DOL-001 console (Indigo)", 80, 110), G("Super Mario 64 N64 cartridge", 30, 45), G("Nintendo 64 console (NUS-001)", 47, 69), G("Zelda Wind Waker GameCube game", 60, 80)];
+  const gc = articlePage(articleBySlug("gamecube-games-worth"), plat, o);
+  ok("gamecube guide: GameCube games only", gc.includes("Melee") && gc.includes("Wind Waker") && !gc.includes("DOL-001") && !gc.includes("Mario Kart Wii") && !gc.includes("Super Metroid"), gc.match(/<tbody>.*<\/tbody>/s)?.[0]?.slice(0, 400));
+  const wii = articlePage(articleBySlug("wii-games-worth"), plat, o);
+  ok("wii guide: Wii games only", wii.includes("Mario Kart Wii") && !wii.includes("RVL-001") && !wii.includes("Melee"));
+  const n64 = articlePage(articleBySlug("n64-games-worth"), plat, o);
+  ok("n64 guide: N64 carts only", n64.includes("Super Mario 64") && !n64.includes("NUS-001") && !n64.includes("Super Metroid"));
+  const snes = articlePage(articleBySlug("snes-games-worth"), plat, o);
+  ok("snes guide: SNES carts only", snes.includes("Super Metroid") && !snes.includes("Super Mario 64") && !snes.includes("Duck Hunt")); }
 const pc = articlePage(articleBySlug("old-pokemon-cards-worth"), [...guides, G("Pokémon Base Set Charizard 4/102 holo card (Unlimited)", 307, 442), G("Lugia 9/111 Neo Genesis holo card", 90, 130), G("1989 Upper Deck Ken Griffey Jr. #1 rookie card", 77, 104)], o);
 ok("pokemon card guide quotes Pokemon cards, not sports cards or games", pc.includes("Charizard 4/102") && pc.includes("Lugia") && !pc.includes("Griffey") && !pc.includes("Super Metroid"));
 const pk = articlePage(articleBySlug("old-pokemon-games-worth"), [...guides, G("Pokemon Red Version Game Boy cartridge", 40, 62), G("Pokémon Snap Nintendo 64 cartridge", 20, 30)], o);
