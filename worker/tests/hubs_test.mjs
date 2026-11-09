@@ -1,6 +1,6 @@
 // Run: node worker/tests/hubs_test.mjs
 // Price-guide category hubs (2026-11-06).
-import { hubOf, hubBySlug, hubPage, indexPage, guidePage, sitemap, pagePath } from "../priceguide.js";
+import { HUBS, hubOf, hubBySlug, hubPage, indexPage, guidePage, sitemap, pagePath } from "../priceguide.js";
 let pass = 0, fail = 0;
 const ok = (n, c, got) => { c ? pass++ : (fail++, console.log("FAIL " + n + (got !== undefined ? "\n   got " + JSON.stringify(got).slice(0, 300) : ""))); };
 let seq = 1000000000;
@@ -44,5 +44,11 @@ ok("more: never links itself", ip.split(`href="${pagePath(guides[0])}"`).length 
 const sm = sitemap(guides, o);
 ok("sitemap has hubs", sm.includes(`${o}/prices/watches<`) && sm.includes(`${o}/prices/video-games<`) && !sm.includes("/prices/kitchen<"));
 ok("sitemap still has items", guides.every(g => sm.includes(o + pagePath(g))));
+{ const tc = HUBS.find(h => h.slug === "trading-cards");
+  ok("cards hub: Charizard card is a card", hubOf({ title: "Pokémon Base Set Charizard 4/102 holo card" }) === tc);
+  ok("cards hub: Griffey rookie is a card", hubOf({ title: "1989 Upper Deck Ken Griffey Jr. #1 rookie card" }) === tc);
+  ok("cards hub: TCG game cartridge stays a game", hubOf({ title: "Pokemon Trading Card Game Game Boy Color cartridge" }).slug === "video-games");
+  ok("cards hub: Pokemon Red cartridge stays a game", hubOf({ title: "Pokémon Red Version Game Boy cartridge" }).slug === "video-games");
+  ok("cards hub: graphics card stays a computer part", hubOf({ title: "NVIDIA Tesla M10 Graphics Card" }).slug === "computer-parts"); }
 console.log(`hubs: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

@@ -173,6 +173,11 @@ export function sitemap(guides, origin, extra = []) {
 // one of them. Hubs give every page a second way in, a three-level breadcrumb, and "more like this"
 // links to its own kind instead of whatever was published last. Order matters: first match wins.
 export const HUBS = [
+  // Before video games (2026-11-09): "Pokémon Base Set Charizard holo card" is a card, not a game.
+  // A Game Boy cartridge that mentions the trading card game stays a game.
+  { slug: "trading-cards", name: "Trading cards", blurb: "Pokémon and sports cards, raw (ungraded) unless the title says graded.",
+    tips: ["Raw vs. graded: a PSA or BGS graded card is a different market from the same card raw. These prices are for raw cards unless the title says graded.","Condition is most of the price. Look at the corners, the edges, the surface (scratches, print lines) and how well the picture is centered.","Edition and print run matter: 1st Edition, Shadowless and Unlimited copies of the same Pokémon card sell for very different amounts. Check the symbols on the card.","Popular cards are faked. Compare the font, the colors and the card stock with a known real one, and be careful with prices that look too good."],
+    re: /^(?!.*\b(?:cartridge|game ?boy|gbc|gba|console|nintendo ds|3ds|graphics|video|memory|sd|sim|gift|sound|network)\b).*\b(?:trading cards?|tcg|holo(?:graphic)?|rookie|(?:pok[eé]mon|baseball|basketball|football|hockey|topps|fleer|upper deck|panini|bowman)\b.*\bcards?)\b/i },
   { slug: "video-games", name: "Video games and consoles", blurb: "Game cartridges, consoles and handhelds: Nintendo, Game Boy, PlayStation, Sega, Xbox.",
     tips: ["Loose cartridge or disc vs. complete in box: the box and manual can add as much as the game itself, so say which you have.","Authentic vs. reproduction: popular titles are widely faked. Check the label print, the board inside, and the screws.","Region: a US game sells to US buyers. Japanese and PAL copies are a different market and usually sell for less here.","Tested and working, with a clean label, sells above \"untested\". Old save batteries in some games run dry, and buyers know it."],
     re: /\b(?:nintendo|game ?boy|gamecube|n64|snes|nes|wii|switch lite|3ds|ds lite|playstation|ps[1-5]|psp|xbox|sega|dreamcast|saturn|pok[eé]mon|video games?|game cartridge)\b/i },
