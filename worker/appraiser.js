@@ -1196,7 +1196,7 @@ export const searchCapMs = env => Math.max(3000, Math.min(30000, Number(env && e
 // priced it from a single asking price ($170-216 vs $129-175 from 4 sales). SOLD_CAP_MS, else an
 // explicit SEARCH_CAP_MS, else 15s.
 export const soldCapMs = env => env && env.SOLD_CAP_MS ? Math.max(3000, Math.min(30000, Number(env.SOLD_CAP_MS) || 15000)) : env && env.SEARCH_CAP_MS ? searchCapMs(env) : 15000;
-export async function ebaySold(env, query, limit = 30, maxLookups = 3) {
+export async function ebaySold(env, query, limit = 30, maxLookups = 3, hint = "") {
   _soldFail = null; _soldLookups = 0;
   if (!env.SOLDCOMPS_API_KEY) { _soldFail = "sold prices are not switched on"; return null; }
   const base = cleanForEbay(query) || String(query);
@@ -1204,7 +1204,10 @@ export async function ebaySold(env, query, limit = 30, maxLookups = 3) {
   // Same ladder as the live search: the full description first, then shorter versions of it.
   // eBay's search wants every word, so "... Server Memory 2017" can find nothing while
   // "SK Hynix 32GB DDR4 2400 RDIMM" finds 28 sales. Each rung is one SoldComps request.
-  const ladder = [base, ...broaden(base)].filter((q, i, a) => q && a.indexOf(q) === i).slice(0, maxLookups);
+  // The hint rides on every rung rather than in the query, because broaden() shortens a query
+  // from its end and would throw the hint away first.
+  const ladder = [base, ...broaden(base)].filter((q, i, a) => q && a.indexOf(q) === i).slice(0, maxLookups)
+    .map(q => hint ? `${q} ${hint}` : q);
   // CHANGED 2026-10-05: the rungs used to run one after another, each allowed 20s, and the eBay
   // step measured 18-20s. All rungs now start at once (Derek: "run in parallel"); the answer is
   // still the FIRST rung in ladder order that has sales, read as soon as it and every rung before
@@ -1791,6 +1794,16 @@ export const SAYS_COMPLETE = /\bcib\b|\bcomplete\b|\bboxed\b|\b(?:with|in|and|w\
 export const SAYS_LOOSE = /\b(?:disc|cart|cartridge|game)\s+only\b|\bloose\b|\bno\s+(?:case|box)\b|\bwithout\s+(?:a\s+|the\s+|its\s+)?(?:case|box)\b/i;
 const TITLE_LOOSE = /\b(?:disc|cart|cartridge|game)\s+only\b|\bloose\b|\bno\s+(?:case|box)\b/i;
 const TITLE_COMPLETE = /\bcib\b|\bcomplete\b|\bboxed\b|\bin\s+box\b|\bwith\s+(?:case|box|manual)\b|\bw\/\s*(?:case|box|manual)\b|\bcase\s*(?:&|and|\+)\s*(?:disc|manual|cart)|\b(?:disc|cart|cartridge)\s*(?:&|and|\+)\s*(?:case|box|manual)\b/i;
+// The sold feed returns the busiest half of a game's market, and for most discs that is the loose
+// half: TTYD "with original case" got 26 disc-only sales and nothing left after caseFilter
+// (2026-11-09). When the dealer says complete, the sold search asks for complete copies - eBay's
+// own keyword grouping, "(cib,complete)", matches either word. The caller falls back to the plain
+// query when the hinted one finds nothing, so a feed that chokes on the parentheses costs one
+// extra lookup and no sales.
+export function soldQueryHint(dealerText) {
+  const d = String(dealerText || "");
+  return GAME_ITEM.test(d) && SAYS_COMPLETE.test(d) ? "(cib,complete)" : "";
+}
 export function caseFilter(dealerText, hits) {
   const d = String(dealerText || "");
   if (!GAME_ITEM.test(d)) return { kept: hits || [], dropped: 0, mode: null };
@@ -2242,7 +2255,15 @@ export async function appraise(env, req) {
   // EVERY estimate, alongside the two eBay searches, instead of only when eBay came back thin
   // (Derek: "seems like it should fire no matter what"). eBay alone missed what an artist's or
   // maker's work actually brings: a signed Kosik portrait priced from generic eBay portraits.
-  const [live, sold, web, makerWorks] = await Promise.all([timed("ebay_active", ebayActive(env, q)), timed("ebay_sold", ebaySold(env, q)),
+  const soldHint = soldQueryHint(`${req.description || ""} ${req.markings || ""}`);
+  const soldSearch = async () => {
+    if (!soldHint) return ebaySold(env, q);
+    const hinted = await ebaySold(env, q, 30, 3, soldHint);
+    if (hinted && hinted.length) return hinted;
+    console.log("sold hint found nothing, plain query", JSON.stringify({ q, soldHint }));
+    return ebaySold(env, q);
+  };
+  const [live, sold, web, makerWorks] = await Promise.all([timed("ebay_active", ebayActive(env, q)), timed("ebay_sold", soldSearch()),
                                                timed("web_search", searchComps(env, q).catch(() => [])),
                                                // The artist's / maker's own auction market, when one is named (context, not comps).
                                                timed("maker_search", makerMarket(env, ident.maker, ident.category).catch(() => []))]);

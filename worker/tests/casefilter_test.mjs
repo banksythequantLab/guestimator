@@ -1,6 +1,6 @@
 // Run: node worker/tests/casefilter_test.mjs
 // Complete vs loose (2026-11-09): the dealer's own words pick which half of a game's market is comparable.
-import { caseFilter } from "../appraiser.js";
+import { caseFilter, soldQueryHint, ebaySold } from "../appraiser.js";
 let pass = 0, fail = 0;
 const ok = (n, c, got) => { c ? pass++ : (fail++, console.log("FAIL " + n + (got !== undefined ? "  got " + JSON.stringify(got) : ""))); };
 const H = titles => titles.map(title => ({ title, price: 10 }));
@@ -29,5 +29,14 @@ r = caseFilter("Pyrex Spring Blossom mixing bowl, complete set of 4, no box", H(
 ok("not a game: untouched", r.dropped === 0 && r.mode === null, r);
 r = caseFilter("Nintendo 64 console NUS-001, console only with power supply, no controller", H(["N64 console complete in box", "N64 console only"]));
 ok("console text is not disc/cart text: 'console only' alone does not read as loose", r.mode === null, r);
+// The sold query asks for complete copies when the dealer has one.
+ok("hint: with case -> (cib,complete)", soldQueryHint("Paper Mario TTYD for Nintendo GameCube, disc with original case") === "(cib,complete)");
+ok("hint: loose -> none", soldQueryHint("Mario Kart 64 for Nintendo 64, loose cartridge only") === "");
+ok("hint: not a game -> none", soldQueryHint("Pyrex bowl set complete with box") === "");
+{ const asked = []; const prev = globalThis.fetch;
+  globalThis.fetch = async u => { asked.push(new URL(String(u)).searchParams.get("keyword")); return new Response(JSON.stringify({ items: [] }), { status: 200, headers: { "content-type": "application/json" } }); };
+  await ebaySold({ SOLDCOMPS_API_KEY: "k" }, "Paper Mario Thousand-Year Door GameCube", 30, 3, "(cib,complete)");
+  globalThis.fetch = prev;
+  ok("hint: rides on every rung of the ladder", asked.length >= 2 && asked.every(k => / \(cib,complete\)$/.test(k)), asked); }
 console.log(`casefilter_test: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
