@@ -682,9 +682,41 @@ export function wrongRegion(query, title) {
   return GAME_ITEM.test(q) && OTHER_REGION.test(t) && !OTHER_REGION.test(q);
 }
 
+// The same game on a different machine is a different product at a different price (2026-11-09):
+// Paper Mario: The Thousand-Year Door for GameCube came back $26-$38 because the 2024 Switch
+// remake, which shares the title, filled the pool (the original sells for several times that).
+// Each platform is one entry here, spelled every way sellers spell it. The Game Boy family is
+// deliberately absent: a Game Boy cart plays on the Color and the Advance, sellers write all three
+// on one listing, and rejecting those would throw away most of the real comparables.
+const PLATFORMS = [
+  ["switch", /\bswitch\b/i], ["wii u", /\bwii\s?u\b/i], ["wii", /\bwii\b(?!\s?u)/i],
+  ["gamecube", /\b(?:gamecube|game\s?cube|ngc|gcn)\b/i], ["n64", /\b(?:n64|nintendo\s?64)\b/i],
+  ["snes", /\b(?:snes|super\s?nintendo|super\s?nes|super\s?famicom)\b/i], ["nes", /\b(?:nes|nintendo\s+entertainment\s+system|famicom)\b/i],
+  ["3ds", /\b(?:3ds|2ds)\b/i], ["ds", /\b(?:ds|nintendo\s?ds|dsi)\b(?!\s?lite\s+console)/i],
+  ["ps1", /\b(?:ps1|psx|psone|playstation\s?(?:1|one)?)\b(?!\s?[2-5])/i], ["ps2", /\b(?:ps2|playstation\s?2)\b/i],
+  ["ps3", /\b(?:ps3|playstation\s?3)\b/i], ["ps4", /\b(?:ps4|playstation\s?4)\b/i], ["ps5", /\b(?:ps5|playstation\s?5)\b/i],
+  ["xbox 360", /\bxbox\s?360\b/i], ["xbox one", /\bxbox\s?one\b/i], ["xbox", /\bxbox\b(?!\s?(?:360|one|series))/i],
+  ["genesis", /\b(?:genesis|mega\s?drive)\b/i], ["dreamcast", /\bdreamcast\b/i], ["saturn", /\bsega\s+saturn\b|\bsaturn\b/i],
+  ["psp", /\bpsp\b/i], ["vita", /\b(?:ps\s?vita|vita)\b/i],
+];
+const platformsIn = s => new Set(PLATFORMS.filter(([, re]) => re.test(s)).map(([k]) => k));
+export function wrongPlatform(query, title) {
+  if (!GAME_ITEM.test(String(query || ""))) return false;   // games only: a light switch is not a console
+  const qp = platformsIn(String(query || ""));
+  if (qp.size !== 1) return false;             // no platform asked for, or an ambiguous ask: nothing to contradict
+  const tp = platformsIn(String(title || ""));
+  if (!tp.size) return false;                  // the title names no machine: let the other filters judge it
+  const [want] = qp;
+  // A GameCube disc "plays on Wii" and sellers say so; a title that names the wanted platform is kept.
+  if (tp.has(want)) return false;
+  // Remakes and ports are the live failure, and they announce themselves.
+  return true;
+}
+
 export function contradictsSpec(query, title) {
   const q = String(query || ""), t = String(title || "");
   if (wrongRegion(q, t)) return true;
+  if (wrongPlatform(q, t)) return true;
 
   const qs = sizesIn(q), ts = sizesIn(t);
   for (const [unit, qv] of qs) {
