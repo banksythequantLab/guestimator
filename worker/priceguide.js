@@ -16,7 +16,7 @@ export const pagePath = g => `/price/${slugify(g.title)}-${g.listing_id}`;
 
 // Every eBay listing (one per item, newest) with a finished estimate. Sold-on-eBay counts too.
 const BASE = `SELECT l.listing_id, l.listing_url, l.status, l.price_cents, l.sold_count, l.sold_median_cents, l.sold_checked_at, l.updated_at,
-    COALESCE(i.ai_title, i.name) AS title, i.listing_status, a.result_json, a.created_at AS estimated_at,
+    COALESCE(NULLIF(i.guide_title,''), i.ai_title, i.name) AS title, i.listing_status, a.result_json, a.created_at AS estimated_at,
     EXISTS (SELECT 1 FROM ebay_orders o WHERE o.listing_id=l.listing_id AND o.status<>'CANCELLED') AS sold_here
   FROM ebay_listings l JOIN items i ON i.id=l.item_id
   JOIN appraisals a ON a.id=(SELECT id FROM appraisals x WHERE x.item_id=l.item_id AND x.status='done' AND ${GOOD_REFRESH("x")} ORDER BY x.created_at DESC LIMIT 1)
@@ -28,7 +28,7 @@ const SHOWN = " AND COALESCE(i.guide_hidden,0)=0";
 export const optKey = itemId => "g" + String(itemId || "").replace(/[^0-9a-f]/gi, "").slice(0, 12).toLowerCase();
 const OPT = `SELECT 'g' || lower(substr(replace(i.id,'-',''),1,12)) AS listing_id, NULL AS listing_url, 'optin' AS status, NULL AS price_cents,
     NULL AS sold_count, NULL AS sold_median_cents, NULL AS sold_checked_at, a.created_at AS updated_at,
-    COALESCE(i.ai_title, i.name) AS title, i.listing_status, a.result_json, a.created_at AS estimated_at, 0 AS sold_here
+    COALESCE(NULLIF(i.guide_title,''), i.ai_title, i.name) AS title, i.listing_status, a.result_json, a.created_at AS estimated_at, 0 AS sold_here
   FROM items i JOIN appraisals a ON a.id=(SELECT id FROM appraisals x WHERE x.item_id=i.id AND x.status='done' AND ${GOOD_REFRESH("x")} ORDER BY x.created_at DESC LIMIT 1)
   WHERE COALESCE(i.guide_public,0)=1 AND COALESCE(i.guide_hidden,0)=0
     AND NOT EXISTS (SELECT 1 FROM ebay_listings e WHERE e.item_id=i.id AND e.listing_id IS NOT NULL AND e.status<>'draft' AND e.status<>'error')`;

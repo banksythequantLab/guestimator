@@ -1,0 +1,28 @@
+// Run: node worker/tests/guidehit_test.mjs
+import { guideVisit, guideKind, logGuideVisit } from "../guidehit.js";
+let pass = 0, fail = 0;
+const ok = (n, c, got) => { c ? pass++ : (fail++, console.log("FAIL " + n + (got !== undefined ? "\n   got " + JSON.stringify(got) : ""))); };
+const req = (h = {}) => new Request("https://app.theguestimator.com/x", { headers: h });
+const U = p => new URL("https://app.theguestimator.com" + p);
+const UA = { "user-agent": "Mozilla/5.0 (Macintosh) Safari/605" };
+ok("kinds", guideKind("/prices") === "index" && guideKind("/prices/video-games") === "hub" && guideKind("/guides/x") === "article" && guideKind("/price/x-1") === "item" && guideKind("/sitemap.xml") === null);
+ok("HN referrer", JSON.stringify(guideVisit(req({ ...UA, referer: "https://news.ycombinator.com/" }), U("/prices"))) === JSON.stringify({ src: "news.ycombinator.com", camp: "guide", content: "index" }));
+ok("google search, www stripped", guideVisit(req({ ...UA, referer: "https://www.google.com/" }), U("/price/super-metroid-123"))?.src === "google.com");
+ok("utm_source wins", guideVisit(req({ ...UA, referer: "https://news.ycombinator.com/" }), U("/prices?utm_source=Reddit"))?.src === "reddit");
+ok("same-site click skipped", guideVisit(req({ ...UA, referer: "https://app.theguestimator.com/prices" }), U("/price/x-1")) === null);
+ok("no referrer skipped", guideVisit(req(UA), U("/prices")) === null);
+ok("bots skipped", guideVisit(req({ "user-agent": "Mozilla/5.0 (compatible; Googlebot/2.1)", referer: "https://google.com/" }), U("/prices")) === null);
+ok("non-guide path skipped", guideVisit(req({ ...UA, referer: "https://google.com/" }), U("/sitemap.xml")) === null);
+ok("junk referrer ignored", guideVisit(req({ ...UA, referer: "not a url" }), U("/prices")) === null);
+ok("no full URL kept", JSON.stringify(guideVisit(req({ ...UA, referer: "https://www.reddit.com/r/Flipping/comments/abc?user=bob" }), U("/prices"))) === JSON.stringify({ src: "reddit.com", camp: "guide", content: "index" }));
+let bound = null;
+const env = { DB: { prepare: () => ({ bind: (...a) => { bound = a; return { run: async () => ({}) }; } }) } };
+await logGuideVisit(env, req({ ...UA, referer: "https://news.ycombinator.com/item?id=1" }), U("/guides/old-video-games-worth"));
+ok("writes one landing hit", bound && bound[0] === "news.ycombinator.com" && bound[1] === "guide" && bound[2] === "article" && bound[5] === "land" && bound[6] === null, bound);
+bound = null; await logGuideVisit(env, req(UA), U("/prices"));
+ok("writes nothing without a source", bound === null);
+const bad = { DB: { prepare: () => { throw new Error("db down"); } } };
+await logGuideVisit(bad, req({ ...UA, referer: "https://google.com/" }), U("/prices"));
+ok("db error never throws", true);
+console.log(`guidehit: ${pass} passed, ${fail} failed`);
+if (fail) process.exit(1);

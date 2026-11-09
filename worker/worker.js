@@ -329,6 +329,7 @@ async function itemBundle(db, itemId) {
   return { item, photos: photos.map(p => ({ ...p, url: `/p/${p.r2_key}` })), appraisal, ebay: el || null, finance: fin || null };
 }
 
+import { logGuideVisit } from "./guidehit.js";
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -412,6 +413,7 @@ export default {
       // ---------- public price guide, sitemap and robots (priceguide.js) ----------
       if (m === "GET" && (url.pathname === "/prices" || url.pathname.startsWith("/prices/") || url.pathname.startsWith("/price/") || url.pathname.startsWith("/guides/") || url.pathname === "/sitemap.xml" || url.pathname === "/robots.txt")) {
         const origin = env.PUBLIC_ORIGIN || url.origin, pub = { "cache-control": "public, max-age=3600" };
+        if (ctx && ctx.waitUntil) ctx.waitUntil(logGuideVisit(env, request, url));
         if (url.pathname === "/robots.txt") return new Response(priceguide.robots(origin), { headers: { "content-type": "text/plain; charset=utf-8", ...pub } });
         if (url.pathname === "/sitemap.xml") return new Response(priceguide.sitemap(await priceguide.allGuides(db), origin, await market.sitemapEntries(env, db).catch(() => [])), { headers: { "content-type": "application/xml; charset=utf-8", ...pub } });
         if (url.pathname === "/prices") return new Response(priceguide.indexPage(await priceguide.allGuides(db), origin), { headers: { "content-type": "text/html; charset=utf-8", ...pub } });
@@ -1285,6 +1287,9 @@ export default {
           const b = await readJson(request);
           if (b.hidden !== undefined) await db.prepare("UPDATE items SET guide_hidden=? WHERE id=?").bind(b.hidden ? 1 : null, iid).run();
           if (b.public !== undefined) await db.prepare("UPDATE items SET guide_public=?, guide_hidden=NULL WHERE id=?").bind(b.public ? 1 : null, iid).run();
+          // The page keeps the title it was published with (its URL is built from it); a later
+          // re-estimate rewrites ai_title but not this. Set once, on first publish.
+          if (b.public) await db.prepare("UPDATE items SET guide_title=COALESCE(NULLIF(guide_title,''), ai_title, name) WHERE id=?").bind(iid).run();
           return J(await priceguide.guideStatus(db, iid, env.PUBLIC_ORIGIN || url.origin));
         }
         if (parts.length === 3 && m === "DELETE") {
