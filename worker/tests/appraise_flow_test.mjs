@@ -27,7 +27,7 @@ const LIVE = [["SK Hynix 32GB PC4-2400T RDIMM HMA84GR7MFR4N-UH", 173], ["SK Hyni
   ["SK Hynix 32GB DDR4-2400 ECC RDIMM new sealed", 12450]];   // junk: the model never keeps it
 
 let mode = "ok";
-const seen = { reprice: [], cold: [], identify: 0 };
+const seen = { reprice: [], cold: [], identify: 0, thinking: [] };
 globalThis.fetch = async (u, init = {}) => {
   const url = new URL(String(u));
   if (url.hostname === "query2.finance.yahoo.com") return jr({}, 404);
@@ -42,6 +42,7 @@ globalThis.fetch = async (u, init = {}) => {
     const sys = body.messages[0].content, user = body.messages[body.messages.length - 1].content;
     if (/pricing an item against live comparable listings/.test(sys)) {
       seen.reprice.push(user);
+      seen.thinking.push(body.chat_template_kwargs?.enable_thinking !== false);
       if (mode === "fail" || mode === "allfail") return said("I could not decide on a price for this one.");
       if (mode === "flaky" && seen.reprice.length === 1) return said("");
       if (mode === "allrej") return said({ comparables: [], rejected: SOLD.map(([title]) => ({ title, why: "a different item" })),
@@ -68,7 +69,7 @@ globalThis.fetch = async (u, init = {}) => {
 };
 
 const env = { NEBIUS_API_KEY: "k", EBAY_CLIENT_ID: "c", EBAY_CLIENT_SECRET: "s", SOLDCOMPS_API_KEY: "sc_test" };
-const run = async (m, extra = {}) => { mode = m; seen.reprice = []; seen.cold = []; return appraise(env, { photos: [], description: "SK Hynix 32GB DDR4 2400 server RAM stick", markings: "HMA84GR7MFR4N-UH", currency: "USD", ...extra }); };
+const run = async (m, extra = {}) => { mode = m; seen.reprice = []; seen.cold = []; seen.thinking = []; return appraise(env, { photos: [], description: "SK Hynix 32GB DDR4 2400 server RAM stick", markings: "HMA84GR7MFR4N-UH", currency: "USD", ...extra }); };
 const W = r => (r.warnings || []).join(" | ");
 
 // ---------- ok ----------
@@ -123,11 +124,14 @@ ok("the owner's own eBay listings are left out by seller name too", !/itm\/20000
 // ---------- flaky: the repricer's first answer is empty, the retry answers (2026-11-06) ----------
 r = await run("flaky");
 ok("flaky: the repricer was asked twice", seen.reprice.length === 2, seen.reprice.length);
+ok("flaky: first ask thinks, the retry has thinking switched off (2026-11-09)", seen.thinking[0] === true && seen.thinking[1] === false, seen.thinking);
 ok("flaky: no failure warning, no cold pass", !/re-pricing failed/.test(W(r)) && seen.cold.length === 0, W(r));
 ok("flaky: priced from the three matching sales", r.price_range.low === 128 && r.price_range.high === 190, r.price_range);
 ok("flaky: the sales were judged and kept", r.sold_market && r.sold_market.count === 3 && r.sold_market.judged !== false, r.sold_market);
 r = await run("fail");
 ok("fail: retried once, not forever", seen.reprice.length === 2, seen.reprice.length);
+ok("fail: the one retry is the no-thinking ask", seen.thinking[1] === false, seen.thinking);
+ok("ok: an answer on the first ask is never retried", (await run("ok"), seen.reprice.length === 1 && seen.thinking[0] === true), seen.thinking);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

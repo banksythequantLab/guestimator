@@ -335,7 +335,8 @@ async function chat(c, body, timeoutMs) {
     if (!r.ok) throw new Error(`token factory ${r.status}: ${txt.slice(0, 200)}`);
     const j = JSON.parse(txt);
     const content = j.choices?.[0]?.message?.content || "";
-    if (!content.trim()) console.log("model empty answer", JSON.stringify({ model: body.model, max_tokens: body.max_tokens, finish: j.choices?.[0]?.finish_reason, usage: j.usage || null }));
+    if (!content.trim()) console.log("model empty answer", JSON.stringify({ model: body.model, max_tokens: body.max_tokens, thinking: body.chat_template_kwargs?.enable_thinking !== false,
+      finish: j.choices?.[0]?.finish_reason, reasoning_chars: String(j.choices?.[0]?.message?.reasoning_content || "").length, usage: j.usage || null }));
     return content;
   } finally { clearTimeout(t); }
 }
@@ -361,10 +362,25 @@ export async function textJson(c, system, user, maxTokens = 1800) {
   // Nemotron 3 Super is a reasoning model: its thinking shares the completion budget with the answer.
   const max_tokens = Math.max(maxTokens, 6000);
   const base = { model: c.text, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens, temperature: 0.2 };
-  let text;
-  try { text = await chat(c, { ...base, response_format: { type: "json_object" } }, 120000); }
-  catch { text = await chat(c, base, 120000); }
-  return extractJson(text);
+  const ask = async extra => {
+    let text;
+    try { text = await chat(c, { ...base, ...extra, response_format: { type: "json_object" } }, 120000); }
+    catch { text = await chat(c, { ...base, ...extra }, 120000); }
+    return extractJson(text);
+  };
+  try { return await ask({}); }
+  catch (e1) {
+    // "model returned no JSON object" is the model spending its whole budget thinking and answering
+    // with nothing: Token Factory returns the thinking in reasoning_content and an empty content
+    // (14 of 118 appraisals Oct 20 - Nov 6; Animal Crossing GC again on 2026-11-09 AFTER a retry
+    // with a 12,000-token budget, so a bigger budget is not the fix). Measured 2026-11-09 against
+    // Token Factory: chat_template_kwargs.enable_thinking=false is honoured (reasoning_tokens: 0)
+    // and the same prompt answers in well under a second with the JSON asked for. So the retry
+    // asks again with thinking off rather than with more room to think.
+    if (!/no JSON object|unterminated JSON/.test(String(e1 && e1.message))) throw e1;
+    console.log("textJson retry without thinking", e1.message);
+    return ask({ chat_template_kwargs: { enable_thinking: false } });
+  }
 }
 
 // ---------- comps (comps.py) ----------
@@ -2240,15 +2256,9 @@ export async function appraise(env, req) {
       // with "model returned no JSON object" (the reasoning model spends its whole budget thinking and
       // answers with nothing). The fallback then priced from unjudged asking prices and ignored real sales:
       // Pokemon Blue came out "no completed sales matched" with five sales sitting in the result.
-      let second;
-      try { second = await textJson(c, REPRICE_SYSTEM, repriceUser, 1000); }
-      catch (e1) {
-        if (!/no JSON object|unterminated JSON/.test(String(e1 && e1.message))) throw e1;
-        console.log("reprice retry", e1.message);
-        // A reasoning model that spent its whole budget thinking answers with nothing; the same
-        // budget again tends to end the same way (Kirby Super Star, F-Zero 2026-11-06), so double it.
-        second = await textJson(c, REPRICE_SYSTEM, repriceUser, 12000);
-      }
+      // The retry for that case lives in textJson now (thinking off on the second ask), so every
+      // model call gets it, not just this one.
+      const second = await textJson(c, REPRICE_SYSTEM, repriceUser, 1000);
       // The whole promise of this second pass is that the price gets re-set against real listings.
       // When the model answers with comparables and a basis note but NO price_range, that silently
       // does not happen: the first-pass estimate - made before any listing was seen - stands, while
