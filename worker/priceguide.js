@@ -113,6 +113,31 @@ const shell = (title, desc, canonical, body, jsonld) => `<!doctype html><html la
 <style>${CSS}</style></head><body><div class="w"><header><a href="/prices">Guestimator price guide</a></header>${body}
 <p class="m" style="margin-top:28px">Guestimates are market estimates from public eBay data at the date shown, not certified appraisals. Prices change; check before you buy or sell. As an eBay Partner, Guestimator may be paid a commission when you buy through links on this page.</p></div></body></html>`;
 
+// Related pages (2026-11-09). "More ... prices" used to be the six NEWEST pages in the hub, so all
+// 150 video-game pages pointed at the same six and a Pokemon card page's neighbours were whatever
+// shipped last. Now: the pages whose titles share the most words with this one, rarer words
+// counting more (an IDF weight over all titles), so an N64 cartridge links to N64 cartridges and a
+// Marantz receiver to Marantz receivers. Same-hub newest fill out the list when few titles overlap.
+const STOP = new Set(["the", "a", "an", "of", "and", "with", "for", "in", "on", "to", "its", "set", "version", "vintage", "original", "model", "game", "games", "video"]);
+const words = t => String(t || "").toLowerCase().replace(/['\u2019]s\b/g, "").split(/[^a-z0-9+]+/).filter(w => w.length >= 2 && !STOP.has(w));
+export function relatedGuides(g, all, n = 6) {
+  const others = (all || []).filter(o => o && o.listing_id !== g.listing_id);
+  if (!others.length) return [];
+  const df = new Map();
+  for (const o of [g, ...others]) for (const w of new Set(words(o.title))) df.set(w, (df.get(w) || 0) + 1);
+  const N = others.length + 1, idf = w => Math.log(N / (df.get(w) || 1));
+  const mine = new Set(words(g.title)), hub = hubOf(g);
+  const scored = others.map(o => {
+    let s = 0; for (const w of new Set(words(o.title))) if (mine.has(w)) s += idf(w);
+    if (hubOf(o) === hub) s += 0.25;   // a tie goes to the same hub
+    return { o, s };
+  }).sort((x, y) => y.s - x.s || String(y.o.updated_at || "").localeCompare(String(x.o.updated_at || "")));
+  const picked = scored.filter(x => x.s > 0.25).slice(0, n).map(x => x.o);
+  if (picked.length < n) for (const x of scored) { if (picked.length >= n) break; if (!picked.includes(x.o) && hubOf(x.o) === hub) picked.push(x.o); }
+  if (picked.length < n) for (const x of scored) { if (picked.length >= n) break; if (!picked.includes(x.o)) picked.push(x.o); }
+  return picked;
+}
+
 export function guidePage(g, origin, more = []) {
   const url = origin + pagePath(g), r = g.range;
   // Google shows about 60 characters of a title; the price has to survive that (2026-10-12: the
@@ -132,9 +157,8 @@ export function guidePage(g, origin, more = []) {
     { "@type": "ListItem", position: 1, name: "Price guide", item: origin + "/prices" },
     { "@type": "ListItem", position: 2, name: hub.name, item: origin + hubPath(hub) }, { "@type": "ListItem", position: 3, name: g.title, item: url }] };
   const faq = itemFaq(g, hub);
-  // Same category first, then the newest of the rest.
-  const others = more.filter(o => o.listing_id !== g.listing_id);
-  more = [...others.filter(o => hubOf(o) === hub), ...others.filter(o => hubOf(o) !== hub)];
+  // The pages most like this one (shared title words), not the newest.
+  more = relatedGuides(g, more, 6);
   const body = `<div class="m"><a href="/prices">Price guide</a> › <a href="${esc(hubPath(hub))}">${esc(hub.name)}</a></div><h1>${esc(g.title)}: what it's worth</h1><div class="m">Guestimated ${esc(day(g.estimated_at))}</div>
 <div class="card"><div class="m">${g.thin ? "Guestimate · rough guess" : "Guestimate"}</div><div class="big">${dollars(r.low)} – ${dollars(r.high)}</div>
 ${g.thin ? `<div class="m" style="margin-top:4px">Few real sales to compare against (${g.comps.length ? "one comparable listing" : "none found"}), so treat this range as a rough guess.</div>` : ""}
@@ -149,7 +173,7 @@ ${faq.length ? `<h2>Common questions</h2>${faq.map(q => `<h3 style="font-size:1r
 <p class="m"><a href="${esc(hubPath(hub))}">More on ${esc(hub.name.toLowerCase())} prices</a></p>` : ""}
 <div class="card" style="margin-top:22px"><h2 style="margin-top:0">Have one to sell?</h2><p>Snap 2–4 photos and Guestimator prices yours from what's selling now, then lists it on your own eBay account. You check every word first.</p>
 <a class="cta" href="/?utm_source=price_guide">Guestimate mine</a></div>
-${more.length ? `<h2>More ${esc(hub.name.toLowerCase())} and other prices</h2><p class="m"><a href="${esc(hubPath(hub))}">See all ${esc(hub.name.toLowerCase())}</a></p><ul class="l">${more.slice(0, 6).map(o => `<li><a href="${esc(pagePath(o))}">${esc(o.title)}</a><div class="m">${dollars(o.range.low)}–${dollars(o.range.high)}</div></li>`).join("")}</ul>` : ""}`;
+${more.length ? `<h2>Related prices</h2><p class="m"><a href="${esc(hubPath(hub))}">See all ${esc(hub.name.toLowerCase())}</a></p><ul class="l">${more.slice(0, 6).map(o => `<li><a href="${esc(pagePath(o))}">${esc(o.title)}</a><div class="m">${dollars(o.range.low)}–${dollars(o.range.high)}</div></li>`).join("")}</ul>` : ""}`;
   const faqLd = faq.length ? { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faq.map(q => ({ "@type": "Question", name: q.q, acceptedAnswer: { "@type": "Answer", text: q.a } })) } : null;
   return shell(title, desc, url, body, [jsonld, crumbs, faqLd].filter(Boolean));
 }

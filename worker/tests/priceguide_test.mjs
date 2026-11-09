@@ -79,7 +79,7 @@ ok("shown again", (await get(path)).status === 200);
   const h = PG.guidePage(g, "https://g.test", [o]);
   ok("no live listing -> AggregateOffer from comparable listings", h.includes('"@type":"AggregateOffer"') && h.includes('"lowPrice":"12.00"') && h.includes('"offerCount":4'));
   ok("breadcrumbs in JSON-LD", h.includes('"@type":"BreadcrumbList"') && h.includes('"item":"https://g.test/prices"'));
-  ok("links to other price-guide pages", h.includes("and other prices") && h.includes('href="/price/brass-lamp-2"'));
+  ok("links to other price-guide pages", h.includes("Related prices") && h.includes('href="/price/brass-lamp-2"'));
   ok("no market data -> no offers at all", !PG.guidePage({ ...g, market: null }, "https://g.test").includes('"offers"'));
 }
 // Opt-in (2026-10-08): a finished Guestimate published without an eBay listing
@@ -120,5 +120,17 @@ ok("shown again", (await get(path)).status === 200);
   const tt = (long.match(/<title>([^<]*)<\/title>/) || [])[1] || "";
   ok("title short enough for Google and keeps the price", tt.length <= 70 && /\$129–\$175/.test(tt), tt);
   ok("no Product markup without offers (sales only)", !long.includes('"@type":"Product"') && long.includes('"BreadcrumbList"')); }
+// Related pages: shared title words, rarer words weighted, not "newest in the hub" (2026-11-09).
+{ const mk = (id, title, at) => ({ listing_id: id, title, updated_at: at, about: {}, range: { low: 1, high: 2 }, comps: [] });
+  const me = mk("me", "Zelda Ocarina of Time N64 cartridge", "2026-11-01");
+  const all = [me, mk("a", "Zelda Majora's Mask N64 cartridge", "2026-10-01"), mk("b", "Super Mario 64 N64 cartridge", "2026-10-02"), mk("c", "Zelda A Link to the Past SNES cartridge", "2026-10-03"),
+    mk("d", "Pokemon Red Version Game Boy cartridge", "2026-11-09"), mk("e", "Marantz 2270 stereo receiver", "2026-11-09"), mk("f", "Pyrex Spring Blossom mixing bowl set", "2026-11-09"), mk("g", "Nikon F2 35mm film camera body", "2026-11-09"),
+    mk("h", "Pokemon Snap N64 cartridge", "2026-11-08"), mk("i", "GoldenEye 007 N64 cartridge", "2026-11-07")];
+  const rel = P.relatedGuides(me, all, 6).map(o => o.listing_id);
+  ok("related: the other Zelda N64 cart comes first", rel[0] === "a", rel);
+  ok("related: N64 carts and the SNES Zelda outrank newer unrelated pages", rel.slice(0, 5).every(id => ["a", "b", "c", "h", "i"].includes(id)), rel);
+  ok("related: never itself, never the receiver or the bowls", !rel.includes("me") && !rel.includes("e") && !rel.includes("f"), rel);
+  const html = P.guidePage(me, "https://g.test", all);
+  ok("related: the page shows them under Related prices, nearest first", html.includes("Related prices") && html.indexOf("Majora") < html.indexOf("Pokemon Red")); }
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
