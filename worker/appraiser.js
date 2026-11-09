@@ -200,7 +200,7 @@ export function clampToComps(price, comparables) {
            note: `the range was narrowed from $${price.low}-$${price.high} to $${nl}-$${nh} to stay with the ${one ? "one listing" : ps.length + " listings"} kept as comparable${one ? "" : "s"}.` };
 }
 
-export function repricePrompt({ ident, condition, lotInfo, market, hits, soldMarket = null, makerWorks = [], size = null }) {
+export function repricePrompt({ ident, condition, lotInfo, wholeSet = null, market, hits, soldMarket = null, makerWorks = [], size = null }) {
   // The item's size, so a 19-inch tabletop cabinet is not kept as a comparable for a 56-inch one
   // (painted cabinet, 2026-10-07: kept comps ran $36-$499 because two were tabletop pieces).
   const dims = (Array.isArray(size) ? size : []).map(Number).filter(n => Number.isFinite(n) && n > 0);
@@ -214,6 +214,9 @@ export function repricePrompt({ ident, condition, lotInfo, market, hits, soldMar
     (lotInfo ? `\nThis is a lot of ${lotInfo.count} identical pieces, and price_range is the price ` +
       `of ONE PIECE. Keep it that way. The comparables below are per-piece listings, so they are ` +
       `directly comparable. Do NOT multiply by ${lotInfo.count}.\n` : "") +
+    (wholeSet ? `\nThe item is a complete set of ${wholeSet.count} pieces sold together, and so is every listing ` +
+      `below, so price_range is the price of the WHOLE SET. A listing for a single piece or a different ` +
+      `count is not comparable: reject it and say so.\n` : "") +
     // The median only, not the range: the range is built before anything is judged, and one junk
     // listing sets an end of it ($12,450 under a $175 median on SK Hynix 32GB RDIMM). The median
     // barely moves for one outlier.
@@ -1692,6 +1695,25 @@ export function detectLot(description, markings) {
   return null;
 }
 
+// How many pieces a LISTING is for, when its title says. Used to find complete-set sales for a
+// dealer's "set of 4": detectLot's own patterns first, then the ways sellers write a set count
+// that a dealer never would - "Mixing Bowl Set 441-444" (consecutive model numbers), "Set 4:",
+// and a bare count in front of the plural of the item's own noun ("4 Pyrex ... Mixing Bowls").
+// Three-digit numbers are model numbers (442), never counts, in that last form.
+export function titleLotCount(title, query = "") {
+  const t = String(title || "");
+  const d = detectLot(t, "");
+  if (d && d.count) return d.count;
+  // "Set 441-444" before "Set N": a bare three-digit figure after "set" is a model number.
+  let m = /\bsets?\b[^\d]{0,16}(\d{3})\s*(?:-|\u2013|to)\s*(\d{3})\b/i.exec(t);
+  if (m) { const n = Number(m[2]) - Number(m[1]) + 1; if (n >= 2 && n <= 12) return n; }
+  m = /\bsets?\s+of\s+(\d{1,3})\b/i.exec(t) || /\bsets?\s+(\d{1,2})\b(?!\s*(?:-|\u2013|to)\s*\d)/i.exec(t);
+  if (m) return Number(m[1]);
+  m = /(?:^|[^\d.])(\d{1,2})\s+((?:[A-Za-z'&-]+\s+){0,5}[A-Za-z]{3,}s)\b/.exec(t);
+  if (m && pluralOfQuery(query, m[2].split(/\s+/).pop())) return Number(m[1]);
+  return null;
+}
+
 // The name leads, then the maker. broaden() shortens a query from the end, so whatever comes
 // first survives every broadening step — and that has to be what the item IS. With the maker
 // first, a wartime-nickel query broadened to "United States Mint These" and found postage
@@ -2195,6 +2217,28 @@ export async function appraise(env, req) {
     if (fakes) warnings.push(`left out ${fakes} sale${fakes === 1 ? "" : "s"} or listing${fakes === 1 ? "" : "s"} that look like reproductions (sold "new" or far below copies marked authentic). Popular retro games are widely faked; check the label, the board and the stamped number before you price yours`);
     if (carts) warnings.push(`left out ${carts} sale${carts === 1 ? "" : "s"} or listing${carts === 1 ? "" : "s"} that came with a premium phono cartridge (Shure V15, Ortofon 2M and the like), which can add hundreds to the price. Say which cartridge yours has if it has one, and re-run`); }
   mark("comps");
+  // A "set of 4" in the dealer's words AND completed sales of the same four-piece set in the pool:
+  // the set is the product and those sales are its price. The lot arithmetic (one piece x 4) is
+  // for identical pieces that sell singly. A Pyrex Spring Blossom 441-444 set came out $180-$276
+  // that way against five sales of the complete set at $43-$69 (2026-11-09) - the repricer had
+  // rejected every set sale as "a set of four bowls, not a single piece", exactly as it was told
+  // to. Two set sales are the threshold, same as the sold-first rule: one could be anything.
+  let wholeSet = null;
+  if (lotInfo && lotInfo.count > 1) {
+    const n = lotInfo.count, q = `${(ident && ident.name) || ""} ${req.description || ""}`;
+    const isSet = h => titleLotCount(h && h.title, q) === n;
+    const setSold = (sold || []).filter(isSet);
+    if (setSold.length >= 2) {
+      wholeSet = { count: n, sales: setSold.length };
+      for (const arr of [live, sold, web]) if (Array.isArray(arr)) arr.splice(0, arr.length, ...arr.filter(isSet));
+      // The first pass priced ONE piece, as the lot sheet told it to. Scale that to the set, so
+      // what the set-level sales correct below is a set-level number and not a quarter of one.
+      if (price.high > 0) price = { ...price, low: Math.round(price.low * n), high: Math.round(price.high * n),
+        suggested_retail: Math.round(price.suggested_retail * n), floor: Math.round(price.floor * n) };
+      warnings.push(`priced as a complete set of ${n}: ${setSold.length} completed sales of the same ` +
+        `${n}-piece set were found, so the set is priced from those rather than one piece x ${n}`);
+    }
+  }
   // Sold first: what buyers paid is the strongest evidence, and the repricer reads top-down. Web
   // results go last, minus any page eBay already gave us.
   const soldHits = (sold || []).slice(0, 8);
@@ -2224,7 +2268,7 @@ export async function appraise(env, req) {
     warnings.push(`no eBay listing matched the full description, so these prices are for ` +
       `"${broadenedTo}" — comparable items rather than this exact one.`);
   if (hits.length) {
-    const repriceUser = repricePrompt({ ident, condition: listing.condition_grade, lotInfo, market, hits, soldMarket, makerWorks,
+    const repriceUser = repricePrompt({ ident, condition: listing.condition_grade, lotInfo: wholeSet ? null : lotInfo, wholeSet, market, hits, soldMarket, makerWorks,
       size: first && first.shipping && first.shipping.item_in });
     // The cold pass: a pricing-only ask over the same comparables with no prior in it. Used when
     // the repricer answers without a price AND when it fails outright - a failed repricer used to
@@ -2235,6 +2279,7 @@ export async function appraise(env, req) {
     const coldPass = async (pool = hits) => {
       const cold = `Item: ${ident.name}\nCondition: ${listing.condition_grade || "Good"}\n` +
         `Currency: ${currency}\n` +
+        (wholeSet ? `This is a complete set of ${wholeSet.count} pieces and the comparables are complete sets too: price the whole set.\n` : "") +
         (soldMarket ? `Comparables marked "sold": true are completed eBay sales (what buyers paid); ` +
           `use only the ones that are this exact item.\n` : "") +
         (market ? `Live asking prices right now: ${market.count} listed, median $${market.median}. ` +
@@ -2419,7 +2464,10 @@ export async function appraise(env, req) {
   // Everything above priced ONE piece. Multiply here, where it is arithmetic rather than opinion.
   // "$960 the box" and "$150 a stick" are different conversations and the dealer needs both.
   let lot = null;
-  if (lotInfo && price.high > 0) {
+  if (wholeSet && price.high > 0) {
+    // Already a set price (from set sales). The per-piece figures are filled in below by division.
+    lot = { count: wholeSet.count, how: `priced as a complete set from ${wholeSet.sales} sales of the same set`, whole_set: true };
+  } else if (lotInfo && price.high > 0) {
     const n = lotInfo.count;
     const unit = { low: price.low, high: price.high, retail: price.suggested_retail, floor: price.floor };
     // If the model ignored the instruction and priced the whole lot anyway, multiplying would

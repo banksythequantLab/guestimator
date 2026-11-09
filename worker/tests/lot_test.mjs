@@ -1,5 +1,5 @@
 // Lot detection tests.  Run:  node worker/tests/lot_test.mjs
-import { detectLot } from "../appraiser.js";
+import { detectLot, titleLotCount } from "../appraiser.js";
 
 let pass = 0, fail = 0;
 const eq = (name, got, want) => {
@@ -131,6 +131,19 @@ eq("4 silver pieces tea service is still one service",
 // KNOWN GAP, recorded rather than guessed at: written as one word it finds nothing, because
 // "candlesticks" is not a piece word and "N <any plural noun>" is far too broad to match safely.
 eq("one-word candlesticks finds no count", detectLot("4 candlesticks brass", ""), null);
+
+// titleLotCount: how many pieces a LISTING is for (the seller's phrasings, not the dealer's).
+const Q = "Pyrex Spring Blossom Green Cinderella mixing bowl";
+eq("listing: set of N", titleLotCount("Pyrex Spring Blossom Cinderella Mixing Bowl Set of 4", Q), 4);
+eq("listing: Set N:", titleLotCount("Vintage Corning Pyrex Cinderella Mixing Bowls Set 4: Crazy Daisy", Q), 4);
+eq("listing: consecutive model numbers", titleLotCount("1972-78 Pyrex Spring Blossom Cinderella Mixing Bowl Set 441-444 Nice & Shiny !", Q), 4);
+eq("listing: count before the plural noun", titleLotCount("4 Pyrex Spring Blossom Cinderella Mixing Bowls Crazy Daisy All Greens 441 To 444", Q), 4);
+eq("listing: a single bowl", titleLotCount("Vintage Pyrex 442 Spring Blossom Green Crazy Daisy 1.5 Qt Cinderella Mixing Bowl", Q), null);
+eq("listing: model number is not a count", titleLotCount("Pyrex 442 Bowls", Q), null);
+eq("listing: a year is not a count", titleLotCount("1978 Pyrex Bowls", Q), null);
+eq("listing: a size is not a count", titleLotCount("Pyrex 2.5 Qt Bowls Spring Blossom", Q), null);
+eq("listing: set with no count is unknown", titleLotCount("Pyrex Spring Blossom Crazy Daisy Cinderella Mixing Bowl Set", Q), null);
+eq("listing: plural of a word not in the query does not count", titleLotCount("4 Pyrex Spring Blossom Lids", Q), null);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
