@@ -1710,6 +1710,33 @@ export function cartFilter(dealerText, hits) {
   return { kept, dropped: (hits || []).length - kept.length };
 }
 
+// Counterfeit retro carts (2026-11-09). Loose Pokemon FireRed came back $11-$15 from four sales of
+// one seller's identical "Tested & Saves!" listing, two marked "Brand New" / "New (Other)" - a
+// 2004 cartridge sold loose and new is a reproduction - while two sales titled "Authentic" were
+// thrown out as "far above typical". Same for Ruby, Sapphire and LeafGreen. Two rules, only for
+// cartridge games from the GB/GBA/N64/SNES/NES/Genesis era, and never when the dealer says new:
+//  1. a sale or listing in new condition is dropped;
+//  2. when two or more say authentic / genuine / OEM, the ones that don't and cost under 40% of
+//     the authentic median are dropped (sold prices when two exist, else all authentic ones).
+export const RETRO_CART = /\b(?:game\s?boy|gameboy|gba|gbc|n64|nintendo\s*64|snes|super\s+nintendo|nes|famicom|sega\s+genesis|genesis|game\s?gear)\b/i;
+const CART_WORD = /\b(?:cartridge|cart|carts|game\s?boy|gameboy|gba|gbc|n64|snes|nes|genesis)\b/i;
+const SAYS_NEW = /\b(?:new|sealed|nib|nos|unopened)\b/i;
+const AUTHENTIC = /\b(?:authentic|genuine|oem|official|legit)\b/i;
+const NEW_CONDITION = /^\s*(?:brand\s+new|new(?:\s*\(other\)|\s+other|\s+with\s+box)?)\s*$/i;
+export function fakeFilter(dealerText, hits) {
+  const d = String(dealerText || ""), all = hits || [];
+  if (!RETRO_CART.test(d) || !CART_WORD.test(d) || SAYS_NEW.test(d)) return { kept: all, dropped: 0 };
+  let kept = all.filter(h => !NEW_CONDITION.test(String((h && h.condition) || "")));
+  const auth = kept.filter(h => AUTHENTIC.test(String((h && h.title) || "")) && Number(h.price) > 0);
+  if (auth.length >= 2) {
+    const soldAuth = auth.filter(h => h.sold || /\(sold\)|sold/i.test(String(h.source || h.note || "")));
+    const pool = (soldAuth.length >= 2 ? soldAuth : auth).map(h => Number(h.price)).sort((a, b) => a - b);
+    const med = pool.length % 2 ? pool[(pool.length - 1) / 2] : (pool[pool.length / 2 - 1] + pool[pool.length / 2]) / 2;
+    kept = kept.filter(h => AUTHENTIC.test(String((h && h.title) || "")) || !(Number(h.price) > 0) || Number(h.price) >= 0.4 * med);
+  }
+  return { kept, dropped: all.length - kept.length };
+}
+
 // What the dealer typed in "What is it?" (2026-11-06). It is stored as the item's name and was never
 // sent to the appraiser: "Game Boy Color, Atomic Purple" with "Console only. Works great" came back
 // "Unidentified electronic console, 20% sure", priced from an Xbox One S. The name leads, then the
@@ -2145,6 +2172,11 @@ export async function appraise(env, req) {
     for (const arr of [live, sold, web]) if (Array.isArray(arr)) {
       const f = cartFilter(deckText, arr); carts += f.dropped; arr.splice(0, arr.length, ...f.kept);
     }
+    let fakes = 0;
+    for (const arr of [live, sold, web]) if (Array.isArray(arr)) {
+      const f = fakeFilter(deckText, arr); fakes += f.dropped; arr.splice(0, arr.length, ...f.kept);
+    }
+    if (fakes) warnings.push(`left out ${fakes} sale${fakes === 1 ? "" : "s"} or listing${fakes === 1 ? "" : "s"} that look like reproductions (sold "new" or far below copies marked authentic). Popular retro games are widely faked; check the label, the board and the stamped number before you price yours`);
     if (carts) warnings.push(`left out ${carts} sale${carts === 1 ? "" : "s"} or listing${carts === 1 ? "" : "s"} that came with a premium phono cartridge (Shure V15, Ortofon 2M and the like), which can add hundreds to the price. Say which cartridge yours has if it has one, and re-run`); }
   mark("comps");
   // Sold first: what buyers paid is the strongest evidence, and the repricer reads top-down. Web
