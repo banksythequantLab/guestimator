@@ -81,6 +81,7 @@ import * as growth from "./growth.js";
 import * as priceguide from "./priceguide.js";
 import { RANGED, rangedAsset } from "./media.js";
 import { freshenOne, freshenSweep } from "./freshen.js";
+import * as pges from "./priceguide_es.js";
 import * as etsy from "./etsy.js";
 import * as site from "./site.js";
 
@@ -411,12 +412,24 @@ export default {
       // ---------- video with byte ranges (media.js): static assets ignore Range, Safari needs 206 ----------
       if ((m === "GET" || m === "HEAD") && RANGED.has(url.pathname)) return rangedAsset(request, env, url.pathname);
       // ---------- public price guide, sitemap and robots (priceguide.js) ----------
-      if (m === "GET" && (url.pathname === "/prices" || url.pathname.startsWith("/prices/") || url.pathname.startsWith("/price/") || url.pathname.startsWith("/guides/") || url.pathname === "/sitemap.xml" || url.pathname === "/robots.txt")) {
+      if (m === "GET" && (url.pathname === "/prices" || url.pathname.startsWith("/prices/") || url.pathname.startsWith("/price/") || url.pathname.startsWith("/guides/") || url.pathname === "/sitemap.xml" || url.pathname === "/robots.txt"
+          || url.pathname === "/es/prices" || url.pathname.startsWith("/es/price/"))) {
         const origin = env.PUBLIC_ORIGIN || url.origin, pub = { "cache-control": "public, max-age=3600" };
         if (ctx && ctx.waitUntil) ctx.waitUntil(logGuideVisit(env, request, url));
         if (url.pathname === "/robots.txt") return new Response(priceguide.robots(origin), { headers: { "content-type": "text/plain; charset=utf-8", ...pub } });
         if (url.pathname === "/sitemap.xml") return new Response(priceguide.sitemap(await priceguide.allGuides(db), origin, await market.sitemapEntries(env, db).catch(() => [])), { headers: { "content-type": "application/xml; charset=utf-8", ...pub } });
         if (url.pathname === "/prices") return new Response(priceguide.indexPage(await priceguide.allGuides(db), origin), { headers: { "content-type": "text/html; charset=utf-8", ...pub } });
+        // Spanish (2026-11-19): /es/prices and /es/price/<slug>-<id>; a page with no Spanish title goes to the English one.
+        if (url.pathname === "/es/prices") return new Response(pges.indexPageEs(await priceguide.allGuides(db), origin), { headers: { "content-type": "text/html; charset=utf-8", ...pub } });
+        if (url.pathname.startsWith("/es/price/")) {
+          const em = url.pathname.match(/^\/es\/price\/(?:[a-z0-9-]*-)?(\d{6,20}|g[0-9a-f]{12})\/?$/);
+          const eg = em && await priceguide.guideById(db, em[1]);
+          if (!eg) return Response.redirect(origin + "/es/prices", 302);
+          if (!pges.hasEs(eg)) return Response.redirect(origin + priceguide.pagePath(eg), 302);
+          if (url.pathname !== pges.esPath(eg)) return Response.redirect(origin + pges.esPath(eg), 301);
+          const moreEs = (await priceguide.allGuides(db)).filter(o => o.listing_id !== eg.listing_id);
+          return new Response(pges.guidePageEs(eg, origin, moreEs), { headers: { "content-type": "text/html; charset=utf-8", ...pub } });
+        }
         if (url.pathname.startsWith("/guides/")) {
           const a = priceguide.articleBySlug(url.pathname.slice(8).replace(/\/$/, ""));
           if (!a) return Response.redirect(origin + "/prices", 301);
@@ -465,6 +478,18 @@ export default {
         const ids = Array.isArray(b.ids) ? b.ids.map(String).slice(0, 100) : [];
         if (!ids.length) return J({ error: "nobody ticked" }, 400);
         return J(await growth.winbackResend(env, db, env.PUBLIC_ORIGIN || url.origin, ids));
+      }
+      // Owner-only: translate named published pages' titles to Spanish (priceguide_es.js); the Spanish pages appear once stored.
+      if (parts[0] === "owner" && parts[1] === "translate" && parts.length === 2 && m === "POST") {
+        const uidT = await currentUser(request, db);
+        const meT = uidT ? await db.prepare("SELECT email FROM users WHERE id=?").bind(uidT).first() : null;
+        if (!meT || !owner.isOwner(env, meT.email) || request.headers.get("x-gs-owner") !== "1") return J({ error: "not found" }, 404);
+        const b = await readJson(request);
+        const ids = Array.isArray(b.ids) ? b.ids.map(String).slice(0, 60) : [];
+        if (!ids.length) return J({ error: "no ids" }, 400);
+        const r = await pges.translateSweep(env, db, ids);
+        console.log("translate sweep", JSON.stringify({ written: r.written.length, skipped: r.skipped.length }));
+        return J(r);
       }
       // Owner-only: re-price named published pages now (freshen.js sweep). Weak results never show.
       if (parts[0] === "owner" && parts[1] === "sweep" && parts.length === 2 && m === "POST") {

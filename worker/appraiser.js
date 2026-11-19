@@ -361,10 +361,11 @@ async function visionJson(c, prompt, imageUrl, maxTokens = 900, temperature = 0.
 // Exported so tools/kept_pool_check.mjs can drive the real repricer over real listings without
 // needing photographs. Measuring the kept pool is the only way to know whether tooWide fires on
 // half of all appraisals or on a useful few, and the kept pool only exists after this call.
-export async function textJson(c, system, user, maxTokens = 1800) {
+export async function textJson(c, system, user, maxTokens = 1800, opts = {}) {
   // Nemotron 3 Super is a reasoning model: its thinking shares the completion budget with the answer.
   const max_tokens = Math.max(maxTokens, 6000);
-  const base = { model: c.text, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens, temperature: 0.2 };
+  // opts: extra request fields (a caller that wants thinking off from the first ask passes chat_template_kwargs).
+  const base = { model: c.text, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens, temperature: 0.2, ...opts };
   const ask = async extra => {
     let text;
     try { text = await chat(c, { ...base, ...extra, response_format: { type: "json_object" } }, 120000); }

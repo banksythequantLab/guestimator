@@ -6,9 +6,9 @@
 import { epn } from "./epn.js";
 import { GOOD_REFRESH } from "./freshen.js";
 
-const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const dollars = n => "$" + Math.round(Number(n)).toLocaleString("en-US");
-const day = s => s ? String(s).slice(0, 10) : "";
+export const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+export const dollars = n => "$" + Math.round(Number(n)).toLocaleString("en-US");
+export const day = s => s ? String(s).slice(0, 10) : "";
 
 export const slugify = s => String(s || "item").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "")
   .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 70).replace(/-+$/, "") || "item";
@@ -17,6 +17,7 @@ export const pagePath = g => `/price/${slugify(g.title)}-${g.listing_id}`;
 // Every eBay listing (one per item, newest) with a finished estimate. Sold-on-eBay counts too.
 const BASE = `SELECT l.listing_id, l.listing_url, l.status, l.price_cents, l.sold_count, l.sold_median_cents, l.sold_checked_at, l.updated_at,
     COALESCE(NULLIF(i.guide_title,''), i.ai_title, i.name) AS title, i.listing_status, a.result_json, a.created_at AS estimated_at,
+    (SELECT e.title_es FROM guide_es e WHERE e.item_id=i.id) AS title_es, (SELECT e.category_es FROM guide_es e WHERE e.item_id=i.id) AS category_es,
     EXISTS (SELECT 1 FROM ebay_orders o WHERE o.listing_id=l.listing_id AND o.status<>'CANCELLED') AS sold_here
   FROM ebay_listings l JOIN items i ON i.id=l.item_id
   JOIN appraisals a ON a.id=(SELECT id FROM appraisals x WHERE x.item_id=l.item_id AND x.status='done' AND ${GOOD_REFRESH("x")} ORDER BY x.created_at DESC LIMIT 1)
@@ -28,7 +29,8 @@ const SHOWN = " AND COALESCE(i.guide_hidden,0)=0";
 export const optKey = itemId => "g" + String(itemId || "").replace(/[^0-9a-f]/gi, "").slice(0, 12).toLowerCase();
 const OPT = `SELECT 'g' || lower(substr(replace(i.id,'-',''),1,12)) AS listing_id, NULL AS listing_url, 'optin' AS status, NULL AS price_cents,
     NULL AS sold_count, NULL AS sold_median_cents, NULL AS sold_checked_at, a.created_at AS updated_at,
-    COALESCE(NULLIF(i.guide_title,''), i.ai_title, i.name) AS title, i.listing_status, a.result_json, a.created_at AS estimated_at, 0 AS sold_here
+    COALESCE(NULLIF(i.guide_title,''), i.ai_title, i.name) AS title, i.listing_status, a.result_json, a.created_at AS estimated_at, 0 AS sold_here,
+    (SELECT e.title_es FROM guide_es e WHERE e.item_id=i.id) AS title_es, (SELECT e.category_es FROM guide_es e WHERE e.item_id=i.id) AS category_es
   FROM items i JOIN appraisals a ON a.id=(SELECT id FROM appraisals x WHERE x.item_id=i.id AND x.status='done' AND ${GOOD_REFRESH("x")} ORDER BY x.created_at DESC LIMIT 1)
   WHERE COALESCE(i.guide_public,0)=1 AND COALESCE(i.guide_hidden,0)=0
     AND NOT EXISTS (SELECT 1 FROM ebay_listings e WHERE e.item_id=i.id AND e.listing_id IS NOT NULL AND e.status<>'draft' AND e.status<>'error')`;
@@ -58,6 +60,8 @@ export function guideOf(row) {
     comps, estimated_at: row.estimated_at, updated_at: row.updated_at || row.estimated_at,
     live: live ? { price: row.price_cents / 100, url: row.listing_url || `https://www.ebay.com/itm/${row.listing_id}` } : null,
     sold_on_ebay: !!row.sold_here,
+    // Spanish page (2026-11-19): only when the owner's translate sweep has stored a title.
+    es: row.title_es ? { title: String(row.title_es).slice(0, 160), category: row.category_es || null } : null,
     // For picking landing examples: how sure the identification was, and whether the comparables
     // span "too wide to be one product" (2026-10-12: a hand-painted cabinet priced from two
     // mass-market bathroom cabinets that sold).
@@ -110,12 +114,13 @@ td,th{padding:7px 6px;border-bottom:1px solid var(--line);text-align:left;vertic
 .r{text-align:right;white-space:nowrap}.cta{display:inline-block;background:var(--btn);color:#fff;font-weight:800;text-decoration:none;padding:12px 18px;border-radius:12px}
 a{color:var(--acc)}ul.l{list-style:none;padding:0}ul.l li{padding:10px 0;border-bottom:1px solid var(--line)}`;
 
-const shell = (title, desc, canonical, body, jsonld) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)}</title><meta name="description" content="${esc(desc)}"><link rel="canonical" href="${esc(canonical)}">
+const FOOT_EN = "Guestimates are market estimates from public eBay data at the date shown, not certified appraisals. Prices change; check before you buy or sell. As an eBay Partner, Guestimator may be paid a commission when you buy through links on this page.";
+export const shell = (title, desc, canonical, body, jsonld, opts = {}) => `<!doctype html><html lang="${esc(opts.lang || "en")}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(title)}</title><meta name="description" content="${esc(desc)}"><link rel="canonical" href="${esc(canonical)}">${(opts.alternates || []).map(a => `<link rel="alternate" hreflang="${esc(a.hreflang)}" href="${esc(a.href)}">`).join("")}
 <meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}"><meta property="og:type" content="website"><meta property="og:url" content="${esc(canonical)}">
 <link rel="icon" href="/icon.svg">${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld).replace(/</g, "\\u003c")}</script>` : ""}
-<style>${CSS}</style></head><body><div class="w"><header><a href="/prices">Guestimator price guide</a></header>${body}
-<p class="m" style="margin-top:28px">Guestimates are market estimates from public eBay data at the date shown, not certified appraisals. Prices change; check before you buy or sell. As an eBay Partner, Guestimator may be paid a commission when you buy through links on this page.</p></div></body></html>`;
+<style>${CSS}</style></head><body><div class="w"><header><a href="${esc((opts.header || {}).href || "/prices")}">${esc((opts.header || {}).text || "Guestimator price guide")}</a></header>${body}
+<p class="m" style="margin-top:28px">${esc(opts.footer || FOOT_EN)}</p></div></body></html>`;
 
 // Related pages (2026-11-09). "More ... prices" used to be the six NEWEST pages in the hub, so all
 // 150 video-game pages pointed at the same six and a Pokemon card page's neighbours were whatever
@@ -180,7 +185,8 @@ ${faq.length ? `<h2>Common questions</h2>${faq.map(q => `<h3 style="font-size:1r
 <a class="cta" href="/?utm_source=price_guide">Guestimate mine</a></div>
 ${more.length ? `<h2>Related prices</h2><p class="m"><a href="${esc(hubPath(hub))}">See all ${esc(hub.name.toLowerCase())}</a></p><ul class="l">${more.slice(0, 6).map(o => `<li><a href="${esc(pagePath(o))}">${esc(o.title)}</a><div class="m">${dollars(o.range.low)}–${dollars(o.range.high)}</div></li>`).join("")}</ul>` : ""}`;
   const faqLd = faq.length ? { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faq.map(q => ({ "@type": "Question", name: q.q, acceptedAnswer: { "@type": "Answer", text: q.a } })) } : null;
-  return shell(title, desc, url, body, [jsonld, crumbs, faqLd].filter(Boolean));
+  const alternates = g.es && g.es.title ? [{ hreflang: "en", href: url }, { hreflang: "es", href: origin + `/es/price/${slugify(g.es.title)}-${g.listing_id}` }, { hreflang: "x-default", href: url }] : [];
+  return shell(title, desc, url, body, [jsonld, crumbs, faqLd].filter(Boolean), { alternates });
 }
 
 export function indexPage(guides, origin) {
@@ -195,7 +201,7 @@ ${groups.map(x => `<h2><a href="${esc(hubPath(x.hub))}">${esc(x.hub.name)}</a></
 
 export function sitemap(guides, origin, extra = []) {
   const u = (loc, mod) => `<url><loc>${esc(origin + loc)}</loc>${mod ? `<lastmod>${esc(day(mod))}</lastmod>` : ""}</url>`;
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${u("/prices", guides[0]?.updated_at)}${u("/how-it-works", "2026-11-06")}${ARTICLES.map(a => u(articlePath(a), guides[0]?.updated_at)).join("")}${hubsWith(guides).map(x => u(hubPath(x.hub), x.guides[0].updated_at)).join("")}${guides.map(g => u(pagePath(g), g.updated_at)).join("")}${extra.map(x => u(x.loc, x.mod)).join("")}</urlset>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${u("/prices", guides[0]?.updated_at)}${u("/how-it-works", "2026-11-06")}${ARTICLES.map(a => u(articlePath(a), guides[0]?.updated_at)).join("")}${hubsWith(guides).map(x => u(hubPath(x.hub), x.guides[0].updated_at)).join("")}${guides.map(g => u(pagePath(g), g.updated_at)).join("")}${guides.some(g => g.es && g.es.title) ? u("/es/prices", guides.find(g => g.es && g.es.title).updated_at) : ""}${guides.filter(g => g.es && g.es.title).map(g => u(`/es/price/${slugify(g.es.title)}-${g.listing_id}`, g.updated_at)).join("")}${extra.map(x => u(x.loc, x.mod)).join("")}</urlset>`;
 }
 
 // Category hubs (2026-11-06): /prices/<hub>. 83 pages sat on one flat list and Google had indexed
