@@ -6,7 +6,9 @@
 const clean = v => String(v || "").toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 40);
 const BOT = /bot|crawl|spider|slurp|preview|facebookexternalhit|embedly|curl|wget|python|httpclient|headless|lighthouse|monitor/i;
 export function guideKind(path) {
-  if (path === "/prices") return "index";
+  if (path === "/prices" || path === "/es/prices") return "index";
+  if (path === "/inventory-report") return "report";
+  if (path.startsWith("/es/price/")) return "item";
   if (path.startsWith("/prices/")) return "hub";
   if (path.startsWith("/guides/")) return "article";
   if (path.startsWith("/price/")) return "item";
@@ -25,7 +27,9 @@ export function guideVisit(request, url) {
     } catch {}
   }
   if (!src) return null;
-  return { src, camp: "guide", content: kind };
+  // kind:path (2026-11-19), so the owner page can say WHICH pages people reach, not only the kind.
+  // The Spanish batch had to be picked by value because this only held the kind.
+  return { src, camp: "guide", content: `${kind}:${url.pathname}`.slice(0, 120) };
 }
 export async function logGuideVisit(env, request, url) {
   try {
