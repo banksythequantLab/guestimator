@@ -82,6 +82,7 @@ import * as priceguide from "./priceguide.js";
 import { RANGED, rangedAsset } from "./media.js";
 import { freshenOne, freshenSweep } from "./freshen.js";
 import * as pges from "./priceguide_es.js";
+import * as inventory from "./inventory.js";
 import * as etsy from "./etsy.js";
 import * as site from "./site.js";
 
@@ -411,6 +412,18 @@ export default {
       }
       // ---------- video with byte ranges (media.js): static assets ignore Range, Safari needs 206 ----------
       if ((m === "GET" || m === "HEAD") && RANGED.has(url.pathname)) return rangedAsset(request, env, url.pathname);
+      // ---------- inventory reports (inventory.js): public landing page, the report page, the print view ----------
+      if (m === "GET" && url.pathname === "/inventory-report") return new Response(inventory.landingHtml(env.PUBLIC_ORIGIN || url.origin), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=3600" } });
+      if (m === "GET" && /^\/report\/(new|[0-9a-f-]{36})\/?$/.test(url.pathname))
+        return new Response(inventory.reportPageHtml(url.pathname.split("/")[2], env.PUBLIC_ORIGIN || url.origin), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      if (m === "GET" && /^\/report\/[0-9a-f-]{36}\/print\/?$/.test(url.pathname)) {
+        const rid = url.pathname.split("/")[2], uidP = await currentUser(request, db);
+        if (!uidP) return Response.redirect((env.PUBLIC_ORIGIN || url.origin) + "/report/" + rid, 302);
+        const rep = await inventory.getReport(db, uidP, rid);
+        if (!rep) return new Response("Not found", { status: 404 });
+        if (rep.status !== "paid") return Response.redirect((env.PUBLIC_ORIGIN || url.origin) + "/report/" + rid, 302);
+        return new Response(inventory.printHtml(rep, env.PUBLIC_ORIGIN || url.origin), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      }
       // ---------- public price guide, sitemap and robots (priceguide.js) ----------
       if (m === "GET" && (url.pathname === "/prices" || url.pathname.startsWith("/prices/") || url.pathname.startsWith("/price/") || url.pathname.startsWith("/guides/") || url.pathname === "/sitemap.xml" || url.pathname === "/robots.txt"
           || url.pathname === "/es/prices" || url.pathname.startsWith("/es/price/"))) {
@@ -838,6 +851,25 @@ export default {
       const ownsSale = async (sid) => !!(await db.prepare("SELECT id FROM sales WHERE id=? AND user_id=?").bind(sid, userId).first());
       const ownsItem = async (iid) => await db.prepare("SELECT i.* FROM items i JOIN sales s ON s.id=i.sale_id WHERE i.id=? AND s.user_id=?").bind(iid, userId).first();
 
+      // ---------- inventory reports (inventory.js) ----------
+      if (parts[1] === "reports") {
+        if (parts.length === 2 && m === "GET") return J(await inventory.listReports(db, userId));
+        if (parts.length === 2 && m === "POST") { const rep = await inventory.createReport(db, userId, await readJson(request)); return J(rep); }
+        const rid = parts[2];
+        if (parts.length === 3 && m === "GET") { const rep = await inventory.getReport(db, userId, rid); return rep ? J(rep) : J({ error: "not found" }, 404); }
+        if (parts[3] === "items" && parts.length === 4 && m === "POST") { const b = await readJson(request); const r = await inventory.addItems(db, userId, rid, Array.isArray(b.item_ids) ? b.item_ids : []); return J(r, r.status); }
+        if (parts[3] === "items" && parts.length === 5 && m === "DELETE") { const r = await inventory.removeItem(db, userId, rid, parts[4]); return J(r, r.status); }
+        if (parts[3] === "checkout" && m === "POST") {
+          if (!env.STRIPE_SECRET_KEY) return J({ error: "Payments aren't switched on." }, 503);
+          try { const r = await inventory.startCheckout(env, db, userId, rid, env.PUBLIC_ORIGIN || url.origin, garage.stripe); return J(r, r.status); }
+          catch (e) { return J({ error: "Checkout didn't open: " + String(e.message || e) }, 502); }
+        }
+        if (parts[3] === "finish" && m === "POST") {
+          try { const r = await inventory.finishCheckout(env, db, userId, rid, garage.stripe); return J(r, r.status); }
+          catch (e) { return J({ error: String(e.message || e) }, 502); }
+        }
+        return J({ error: "not found" }, 404);
+      }
       // ---------- garage / estate sales (free) ----------
       if (parts[1] === "garage") return await garage.sellerApi(request, env, url, parts, userId, ctx);
       // ---------- one-tap "Sell on the Market" (market.js) ----------
@@ -1756,6 +1788,8 @@ export default {
         if (done.length) console.log("label sweep", JSON.stringify(done.map(d => ({ id: d.id, status: d.status, error: d.error }))));
       } catch (e) { await owner.opsFail(db, "label sweep failed", e); console.log("label sweep failed", String(e && e.message || e)); }
     }
+    // Inventory reports paid where the buyer never came back from Stripe: mark paid and grant the allowance.
+    if (env.STRIPE_SECRET_KEY) { try { const n = await inventory.sweep(env, db, garage.stripe); if (n) console.log("report sweep", n); } catch (e) { console.log("report sweep failed", String(e && e.message || e)); } }
     // Shipping ops: follow voids, ship-by reminders, money-safety alerts to the house.
     try { await shipops.checkVoids(env, db, shipEnvFor(env, db), garage.stripe); } catch (e) { await owner.opsFail(db, "void check failed", e); console.log("void check failed", String(e && e.message || e)); }
     try { await shipops.shipReminders(env, db, origin); } catch (e) { await owner.opsFail(db, "ship reminders failed", e); console.log("ship reminders failed", String(e && e.message || e)); }

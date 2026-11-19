@@ -201,7 +201,7 @@ ${groups.map(x => `<h2><a href="${esc(hubPath(x.hub))}">${esc(x.hub.name)}</a></
 
 export function sitemap(guides, origin, extra = []) {
   const u = (loc, mod) => `<url><loc>${esc(origin + loc)}</loc>${mod ? `<lastmod>${esc(day(mod))}</lastmod>` : ""}</url>`;
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${u("/prices", guides[0]?.updated_at)}${u("/how-it-works", "2026-11-06")}${ARTICLES.map(a => u(articlePath(a), guides[0]?.updated_at)).join("")}${hubsWith(guides).map(x => u(hubPath(x.hub), x.guides[0].updated_at)).join("")}${guides.map(g => u(pagePath(g), g.updated_at)).join("")}${guides.some(g => g.es && g.es.title) ? u("/es/prices", guides.find(g => g.es && g.es.title).updated_at) : ""}${guides.filter(g => g.es && g.es.title).map(g => u(`/es/price/${slugify(g.es.title)}-${g.listing_id}`, g.updated_at)).join("")}${extra.map(x => u(x.loc, x.mod)).join("")}</urlset>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${u("/prices", guides[0]?.updated_at)}${u("/how-it-works", "2026-11-06")}${u("/inventory-report", "2026-11-19")}${ARTICLES.map(a => u(articlePath(a), guides[0]?.updated_at)).join("")}${hubsWith(guides).map(x => u(hubPath(x.hub), x.guides[0].updated_at)).join("")}${guides.map(g => u(pagePath(g), g.updated_at)).join("")}${guides.some(g => g.es && g.es.title) ? u("/es/prices", guides.find(g => g.es && g.es.title).updated_at) : ""}${guides.filter(g => g.es && g.es.title).map(g => u(`/es/price/${slugify(g.es.title)}-${g.listing_id}`, g.updated_at)).join("")}${extra.map(x => u(x.loc, x.mod)).join("")}</urlset>`;
 }
 
 // Category hubs (2026-11-06): /prices/<hub>. 83 pages sat on one flat list and Google had indexed
