@@ -83,6 +83,26 @@ ${groups.map(x => `<h2>${esc(hubNameEs(x.hub))}</h2><ul class="l">${x.guides.map
 }
 
 // ---------- translation sweep (owner) ----------
+// The game and console titles are templated ("<name> <platform> cartridge"), and the model's batch
+// translations of them came back word-swapped in English order ("Sega Saturn consola", "Zelda:
+// Majora's Mask N64 cartucho") about half the time (2026-11-19). A rule gives every templated
+// title the same grammatical shape; the model is only asked about titles no rule fits.
+const PLATFORM = "(?:Nintendo 64|N64|SNES|Super Nintendo|NES|GBA|Game Boy Advance|Game Boy Color|Game Boy|Nintendo DS|DS|3DS|Sega Genesis|Genesis|GameCube|Wii U|Wii|PS1|PS2|PS3|PlayStation 2|PlayStation|Xbox 360|Xbox|Dreamcast|Saturn)";
+const PLAT_ES = { N64: "Nintendo 64", GBA: "Game Boy Advance", PS2: "PlayStation 2", PS1: "PlayStation", DS: "Nintendo DS" };
+const plat = p => PLAT_ES[p] || p;
+export function titleEsRule(title) {
+  const t = String(title || "").trim();
+  let m;
+  if ((m = t.match(new RegExp(`^(.+?)\\s+${PLATFORM}\\s+cartridge$`, "i")))) return `Cartucho de ${m[1]} para ${plat(t.match(new RegExp(`\\s(${PLATFORM})\\s+cartridge$`, "i"))[1])}`;
+  if ((m = t.match(new RegExp(`^(.+?)\\s+(${PLATFORM})\\s+game$`, "i")))) return `Juego ${m[1]} para ${plat(m[2])}`;
+  if ((m = t.match(/^(.+?)\s+handheld(?:\s+gam(?:e|ing))?\s+console(.*)$/i))) return `Consola portátil ${m[1]}${m[2]}`;
+  if ((m = t.match(/^(.+?)\s+console(.*)$/i))) return `Consola ${m[1]}${m[2]}`;
+  if ((m = t.match(/^(.+?)\s+Wireless\s+(.+?)\s+Controller$/i))) return `Control inalámbrico ${m[1]} para ${m[2]}`;
+  if ((m = t.match(/^(.+?)\s+Controller$/i))) return `Control ${m[1]}`;
+  if ((m = t.match(/^Original\s+(.+)$/i))) return `${m[1]} original`;
+  if (/^Game Boy (?:Advance SP|Color|Advance|Pocket)\b/i.test(t)) return t.replace(/\bbacklit\b/i, "retroiluminada");
+  return null;
+}
 const TRANSLATE_SYSTEM = `You translate short product titles from English to Spanish for a price guide read by Spanish speakers in the United States.
 Rules: keep brand names, model numbers, platform names (GameCube, Nintendo 64, Game Boy Advance, SNES, NES, PlayStation 2, Wii, DS) and card numbers exactly as written;
 translate the generic words (cartridge -> cartucho, game -> juego, console -> consola, film camera body -> cuerpo de cámara analógica, watch -> reloj, mixing bowl set -> juego de boles,
@@ -98,9 +118,22 @@ export async function translateSweep(env, db, ids) {
       (SELECT json_extract(a.result_json,'$.identification.category') FROM appraisals a WHERE a.item_id=i.id AND a.status='done' ORDER BY a.created_at DESC LIMIT 1) AS category
     FROM items i WHERE i.id IN (${marks}) AND COALESCE(i.guide_public,0)=1`).bind(...want).all()).results || [];
   const written = [];
+  const put = async (id, title, category) => {
+    await db.prepare("INSERT INTO guide_es (item_id,title_es,category_es,created_at) VALUES (?,?,?,?) ON CONFLICT(item_id) DO UPDATE SET title_es=excluded.title_es, category_es=excluded.category_es")
+      .bind(id, title, category || null, new Date().toISOString()).run();
+  };
+  const CAT_ES = { "video game": "Videojuego", "video games": "Videojuego", console: "Consola", "game console": "Consola", "handheld console": "Consola portátil", accessory: "Accesorio", controller: "Control" };
+  const ruled = [];
+  for (const r of rows) {
+    const es = titleEsRule(r.title);
+    if (!es) continue;
+    const cat = CAT_ES[String(r.category || "").toLowerCase()] || (/\bgame\b/i.test(r.category || "") ? "Videojuego" : /console/i.test(r.category || "") ? "Consola" : null);
+    await put(r.id, es, cat); written.push({ id: r.id, title_es: es, from: r.title, how: "rule" }); ruled.push(r.id);
+  }
+  const rest = rows.filter(r => !ruled.includes(r.id));
   const c = cfg(env);
-  for (let i = 0; i < rows.length; i += 12) {
-    const batch = rows.slice(i, i + 12).map(r => ({ id: r.id, title: r.title, category: r.category || "" }));
+  for (let i = 0; i < rest.length; i += 12) {
+    const batch = rest.slice(i, i + 12).map(r => ({ id: r.id, title: r.title, category: r.category || "" }));
     let out;
     try { out = await textJson(c, TRANSLATE_SYSTEM, JSON.stringify({ items: batch }), 1500, { chat_template_kwargs: { enable_thinking: false } }); }
     catch (e) { console.log("translate batch failed", String(e && e.message || e)); continue; }
@@ -108,9 +141,8 @@ export async function translateSweep(env, db, ids) {
       const src = batch.find(b => b.id === it.id);
       const title = String((it && it.title_es) || "").trim();
       if (!src || !title || title.length > 160) continue;
-      await db.prepare("INSERT INTO guide_es (item_id,title_es,category_es,created_at) VALUES (?,?,?,?) ON CONFLICT(item_id) DO UPDATE SET title_es=excluded.title_es, category_es=excluded.category_es")
-        .bind(src.id, title, String(it.category_es || "").trim().slice(0, 80) || null, new Date().toISOString()).run();
-      written.push({ id: src.id, title_es: title, from: src.title });
+      await put(src.id, title, String(it.category_es || "").trim().slice(0, 80));
+      written.push({ id: src.id, title_es: title, from: src.title, how: "model" });
     }
   }
   return { written, skipped: want.filter(id => !written.some(w => w.id === id)) };

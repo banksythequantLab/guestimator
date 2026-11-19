@@ -39,6 +39,17 @@ seed("aaaa1111-bbbb-2222-cccc-000000000001", "Zelda Ocarina of Time N64 cartridg
 seed("cccc3333-dddd-4444-eeee-000000000002", "Zelda Majora's Mask N64 cartridge", 60, 80);
 seed("eeee5555-ffff-6666-aaaa-000000000003", "Luigi's Mansion GameCube game", 50, 70);
 
+// The rule for templated titles.
+ok("rule: cartridge", E.titleEsRule("Zelda: Majora's Mask N64 cartridge") === "Cartucho de Zelda: Majora's Mask para Nintendo 64", E.titleEsRule("Zelda: Majora's Mask N64 cartridge"));
+ok("rule: GBA expands", E.titleEsRule("Pokémon FireRed Version GBA cartridge") === "Cartucho de Pokémon FireRed Version para Game Boy Advance");
+ok("rule: game", E.titleEsRule("Zelda: The Wind Waker GameCube game") === "Juego Zelda: The Wind Waker para GameCube");
+ok("rule: PS2 game", E.titleEsRule("Kingdom Hearts II PS2 game") === "Juego Kingdom Hearts II para PlayStation 2");
+ok("rule: console with code", E.titleEsRule("NES console (NES-001)") === "Consola NES (NES-001)");
+ok("rule: handheld", E.titleEsRule("Sony PSP 3000 handheld game console") === "Consola portátil Sony PSP 3000" && E.titleEsRule("Nintendo 3DS XL handheld gaming console") === "Consola portátil Nintendo 3DS XL");
+ok("rule: controller", E.titleEsRule("Nintendo WaveBird Wireless GameCube Controller") === "Control inalámbrico Nintendo WaveBird para GameCube");
+ok("rule: original", E.titleEsRule("Original Game Boy (DMG-01)") === "Game Boy (DMG-01) original");
+ok("rule: backlit", E.titleEsRule("Game Boy Advance SP (AGS-101 backlit)") === "Game Boy Advance SP (AGS-101 retroiluminada)");
+ok("rule: not templated -> null, left to the model", E.titleEsRule("Nikon F2 35mm film camera body") === null && E.titleEsRule("Resident Evil 4 Wii Edition game") === null);
 let gs = await P.allGuides(db);
 ok("three English pages, none Spanish yet", gs.length === 3 && gs.every(g => !E.hasEs(g)), gs.map(g => g.title));
 const oot = gs.find(g => /Ocarina/.test(g.title));
@@ -49,30 +60,34 @@ ok("sitemap has no /es/ yet", !P.sitemap(gs, "https://g.test").includes("/es/"))
 
 // translate two of the three
 const sw = await E.translateSweep(env, db, ["aaaa1111-bbbb-2222-cccc-000000000001", "cccc3333-dddd-4444-eeee-000000000002", "item-nope"]);
-ok("sweep: two written, unknown skipped, one model call for the batch", sw.written.length === 2 && sw.skipped.includes("item-nope") && asked.length === 1, sw);
-ok("sweep: asked with thinking off", asked[0].chat_template_kwargs && asked[0].chat_template_kwargs.enable_thinking === false, asked[0]);
+ok("sweep: two written by rule, unknown skipped, the model never asked", sw.written.length === 2 && sw.written.every(w => w.how === "rule") && sw.skipped.includes("item-nope") && asked.length === 0, sw);
+{ // a title no rule fits goes to the model, with thinking off
+  db.raw.prepare("INSERT INTO items (id,sale_id,name,price_cents,created_at,guide_title,guide_public,listing_status) VALUES (?,?,?,0,?,?,1,'draft')").run("ffff7777-aaaa-8888-bbbb-000000000004", "s1", "Nikon F2 35mm film camera body", now, "Nikon F2 35mm film camera body");
+  db.raw.prepare("INSERT INTO appraisals (id,item_id,status,result_json,created_at) VALUES (?,?,'done',?,?)").run("ap-ffff", "ffff7777-aaaa-8888-bbbb-000000000004", res("Nikon F2", 160, 220), now);
+  const sw2 = await E.translateSweep(env, db, ["ffff7777-aaaa-8888-bbbb-000000000004"]);
+  ok("sweep: model asked for the camera, thinking off", sw2.written.length === 1 && sw2.written[0].how === "model" && asked.length === 1 && asked[0].chat_template_kwargs && asked[0].chat_template_kwargs.enable_thinking === false, { sw2, asked: asked.length }); }
 gs = await P.allGuides(db);
 const es = gs.find(g => /Ocarina/.test(g.title));
-ok("Spanish title stored and read back", E.hasEs(es) && es.es.title === "Zelda Ocarina of Time cartucho de N64" && es.es.category === "Videojuego", es.es);
+ok("Spanish title stored and read back", E.hasEs(es) && es.es.title === "Cartucho de Zelda Ocarina of Time para Nintendo 64" && es.es.category === "Videojuego", es.es);
 const ep = E.esPath(es);
-ok("Spanish path from the Spanish title", ep === `/es/price/zelda-ocarina-of-time-cartucho-de-n64-${es.listing_id}`, ep);
+ok("Spanish path from the Spanish title", ep === `/es/price/cartucho-de-zelda-ocarina-of-time-para-nintendo-64-${es.listing_id}`, ep);
 
 r = await get(ep);
 ok("Spanish page serves", r.status === 200 && r.text.includes('<html lang="es"'), r.status);
-ok("Spanish page: title, h1, sold line, FAQ in Spanish", r.text.includes("cuánto vale</h1>") && r.text.includes("Vendidos recientemente en eBay") && r.text.includes("¿Cuánto vale un Zelda Ocarina of Time cartucho de N64?") && r.text.includes("precio $51–$69</title>"));
+ok("Spanish page: title, h1, sold line, FAQ in Spanish", r.text.includes("cuánto vale</h1>") && r.text.includes("Vendidos recientemente en eBay") && r.text.includes("¿Cuánto vale un Cartucho de Zelda Ocarina of Time para Nintendo 64?") && r.text.includes("precio $51–$69</title>"));
 ok("Spanish page: comparables keep their English eBay titles", r.text.includes("Zelda Ocarina of Time N64 Authentic Tested") && r.text.includes("(vendido)"));
 ok("Spanish page: hreflang to English, Spanish and x-default", r.text.includes(`<link rel="alternate" hreflang="en" href="https://g.test${P.pagePath(es)}">`) && r.text.includes(`<link rel="alternate" hreflang="es" href="https://g.test${ep}">`) && r.text.includes('hreflang="x-default"'));
 ok("Spanish page: canonical is itself, Spanish footer, Spanish header", r.text.includes(`<link rel="canonical" href="https://g.test${ep}">`) && r.text.includes("no tasaciones certificadas") && r.text.includes("Guía de precios Guestimator"));
-ok("Spanish page: related links use the Spanish page when there is one, English otherwise", r.text.includes("/es/price/zelda-majora-s-mask-cartucho-de-n64-") && r.text.includes(`href="${P.pagePath(gs.find(g => /Luigi/.test(g.title)))}" hreflang="en"`), r.text.match(/Precios relacionados[\s\S]*$/)?.[0]?.slice(0, 600));
+ok("Spanish page: related links use the Spanish page when there is one, English otherwise", r.text.includes("/es/price/cartucho-de-zelda-majora-s-mask-para-nintendo-64-") && r.text.includes(`href="${P.pagePath(gs.find(g => /Luigi/.test(g.title)))}" hreflang="en"`), r.text.match(/Precios relacionados[\s\S]*$/)?.[0]?.slice(0, 600));
 ok("Spanish page: no English footer or English hub words", !r.text.includes("not certified appraisals") && !r.text.includes("what it's worth"));
 r = await get(`/es/price/wrong-slug-${es.listing_id}`);
 ok("wrong Spanish slug -> 301 to the right one", r.status === 301 && r.loc === "https://g.test" + ep, r);
 const en = await get(P.pagePath(es));
 ok("English page now links the Spanish one", en.text.includes(`<link rel="alternate" hreflang="es" href="https://g.test${ep}">`) && en.text.includes('<html lang="en"'));
 const sm = P.sitemap(gs, "https://g.test");
-ok("sitemap: Spanish index and the two Spanish pages, not the untranslated one", sm.includes("https://g.test/es/prices<") && sm.includes(`https://g.test${ep}<`) && (sm.match(/\/es\/price\//g) || []).length === 2);
+ok("sitemap: Spanish index and the two Spanish pages, not the untranslated one", sm.includes("https://g.test/es/prices<") && sm.includes(`https://g.test${ep}<`) && (sm.match(/\/es\/price\//g) || []).length === 3);
 r = await get("/es/prices");
-ok("Spanish index lists the Spanish pages under a Spanish hub name", r.status === 200 && r.text.includes("Videojuegos y consolas") && r.text.includes("2 artículos en español") && r.text.includes(ep));
+ok("Spanish index lists the Spanish pages under a Spanish hub name", r.status === 200 && r.text.includes("Videojuegos y consolas") && r.text.includes("3 artículos en español") && r.text.includes(ep));
 r = await get("/es/price/nothing-999999999999");
 ok("unknown id -> Spanish index", r.status === 302 && r.loc === "https://g.test/es/prices", r);
 console.log(`\n${pass} passed, ${fail} failed`);
